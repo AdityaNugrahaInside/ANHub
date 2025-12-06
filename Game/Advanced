@@ -2,7 +2,34 @@ repeat task.wait() until game:IsLoaded()
 
 -- [LOADING SCREEN]
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading2.lua"))()
-
+-- ============================================================================
+--  [HOOK NO COOLDOWN] - TEMPEL KODE INI DI SINI (PALING ATAS)
+-- ============================================================================
+task.spawn(function()
+    local success, err = pcall(function()
+        -- 1. Ambil Module Loop Game
+        local LoopModule = require(game:GetService("ReplicatedStorage").Libs.Utils.Scripts.Loop)
+        
+        -- 2. Buka Kunci Read-Only (Agar bisa diedit)
+        setreadonly(LoopModule, false)
+        
+        -- 3. Simpan Fungsi Asli
+        local OldConnect = LoopModule.Connect
+        
+        -- 4. Timpa Fungsi Connect dengan versi kita (Time = 0)
+        LoopModule.Connect = function(self, Object, Time, Func, Condition)
+            -- Kita paksa 'Time' jadi 0 agar LOOP berjalan INSTAN (No Delay)
+            return OldConnect(self, Object, 0, Func, Condition)
+        end
+        
+        -- 5. Kunci Kembali
+        setreadonly(LoopModule, true)
+        print("ANHub: Cooldown Hooked Successfully (0s Delay)")
+    end)
+    
+    if not success then warn("ANHub Hook Failed:", err) end
+end)
+-- ============================================================================
 -- [SERVICES]
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -817,23 +844,91 @@ local function TriggerGlobalBoss(bossName, mapName)
     ExecuteKillBoss(bossName)
 end
 
+-- ============================================================================
+--  CHAT LISTENER (BOSS HUNT & DROP WEBHOOK CLEANER)
+-- ============================================================================
+
+-- [WEBHOOK CONFIG - Reused]
+local ChatWebhookURL = MyWebhookURL 
+
+-- [FUNGSI BARU] Membersihkan kode HTML/RichText (<br>, <font...>, dll)
+local function CleanRichText(str)
+    -- Hapus semua karakter yang diapit oleh < dan >
+    return string.gsub(str, "<[^>]+>", "")
+end
+
+local function SendChatDropWebhook(finalText)
+    if not ChatWebhookURL or ChatWebhookURL == "" then return end
+    
+    local data = {
+        ["embeds"] = {{
+            ["title"] = "🎁 Item/Pet Drop Notification",
+            ["description"] = finalText, 
+            ["color"] = 16763904, -- Warna Emas (Gold)
+            ["footer"] = {
+                ["text"] = "ANHub - Anime Advanced | " .. os.date("%X")
+            }
+        }}
+    }
+
+    local jsonData = game:GetService("HttpService"):JSONEncode(data)
+    local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+
+    if httpRequest then
+        task.spawn(function()
+            pcall(function()
+                httpRequest({
+                    Url = ChatWebhookURL,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = jsonData
+                })
+            end)
+        end)
+    end
+end
+
 TextChatService.MessageReceived:Connect(function(message)
     if Window.Destroyed then return end
-    if not isAutoBoss then return end 
+    
+    -- 1. Ambil teks asli (Masih kotor dengan <font color...>)
+    local rawText = message.Text
+    
+    -- 2. Bersihkan teksnya DULUAN
+    -- Dari: "<b><font...>You got a Mythical...</font></b>"
+    -- Menjadi: "You got a Mythical..."
+    local cleanText = CleanRichText(rawText)
 
-    -- [UPDATE] Jangan Boss Hunt jika sedang di Gamemode
-    local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-    if currentMap == "TrialEasy" or currentMap == "Raid" then
-        return 
+    -- [FITUR DROP WEBHOOK]
+    -- Cek teks yang SUDAH BERSIH
+    if string.find(cleanText, "You got") then
+        
+        -- Siapkan Nama Sensor: "Aditya" -> "||Adi***||"
+        local pName = game.Players.LocalPlayer.Name
+        local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+        
+        -- Ganti "You" menjadi Nama Sensor
+        local newText = string.gsub(cleanText, "You", censoredName)
+        
+        -- Kirim Webhook (Teks sudah bersih & tersensor)
+        SendChatDropWebhook(newText)
     end
 
-    local text = message.Text
-    for _, bossName in pairs(selectedBosses) do
-        local data = GlobalBossDB[bossName]
-        if data and data.Map then
-            if string.find(text, bossName) and string.find(text, data.Map) then
-                TriggerGlobalBoss(bossName, data.Map)
-                break 
+    -- [FITUR BOSS HUNT]
+    if isAutoBoss then 
+        local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
+        local isGamemode = (currentMap == "TrialEasy") or (currentMap == "Raid")
+
+        if not isGamemode then
+            for _, bossName in pairs(selectedBosses) do
+                local data = GlobalBossDB[bossName]
+                if data and data.Map then
+                    -- Gunakan cleanText agar pencarian nama boss akurat
+                    if string.find(cleanText, bossName) and string.find(cleanText, data.Map) then
+                        TriggerGlobalBoss(bossName, data.Map)
+                        break 
+                    end
+                end
             end
         end
     end
@@ -1417,6 +1512,53 @@ UI.EnemyDD = MainTab:Dropdown({
 })
 FM_Add("Farm", UI.EnemyDD)
 FM_Add("Farm", MainTab:Toggle({Title = "Auto Kill Selected", Flag="Farm1_Cfg", Callback = function(v) isFarm1 = v end}))
+-- ============================================================================
+--  KILL AURA (AUTO ATTACK)
+-- ============================================================================
+
+-- Tambahkan Toggle di UI (Misal di tab Farm)
+-- local isKillAura = false
+-- FM_Add("Farm", MainTab:Toggle({
+--     Title = "Kill Aura (Fast Attack)", 
+--     Desc = "Attacks enemies around you automatically.",
+--     Flag = "KillAura_Cfg", 
+--     Callback = function(v) isKillAura = v end
+-- }))
+
+-- -- Logic Kill Aura
+-- task.spawn(function()
+--     while not Window.Destroyed do
+--         if isKillAura and not isGlobalBossActive then
+--             local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
+            
+--             if EnemiesFolder and hrp then
+--                 for _, monster in pairs(EnemiesFolder:GetChildren()) do
+--                     -- Cek Validasi Musuh
+--                     if monster:FindFirstChild("Head") and monster.Head.Transparency == 0 then
+--                         local dist = (hrp.Position - monster.GetPivot(monster).Position).Magnitude
+                        
+--                         -- Jika dalam jarak serang (Misal 25 Studs)
+--                         if dist <= 25 then
+--                             -- Ambil ID Musuh (Biasanya Nama Model atau Attribute ID)
+--                             local enemyID = monster:GetAttribute("ID") or monster.Name
+                            
+--                             -- Kirim Sinyal Serang
+--                             -- Perhatikan format argumen terakhir adalah TABLE: {enemyID}
+--                             ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+--                                 {"General", "Attack", "Click", {enemyID}, n = 4}, 
+--                                 "\2"
+--                             })
+--                         end
+--                     end
+--                 end
+--             end
+--         end
+        
+--         -- Kecepatan Serangan (0.1 detik = Sangat Cepat)
+--         -- Hati-hati setting terlalu cepat bisa disconnect
+--         task.wait(0.1) 
+--     end
+-- end)
 
 -- BOSSES
 local MapList = {"None"}
@@ -2278,27 +2420,45 @@ task.spawn(function()
 end)
 
 -- ============================================================================
---  STRONGER FEATURE (SMART HATCH + AUTO TELEPORT + NONE OPTION)
+--  STRONGER FEATURE (SMART HATCH + SORTED MAPS + UI HIDE)
 -- ============================================================================
 
--- 1. Generate Daftar Star yang Benar (Dari Folder Stars, bukan Boss)
+-- 1. Generate Daftar Star yang TERURUT (Berdasarkan Index Map)
 local StarList = {}
 local StarsFolder = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Stars")
+local TempStarSorter = {}
 
 for _, module in pairs(StarsFolder:GetChildren()) do
     if module:IsA("ModuleScript") then
-        table.insert(StarList, module.Name)
+        local mapName = module.Name
+        local mapIndex = 999 -- Default jika tidak punya index (paling bawah)
+        
+        -- Cek Index dari Database Map Global
+        if GlobalMapDB and GlobalMapDB[mapName] then
+            mapIndex = GlobalMapDB[mapName].Index or 999
+        end
+        
+        table.insert(TempStarSorter, {Name = mapName, Index = mapIndex})
     end
 end
-table.sort(StarList) -- Urutkan abjad
 
--- [TAMBAHAN] Masukkan opsi "None" di urutan pertama
+-- Lakukan Sorting (Index Kecil ke Besar)
+table.sort(TempStarSorter, function(a, b)
+    return a.Index < b.Index
+end)
+
+-- Masukkan ke StarList bersih
+for _, data in ipairs(TempStarSorter) do
+    table.insert(StarList, data.Name)
+end
+
+-- Tambahkan opsi None di paling atas
 table.insert(StarList, 1, "None")
 
 -- UI Elements
 FM_Add("Stronger", MainTab:Dropdown({
     Title = "Auto Hatch (Star)", 
-    Values = StarList, -- Menggunakan list yang sudah ada "None"
+    Values = StarList, -- List sudah terurut (World 1, World 2, ...)
     Value = "None", 
     Flag = "HatchTarget_Cfg", 
     Callback = function(v) 
@@ -2306,7 +2466,7 @@ FM_Add("Stronger", MainTab:Dropdown({
     end
 }))
 
--- Helper: Cari Model Star di Workspace
+-- Helper: Cari Model Star
 local function GetStarModel(starName)
     local CollectionService = game:GetService("CollectionService")
     local stars = CollectionService:GetTagged("StarModel")
@@ -2318,42 +2478,80 @@ local function GetStarModel(starName)
     return nil
 end
 
+-- [UI HOOK SYSTEM - FIXED RESTORE]
+local StarHookConnection = nil
+
+local function HookStarUI(shouldHook)
+    local pGui = game.Players.LocalPlayer:FindFirstChild("PlayerGui")
+    local starFrame = pGui and pGui:FindFirstChild("Interface") 
+        and pGui.Interface:FindFirstChild("Frames") 
+        and pGui.Interface.Frames:FindFirstChild("Star")
+
+    if not starFrame then return end
+
+    if shouldHook then
+        -- [AKTIFKAN HIDE]
+        if not StarHookConnection then
+            starFrame.Visible = false
+            starFrame.Position = UDim2.new(2, 0, 2, 0) -- Lempar keluar layar
+            
+            StarHookConnection = starFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+                if starFrame.Visible then
+                    starFrame.Visible = false
+                    starFrame.Position = UDim2.new(2, 0, 2, 0)
+                end
+            end)
+        end
+    else
+        -- [MATIKAN HIDE & KEMBALIKAN UI]
+        if StarHookConnection then
+            StarHookConnection:Disconnect()
+            StarHookConnection = nil
+            
+            -- Reset Manual
+            starFrame.Visible = true 
+            starFrame.Position = UDim2.fromScale(0.5, 0.5)
+            starFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        end
+    end
+end
+
 -- Loop Logic Auto Hatch
 task.spawn(function()
     while not Window.Destroyed do
-        -- Ambil Data Player
         local pData = getgenv().PlayerData
         local currentMap = pData and pData.Map
         local isGamemode = (currentMap == "TrialEasy") or (currentMap == "Raid")
-
+        
         -- [KONDISI STOP/PAUSE]
-        -- Jika target adalah "None" (Manual Stop), loop akan skip terus menerus
+        if targetStar == "None" then
+            HookStarUI(false)
+        end
+        
+        -- [KONDISI STOP/PAUSE]
         if (targetStar == "None" or not targetStar) or isGamemode or isGlobalBossActive or isTransitioning then
             task.wait(1) 
             continue 
         end
 
-        -- [LOGIKA BARU: CEK MAP TARGET]
+        -- [KONDISI AKTIF]
+        HookStarUI(true) -- Pasang Hook
+
+        -- [LOGIKA MAP TARGET]
         local StarModule = StarsFolder:FindFirstChild(targetStar)
         if StarModule then
-            -- Baca data telur untuk tahu dia ada di map mana
             local success, StarData = pcall(require, StarModule)
             if success and StarData and StarData.Map then
                 local requiredMap = StarData.Map
-                
-                -- Jika kita BUKAN di map yang seharusnya -> TELEPORT
                 if currentMap ~= requiredMap then
-                    Notify("Hatch", "Teleporting to " .. requiredMap .. "...", "map")
                     SmartTeleport(requiredMap)
-                    
-                    -- Tunggu proses teleport dimulai
                     task.wait(2) 
-                    continue -- Skip sisa kode di bawah, ulang loop dari awal
+                    continue 
                 end
             end
         end
 
-        -- [LOGIKA HATCHING (Jika Map Sudah Benar)]
+        -- [LOGIKA HATCHING]
         local starModel = GetStarModel(targetStar)
         
         if starModel then
@@ -2362,25 +2560,22 @@ task.spawn(function()
             if starPos and hrp then
                 local dist = (hrp.Position - starPos).Magnitude
                 
-                -- Smart Distance Check
                 if dist <= 15 then
-                    -- Sudah dekat -> Buka Telur
                     ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
                         {"General", "Stars", "Open", targetStar, 10, n = 10}, 
                         "\2"
                     })
                 else
-                    -- Masih jauh -> Teleport mendekat
                     hrp.CFrame = CFrame.new(starPos + Vector3.new(0, 5, 0))
                     task.wait(0.5) 
                 end
             end
-        else
-            -- Map sudah benar tapi telur belum loading
         end
         
-        task.wait(0.5) 
+        task.wait(0.2) 
     end
+    
+    HookStarUI(false)
 end)
 
 -- ============================================================================
@@ -2633,7 +2828,7 @@ task.spawn(function()
 end)
 
 -- ============================================================================
---  HEROES EXPEDITION FEATURE (WEBHOOK + CENSORED NAME)
+--  HEROES EXPEDITION FEATURE (SORTED MAPS + WEBHOOK)
 -- ============================================================================
 
 local ExpGroup = MainTab:Group({Title = "Expedition Manager"})
@@ -2653,7 +2848,7 @@ local function SendExpeditionWebhook(status, mapName)
         titleText = "✅ Expedition Claimed"
     end
 
-    -- LOGIKA SENSOR NAMA (Ambil 3 huruf awal + Bintang)
+    -- Sensor Nama
     local pName = game.Players.LocalPlayer.Name
     local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
 
@@ -2690,15 +2885,31 @@ local isAutoExpeditionSmart = false
 local selectedExpWorld = "XYZ Metropolis"
 local ExpStatusLabel = nil
 
--- 1. Generate List World dari Database
+-- [LOGIKA SORTING MAP BERDASARKAN INDEX]
 local ExpWorldList = {}
+local TempExpSorter = {}
+
 if GlobalHeroesExpeditionDB then
     for k, v in pairs(GlobalHeroesExpeditionDB) do
         if type(v) == "table" and v.Time then
-            table.insert(ExpWorldList, k)
+            -- Ambil Index dari Database Map Global agar urutannya benar
+            local mapIndex = 999
+            if GlobalMapDB and GlobalMapDB[k] then
+                mapIndex = GlobalMapDB[k].Index or 999
+            end
+            table.insert(TempExpSorter, {Name = k, Index = mapIndex})
         end
     end
-    table.sort(ExpWorldList) -- Urutkan abjad
+    
+    -- Urutkan dari Index Kecil (World 1) ke Besar
+    table.sort(TempExpSorter, function(a, b)
+        return a.Index < b.Index
+    end)
+    
+    -- Masukkan ke list bersih
+    for _, data in ipairs(TempExpSorter) do
+        table.insert(ExpWorldList, data.Name)
+    end
 end
 
 -- 2. UI Elements
@@ -2711,7 +2922,7 @@ FM_Add("Expedition", MainTab:Toggle({
 
 FM_Add("Expedition", MainTab:Dropdown({
     Title = "Select Target World",
-    Values = ExpWorldList,
+    Values = ExpWorldList, -- List sudah terurut
     Value = "XYZ Metropolis",
     Flag = "ExpWorld_Select",
     Callback = function(v) selectedExpWorld = v end
@@ -2734,7 +2945,7 @@ end
 
 -- 3. LOGIC LOOP
 task.spawn(function()
-    local hasNotifiedStart = false -- Debounce
+    local hasNotifiedStart = false
 
     while not Window.Destroyed do
         if isAutoExpeditionSmart then
@@ -2744,7 +2955,6 @@ task.spawn(function()
                 local expData = pData.HeroesExpedition
                 local endTime = expData.EndTime
                 
-                -- Update Status UI
                 if ExpStatusLabel then
                     if endTime then
                         local timeLeft = endTime - os.time()
@@ -2764,7 +2974,6 @@ task.spawn(function()
                     end
                 end
 
-                -- Logic Start / Claim
                 if endTime then
                     if os.time() >= endTime then
                         ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
@@ -2807,8 +3016,52 @@ task.spawn(function()
 end)
 
 -- ============================================================================
---  ENCHANTMENT SYSTEM (SMART REFRESH + VISUAL UPDATE)
+--  ENCHANTMENT SYSTEM (SMART REFRESH + VISUAL UPDATE + WEBHOOK)
 -- ============================================================================
+
+-- [WEBHOOK CONFIG - Reused]
+local EnchantWebhookURL = MyWebhookURL -- Menggunakan URL yang sama
+
+local function SendEnchantWebhook(swordName, oldLvl, newLvl, rarity)
+    if not EnchantWebhookURL or EnchantWebhookURL == "" then return end
+    
+    -- Sensor Nama
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local embedColor = 10181046 -- Ungu (Default Enchant)
+    if rarity == "Mythical" then embedColor = 10181046 
+    elseif rarity == "Scarlet" then embedColor = 16711680 end
+
+    local data = {
+        ["embeds"] = {{
+            ["title"] = "⚔️ Sword Enchanted!",
+            ["description"] = "User: " .. censoredName .. "\n" ..
+                            "Sword: **" .. swordName .. "**\n" ..
+                            "Level: **" .. oldLvl .. "** ➡️ **" .. newLvl .. "**",
+            ["color"] = embedColor,
+            ["footer"] = {
+                ["text"] = "ANHub - Anime Advanced | " .. os.date("%X")
+            }
+        }}
+    }
+
+    local jsonData = game:GetService("HttpService"):JSONEncode(data)
+    local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+
+    if httpRequest then
+        task.spawn(function()
+            pcall(function()
+                httpRequest({
+                    Url = EnchantWebhookURL,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = jsonData
+                })
+            end)
+        end)
+    end
+end
 
 -- 1. Setup Dynamic Database
 local EnchantmentDB = {}
@@ -2831,20 +3084,17 @@ local isAutoEmpower = false
 local EnchantStatusLabel -- Forward declaration
 local EnchantDropdown -- Forward declaration
 
--- Helper: Ambil Daftar Pedang yang Dipakai (Hanya dari SwordsEquipped)
+-- Helper: Ambil Daftar Pedang yang Dipakai
 local function GetEquippedSwordList()
     local list = {}
     local pData = getgenv().PlayerData
     
-    -- Cek data SwordsEquipped dan Swords
     if pData and pData.SwordsEquipped and pData.Swords then
         for sid, _ in pairs(pData.SwordsEquipped) do
             local swordData = pData.Swords[sid]
             if swordData then
                 local name = swordData.Name
                 local rarity = swordData.Rarity or "Common"
-                
-                -- Cek Level Enchant saat ini
                 local enchantInfo = swordData.Enchantment or {}
                 local lvl = enchantInfo.Level or 0
                 local kills = enchantInfo.Kills or 0
@@ -2852,13 +3102,11 @@ local function GetEquippedSwordList()
                 local displayName = string.format("%s (Lvl %d)", name, lvl)
                 local descStr = string.format("Rarity: %s | Kills: %s", rarity, FormatNumber(kills))
                 
-                -- Ambil Icon dari GlobalSwordDB (Database script utama)
-                local iconId = "rbxassetid://84366761557806" -- Default
+                local iconId = "rbxassetid://84366761557806"
                 if GlobalSwordDB and GlobalSwordDB[name] then
                     iconId = GlobalSwordDB[name].Icon
                 end
 
-                -- Cek Gradient Rarity (Opsional, untuk tampilan Card)
                 local gradientObj = nil
                 if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
                     local colors = GlobalGradientDB:GetRarityColor(rarity)
@@ -2873,24 +3121,20 @@ local function GetEquippedSwordList()
                 table.insert(list, {
                     Title = displayName,
                     Desc = descStr,
-                    Value = sid, -- Value adalah UUID unik pedang
+                    Value = sid,
                     Icon = iconId,
-                    Gradient = gradientObj, -- Simpan gradient untuk visual dropdown
-                    -- Data tambahan untuk sorting/signature
+                    Gradient = gradientObj,
                     SortLvl = lvl,
                     SortKills = kills
                 })
             end
         end
-        -- Sortir list berdasarkan Level tertinggi
         table.sort(list, function(a,b) return a.SortLvl > b.SortLvl end)
     end
     return list
 end
 
 -- 2. UI Elements
-
--- Dropdown Pilihan Pedang
 EnchantDropdown = FM_Add("Enchant", MainTab:Dropdown({
     Title = "Select Equipped Sword",
     Desc = "Auto refresh based on your equipped swords.",
@@ -2898,52 +3142,33 @@ EnchantDropdown = FM_Add("Enchant", MainTab:Dropdown({
     Value = nil,
     Flag = "Enchant_SwordSelect",
     Callback = function(v)
-        -- Handle jika v adalah table (item dropdown) atau value langsung
         local val = (type(v) == "table" and v.Value) or v
         selectedEnchantSID = val
         
-        -- [VISUAL UPDATE] Set Gambar Utama & Value Dropdown
         if type(v) == "table" and v.Icon and EnchantDropdown then
-             -- Update Gambar Kanan (Value)
-             if EnchantDropdown.SetValueImage then
-                 EnchantDropdown:SetValueImage(v.Icon)
-             end
-             
-             -- Update Gambar Kiri (Main) dengan Gradient jika ada
+             if EnchantDropdown.SetValueImage then EnchantDropdown:SetValueImage(v.Icon) end
              if EnchantDropdown.SetMainImage then
                  if v.Gradient then
-                     EnchantDropdown:SetMainImage({
-                         Image = v.Icon,
-                         Gradient = v.Gradient
-                     }, 50)
+                     EnchantDropdown:SetMainImage({Image = v.Icon, Gradient = v.Gradient}, 50)
                  else
                      EnchantDropdown:SetMainImage(v.Icon)
                  end
              end
-             
-             -- Update Deskripsi Dropdown dengan nama pedang yang dipilih
              EnchantDropdown:SetDesc("Selected: " .. (v.Title or "Unknown"))
         else
-             -- Reset jika tidak ada pilihan
-             if EnchantDropdown.SetMainImage then
-                 EnchantDropdown:SetMainImage("rbxassetid://84366761557806")
-             end
-             if EnchantDropdown.SetValueImage then
-                 EnchantDropdown:SetValueImage("rbxassetid://84366761557806")
-             end
+             if EnchantDropdown.SetMainImage then EnchantDropdown:SetMainImage("rbxassetid://84366761557806") end
+             if EnchantDropdown.SetValueImage then EnchantDropdown:SetValueImage("rbxassetid://84366761557806") end
              EnchantDropdown:SetDesc("Auto refresh based on your equipped swords.")
         end
     end
 }))
 
--- Status Info (Paragraph)
 EnchantStatusLabel = FM_Add("Enchant", MainTab:Paragraph({
     Title = "Status: None",
     Desc = "Select a sword to see enchantment progress.",
     Image = "rbxassetid://111231588957724"
 }))
 
--- Toggle Auto Empower
 FM_Add("Enchant", MainTab:Toggle({
     Title = "Auto Empower (Upgrade)",
     Desc = "Automatically upgrade sword when kills requirement met.",
@@ -2951,7 +3176,6 @@ FM_Add("Enchant", MainTab:Toggle({
     Callback = function(v) isAutoEmpower = v end
 }))
 
--- Tombol Manual Empower
 FM_Add("Enchant", MainTab:Button({
     Title = "Manual Empower",
     Desc = "Force upgrade immediately.",
@@ -2969,22 +3193,23 @@ FM_Add("Enchant", MainTab:Button({
     end
 }))
 
-
--- 3. Logic Loop (Smart Refresh + Auto Empower)
+-- 3. Logic Loop
 task.spawn(function()
     local lastSwordDataSignature = ""
+    
+    -- Variables untuk melacak kenaikan level (Webhook Trigger)
+    local trackedSwordID = nil
+    local lastKnownLevel = -1
 
     while not Window.Destroyed do
         local pData = getgenv().PlayerData
         
-        -- [A] SMART REFRESH LOGIC
+        -- [A] SMART REFRESH UI (Dropdown)
         if pData and pData.SwordsEquipped and pData.Swords then
-            -- 1. Buat Signature Unik (Gabungan ID + Level + Kills)
-            -- Signature ini mendeteksi: Ganti Equip, Level Up, atau Kill Bertambah
             local equipKeys = {}
             for k in pairs(pData.SwordsEquipped) do table.insert(equipKeys, k) end
             table.sort(equipKeys)
-
+            
             local currentSig = ""
             for _, sid in ipairs(equipKeys) do
                 local sData = pData.Swords[sid]
@@ -2995,31 +3220,37 @@ task.spawn(function()
                 end
             end
             
-            -- 2. Cek Perubahan
             if currentSig ~= lastSwordDataSignature then
-                -- 3. LOGIKA PINTU: Hanya refresh jika Dropdown TERBUKA
                 if EnchantDropdown and EnchantDropdown.Opened then
                     lastSwordDataSignature = currentSig
                     EnchantDropdown:Refresh(GetEquippedSwordList())
-                    -- print("Enchant Dropdown Refreshed!")
                 end
-                
-                -- Jika dropdown tertutup, kita biarkan signature lama.
-                -- Ini memaksa script untuk terus masuk ke blok 'if' ini di loop selanjutnya
-                -- sampai user membuka dropdown.
             end
         end
 
-        -- [B] UPDATE STATUS & AUTO EMPOWER
+        -- [B] LOGIC UTAMA (Status Update, Auto Empower, Webhook)
         if selectedEnchantSID and pData and pData.Swords then
             local swordData = pData.Swords[selectedEnchantSID]
             
             if swordData then
-                -- Ambil Data
+                -- Reset Tracker jika ganti pedang
+                if trackedSwordID ~= selectedEnchantSID then
+                    trackedSwordID = selectedEnchantSID
+                    lastKnownLevel = (swordData.Enchantment and swordData.Enchantment.Level) or 0
+                end
+
                 local enchantData = swordData.Enchantment or {Kills = 0, Level = 0}
                 local currentLevel = enchantData.Level or 0
                 local currentKills = enchantData.Kills or 0
                 
+                -- [LOGIKA WEBHOOK LEVEL UP]
+                if currentLevel > lastKnownLevel then
+                    Notify("Enchant", "Sword Level Up! " .. lastKnownLevel .. " -> " .. currentLevel, "chevrons-up")
+                    SendEnchantWebhook(swordData.Name, lastKnownLevel, currentLevel, swordData.Rarity)
+                    lastKnownLevel = currentLevel -- Update tracker
+                end
+                
+                -- Update Info Status UI
                 local nextLevelData = EnchantmentDB[currentLevel + 1]
                 local currentLevelData = EnchantmentDB[currentLevel] or EnchantmentDB[0]
                 
@@ -3027,16 +3258,7 @@ task.spawn(function()
                 local statusDesc = ""
                 
                 if nextLevelData then
-                    -- Parsing Kills
-                    local targetKills = nextLevelData.Kills
-                    if type(targetKills) == "string" then
-                         if string.find(targetKills, "K") then
-                             targetKills = tonumber(string.match(targetKills, "[%d%.]+")) * 1000
-                         else
-                             targetKills = tonumber(targetKills) or 999999
-                         end
-                    end
-
+                    local targetKills = ParseHealth(tostring(nextLevelData.Kills))
                     local progress = 0
                     if targetKills > 0 then progress = math.clamp(currentKills / targetKills, 0, 1) end
                     local percent = math.floor(progress * 100)
@@ -3044,7 +3266,6 @@ task.spawn(function()
                     statusTitle = string.format("Lvl %d: %s (%d%%)", currentLevel, currentLevelData.Name or "Unknown", percent)
                     statusDesc = string.format("Kills: %s / %s\nNext: %s", FormatNumber(currentKills), FormatNumber(targetKills), nextLevelData.Name)
                     
-                    -- Perks
                     local perksStr = ""
                     if currentLevelData.Perks then
                         for k, v in pairs(currentLevelData.Perks) do
@@ -3054,7 +3275,7 @@ task.spawn(function()
                     end
                     if perksStr ~= "" then statusDesc = statusDesc .. "\n\nCurrent Perks:\n" .. perksStr end
 
-                    -- Auto Empower Execution
+                    -- Auto Empower
                     if isAutoEmpower and currentKills >= targetKills then
                         ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
                             {"General", "SwordEnchantments", "Empower", selectedEnchantSID, n = 4},
@@ -3063,7 +3284,6 @@ task.spawn(function()
                         task.wait(2) 
                     end
                 else
-                    -- Max Level
                     statusTitle = "MAX LEVEL REACHED"
                     statusDesc = "Enchantment: " .. (currentLevelData.Name or "Unknown") .. "\nMax Perks Active."
                     local perksStr = ""
@@ -3079,11 +3299,6 @@ task.spawn(function()
                 if EnchantStatusLabel then
                     EnchantStatusLabel:SetTitle(statusTitle)
                     EnchantStatusLabel:SetDesc(statusDesc)
-                    
-                    -- Update Icon Status jika ada di data enchant
-                    if currentLevelData.Icon and EnchantStatusLabel.SetImage then
-                         -- EnchantStatusLabel:SetImage(currentLevelData.Icon) -- Opsional
-                    end
                 end
             else
                 if EnchantStatusLabel then
@@ -3091,10 +3306,11 @@ task.spawn(function()
                     EnchantStatusLabel:SetDesc("Please select a valid sword.")
                 end
                 selectedEnchantSID = nil
+                trackedSwordID = nil
             end
         end
         
-        task.wait(1) -- Loop setiap 1 detik
+        task.wait(1) 
     end
 end)
 
