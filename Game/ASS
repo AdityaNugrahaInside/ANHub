@@ -2120,6 +2120,17 @@ for i, power in ipairs(powerList) do
             Callback = function(v)
                 selectedGachaSwordSID = (type(v) == "table" and v.Value) or v
                 
+                -- [FIX] Jika 'v' hanya Value (dari Config), cari Object lengkapnya agar Gradient muncul
+                if type(v) ~= "table" then
+                    local list = GetGachaSwordList()
+                    for _, item in ipairs(list) do
+                        if item.Value == selectedGachaSwordSID then
+                            v = item
+                            break
+                        end
+                    end
+                end
+
                 -- [VISUAL UPDATE] Logika Icon + Gradient (Seperti Select Equipped Sword)
                 if type(v) == "table" and v.Icon and SwordDD then
                     -- 1. Set Icon Kanan (Value)
@@ -3042,6 +3053,17 @@ EnchantDropdown = FM_Add("Enchant", MainTab:Dropdown({
         local val = (type(v) == "table" and v.Value) or v
         selectedEnchantSID = val
         
+        -- [FIX] Jika 'v' hanya Value (dari Config), cari Object lengkapnya agar Gradient muncul
+        if type(v) ~= "table" then
+            local list = GetEquippedSwordList()
+            for _, item in ipairs(list) do
+                if item.Value == val then
+                    v = item
+                    break
+                end
+            end
+        end
+
         if type(v) == "table" and v.Icon and EnchantDropdown then
              if EnchantDropdown.SetValueImage then EnchantDropdown:SetValueImage(v.Icon) end
              if EnchantDropdown.SetMainImage then
