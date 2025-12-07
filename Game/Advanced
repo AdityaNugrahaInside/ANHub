@@ -129,6 +129,38 @@ end
 -- [WEBHOOK CONFIG]
 local MyWebhookURL = "https://discord.com/api/webhooks/1446933055741628507/a1Xq1qieJSyuAC27ZDIQYeN_NQ-zyRgomRTtZ2lZMLs4eF0ICi4jwKF4uIgv1-r5eENY"
 
+-- Helper Webhook Global
+local function SendWebhook(title, description, color)
+    if not MyWebhookURL or MyWebhookURL == "" then return end
+    
+    local data = {
+        ["embeds"] = {{
+            ["title"] = title,
+            ["description"] = description,
+            ["color"] = color,
+            ["footer"] = {
+                ["text"] = "ANHub - Anime Advanced | " .. os.date("%X")
+            }
+        }}
+    }
+
+    local jsonData = game:GetService("HttpService"):JSONEncode(data)
+    local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+
+    if httpRequest then
+        task.spawn(function()
+            pcall(function()
+                httpRequest({
+                    Url = MyWebhookURL,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = jsonData
+                })
+            end)
+        end)
+    end
+end
+
 -- [UI LIBRARY]
 local l = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua"))()
 -- local l = require("d:/Roblox/A/WindUI/src/Init.lua")
@@ -848,8 +880,6 @@ end
 --  CHAT LISTENER (BOSS HUNT & DROP WEBHOOK CLEANER)
 -- ============================================================================
 
--- [WEBHOOK CONFIG - Reused]
-local ChatWebhookURL = MyWebhookURL 
 
 -- [FUNGSI BARU] Membersihkan kode HTML/RichText (<br>, <font...>, dll)
 local function CleanRichText(str)
@@ -858,34 +888,7 @@ local function CleanRichText(str)
 end
 
 local function SendChatDropWebhook(finalText)
-    if not ChatWebhookURL or ChatWebhookURL == "" then return end
-    
-    local data = {
-        ["embeds"] = {{
-            ["title"] = "🎁 Item/Pet Drop Notification",
-            ["description"] = finalText, 
-            ["color"] = 16763904, -- Warna Emas (Gold)
-            ["footer"] = {
-                ["text"] = "ANHub - Anime Advanced | " .. os.date("%X")
-            }
-        }}
-    }
-
-    local jsonData = game:GetService("HttpService"):JSONEncode(data)
-    local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-
-    if httpRequest then
-        task.spawn(function()
-            pcall(function()
-                httpRequest({
-                    Url = ChatWebhookURL,
-                    Method = "POST",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = jsonData
-                })
-            end)
-        end)
-    end
+    SendWebhook("🎁 Item/Pet Drop Notification", finalText, 16763904)
 end
 
 TextChatService.MessageReceived:Connect(function(message)
@@ -1293,7 +1296,14 @@ end
 
 
 -- [UPDATED GACHA LOGIC WITH DYNAMIC CHECK & BALANCE PROTECTION]
-local function changePower(name, value) for _, power in pairs(powerList) do if power.Name == name then power.auto = value return end end end
+local function changePower(name, value)
+    for _, power in pairs(powerList) do
+        if power.Name == name then
+            power.auto = value
+            return
+        end
+    end
+end
 
 task.spawn(function()
     while not Window.Destroyed do
@@ -1422,8 +1432,23 @@ Window:Tag({ Title = "v" .. l.Version, Icon = "github", Color = Color3.fromHex("
 local MainTab = Window:Tab({Title = "Main Feature", Icon = "swords", Profile = MakeProfile({Avatar = GameIconURL,Title = "Game Feature", Desc = "Anime Advanced"}), SidebarProfile = false})
 
 local FM_Categories = {}
-local function FM_Add(cat, elem) if not FM_Categories[cat] then FM_Categories[cat]={} end table.insert(FM_Categories[cat], elem) local f=rawget(elem,"ElementFrame") or (elem.UIElements and elem.UIElements.Main) or elem.GroupFrame if f then f.Visible=false end return elem end
-local function FM_OnChange(selected) for name, elems in pairs(FM_Categories) do local vis=(name==selected) for _, e in ipairs(elems) do local f=rawget(e,"ElementFrame") or (e.UIElements and e.UIElements.Main) or e.GroupFrame if f then f.Visible=vis end end end end
+local function FM_Add(cat, elem)
+    if not FM_Categories[cat] then FM_Categories[cat] = {} end
+    table.insert(FM_Categories[cat], elem)
+    local f = rawget(elem, "ElementFrame") or (elem.UIElements and elem.UIElements.Main) or elem.GroupFrame
+    if f then f.Visible = false end
+    return elem
+end
+
+local function FM_OnChange(selected)
+    for name, elems in pairs(FM_Categories) do
+        local vis = (name == selected)
+        for _, e in ipairs(elems) do
+            local f = rawget(e, "ElementFrame") or (e.UIElements and e.UIElements.Main) or e.GroupFrame
+            if f then f.Visible = vis end
+        end
+    end
+end
 
 -- Cari bagian ini di script Anda dan tambahkan baris "Enchant"
 local FM_Category = MainTab:Category({
@@ -1512,57 +1537,20 @@ UI.EnemyDD = MainTab:Dropdown({
 })
 FM_Add("Farm", UI.EnemyDD)
 FM_Add("Farm", MainTab:Toggle({Title = "Auto Kill Selected", Flag="Farm1_Cfg", Callback = function(v) isFarm1 = v end}))
--- ============================================================================
---  KILL AURA (AUTO ATTACK)
--- ============================================================================
 
--- Tambahkan Toggle di UI (Misal di tab Farm)
--- local isKillAura = false
--- FM_Add("Farm", MainTab:Toggle({
---     Title = "Kill Aura (Fast Attack)", 
---     Desc = "Attacks enemies around you automatically.",
---     Flag = "KillAura_Cfg", 
---     Callback = function(v) isKillAura = v end
--- }))
-
--- -- Logic Kill Aura
--- task.spawn(function()
---     while not Window.Destroyed do
---         if isKillAura and not isGlobalBossActive then
---             local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
-            
---             if EnemiesFolder and hrp then
---                 for _, monster in pairs(EnemiesFolder:GetChildren()) do
---                     -- Cek Validasi Musuh
---                     if monster:FindFirstChild("Head") and monster.Head.Transparency == 0 then
---                         local dist = (hrp.Position - monster.GetPivot(monster).Position).Magnitude
-                        
---                         -- Jika dalam jarak serang (Misal 25 Studs)
---                         if dist <= 25 then
---                             -- Ambil ID Musuh (Biasanya Nama Model atau Attribute ID)
---                             local enemyID = monster:GetAttribute("ID") or monster.Name
-                            
---                             -- Kirim Sinyal Serang
---                             -- Perhatikan format argumen terakhir adalah TABLE: {enemyID}
---                             ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
---                                 {"General", "Attack", "Click", {enemyID}, n = 4}, 
---                                 "\2"
---                             })
---                         end
---                     end
---                 end
---             end
---         end
-        
---         -- Kecepatan Serangan (0.1 detik = Sangat Cepat)
---         -- Hati-hati setting terlalu cepat bisa disconnect
---         task.wait(0.1) 
---     end
--- end)
 
 -- BOSSES
 local MapList = {"None"}
-task.spawn(function() local added={} for _,data in pairs(GlobalBossDB) do local map = data.Map if map and not added[map] then table.insert(MapList,map) added[map]=true end end end)
+task.spawn(function()
+    local added = {}
+    for _, data in pairs(GlobalBossDB) do
+        local map = data.Map
+        if map and not added[map] then
+            table.insert(MapList, map)
+            added[map] = true
+        end
+    end
+end)
 
 -- Helper khusus untuk parsing Health Boss (Support angka besar: Sx, Sp, Oc)
 local function ParseHealth(str)
@@ -1700,17 +1688,16 @@ FM_Add("Bosses", MainTab:Dropdown({Title = "Select Boss Targets", Values = BossL
 FM_Add("Bosses", MainTab:Button({Title = "Force Start / Scan Current Map", Desc = "Manually check if a selected boss is in the current map", Icon = "swords", Callback = function() isAutoBoss = true local found = false local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies") if EnemiesFolder then for _, mob in pairs(EnemiesFolder:GetChildren()) do for _, targetName in pairs(selectedBosses) do if mob.Name == targetName then found = true isGlobalBossActive = true ExecuteKillBoss(targetName) break end end if found then break end end end if not found then Notify("System", "No selected boss found here.", "search") end end}))
 
 -- GAMEMODES (Trial & Raid)
-local TrialNames = {} for _, t in ipairs(trialList) do table.insert(TrialNames, t.name) end
+local TrialNames = {}
+for _, t in ipairs(trialList) do
+    table.insert(TrialNames, t.name)
+end
 FM_Add("Gamemodes", MainTab:Dropdown({Title="Trial Selection", Values=TrialNames, Multi=true, Flag="TrialSelect_Cfg", Callback=function(v) end})) 
 FM_Add("Gamemodes", MainTab:Input({Title="Target Wave (Trial)", Value="500", Flag="WaveTarget_Cfg", Callback=function(v) targetWaveTrial = tonumber(v) or 500 end}))
 FM_Add("Gamemodes", MainTab:Toggle({Title="Auto Farm Trial", Flag="AutoTrial_Cfg", Callback=function(v) isTrial = v; if v then task.spawn(autoFarmDungeon) end end}))
 
 FM_Add("Gamemodes", MainTab:Input({Title="Target Wave (Raid)", Value="50", Flag="WaveTargetRaid_Cfg", Callback=function(v) targetWaveRaid = tonumber(v) or 50 end}))
 FM_Add("Gamemodes", MainTab:Toggle({Title="Auto Farm Raid", Flag="AutoRaid_Cfg", Callback=function(v) isRaid = v; if v then task.spawn(autoFarmRaid) end end}))
-
--- ============================================================================
---  TRIAL UPGRADES (DYNAMIC SYSTEM - 2 PER GROUP)
--- ============================================================================
 
 -- ============================================================================
 --  TRIAL UPGRADES (DYNAMIC SYSTEM - 2 PER GROUP & PERKS INFO)
@@ -1753,7 +1740,21 @@ if GlobalUpgradeSystemsDB[TrialSystemName] and GlobalUpgradeSystemsDB[TrialSyste
 end
 
 -- 2. Loop Logic Auto Upgrade
+local function SendTrialUpgradeWebhook(upgradeName, lvl)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local titleText = "⚡ Trial Upgrade Upgraded!"
+    local desc = "User: " .. censoredName .. "\n" ..
+                 "Upgrade: **" .. upgradeName .. "**\n" ..
+                 "New Level: **" .. lvl .. "**"
+    
+    SendWebhook(titleText, desc, 16776960) -- Warna Kuning
+end
+
 task.spawn(function()
+    local lastTrialLogs = {} -- Tracker
+
     while not Window.Destroyed do
         local pData = getgenv().PlayerData
         local sysData = GlobalUpgradeSystemsDB[TrialSystemName]
@@ -1826,6 +1827,14 @@ task.spawn(function()
                             "\2"
                         })
                         myBalance = myBalance - currentPrice
+                        
+                        -- [WEBHOOK LOGIC]
+                        local nextLvl = currentLvl + 1
+                        if lastTrialLogs[upgradeName] ~= nextLvl then
+                            SendTrialUpgradeWebhook(upgradeName, nextLvl)
+                            lastTrialLogs[upgradeName] = nextLvl
+                        end
+
                         task.wait(0.1)
                     end
                 end
@@ -1913,8 +1922,23 @@ WUCoinsToggle = FM_Add("World Upgrade", MainTab:Toggle({
     end
 }))
 
+local function SendWorldUpgradeWebhook(mapName, typeStr, lvl)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local titleText = "🌍 World Upgrade Upgraded!"
+    local desc = "User: " .. censoredName .. "\n" ..
+                 "Map: **" .. mapName .. "**\n" ..
+                 "Upgrade: **" .. typeStr .. "**\n" ..
+                 "New Level: **" .. lvl .. "**"
+    
+    SendWebhook(titleText, desc, 65280) -- Warna Hijau
+end
+
 -- 5. Loop Logic World Upgrade (Updated: Remove Current Map Logic)
 task.spawn(function()
+    local lastWULogs = {} -- Tracker untuk menghindari spam webhook
+
     while not Window.Destroyed do
         local targetMap = wu_SelectedMap
         local pData = getgenv().PlayerData
@@ -1944,6 +1968,14 @@ task.spawn(function()
                                 if myCoins >= price then
                                     ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "WorldUpgrades", "Upgrade", targetMap, typeStr, n = 5}, "\2"})
                                     myCoins = myCoins - price 
+                                    
+                                    -- [WEBHOOK LOGIC]
+                                    local key = targetMap .. "_" .. typeStr
+                                    if lastWULogs[key] ~= nextLvl then
+                                        SendWorldUpgradeWebhook(targetMap, typeStr, nextLvl)
+                                        lastWULogs[key] = nextLvl
+                                    end
+
                                     task.wait(0.1) 
                                 end
                             end
@@ -1964,7 +1996,6 @@ task.spawn(function()
             local coinLvl = mapUpgrades["Coins"] or 0
             local MAX_LEVEL = 10
             
-            local MAX_LEVEL = 10 
             
             if WUPowerToggle then 
                 WUPowerToggle:SetDesc("+" .. (powLvl * 5) .. "% (Lvl " .. powLvl .. ")")
@@ -2016,43 +2047,11 @@ end)
 --  UPGRADE RANK FEATURE (WITH DISCORD WEBHOOK + CENSORED NAME)
 -- ============================================================================
 
--- [WEBHOOK CONFIG - Reused]
-local RankWebhookURL = MyWebhookURL -- Menggunakan URL yang sama dengan Expedition
-
 local function SendRankWebhook(oldRank, newRank)
-    if not RankWebhookURL or RankWebhookURL == "" then return end
-    
-    -- LOGIKA SENSOR NAMA
     local pName = game.Players.LocalPlayer.Name
     local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
-    
-    local data = {
-        ["embeds"] = {{
-            ["title"] = "🎉 Rank Up Successful!",
-            ["description"] = "User: " .. censoredName .. "\n\n" ..
-                            "**Rank " .. oldRank .. "** ➡️  **Rank " .. newRank .. "**",
-            ["color"] = 3447003, -- Warna Biru (Blue)
-            ["footer"] = {
-                ["text"] = "ANHub - Anime Advanced | " .. os.date("%X")
-            }
-        }}
-    }
-
-    local jsonData = game:GetService("HttpService"):JSONEncode(data)
-    local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-
-    if httpRequest then
-        task.spawn(function()
-            pcall(function()
-                httpRequest({
-                    Url = RankWebhookURL,
-                    Method = "POST",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = jsonData
-                })
-            end)
-        end)
-    end
+    local desc = "User: " .. censoredName .. "\n\n" .. "**Rank " .. oldRank .. "** ➡️  **Rank " .. newRank .. "**"
+    SendWebhook("🎉 Rank Up Successful!", desc, 3447003)
 end
 
 -- UI Elements
@@ -2125,6 +2124,7 @@ end)
 
 -- [2. UI GENERATOR - 2 PER ITEM LAYOUT]
 local currentGachaGroup
+local GachaSwordDropdown -- Reference untuk update realtime
 
 for i, power in ipairs(powerList) do 
     -- KASUS 1: SWORD PASSIVE (CUSTOM GRID)
@@ -2166,6 +2166,17 @@ for i, power in ipairs(powerList) do
             Callback = function(v)
                 selectedGachaSwordSID = (type(v) == "table" and v.Value) or v
                 
+                -- [FIX] Jika 'v' hanya Value (dari Config), cari Object lengkapnya agar Gradient muncul
+                if type(v) ~= "table" then
+                    local list = GetGachaSwordList()
+                    for _, item in ipairs(list) do
+                        if item.Value == selectedGachaSwordSID then
+                            v = item
+                            break
+                        end
+                    end
+                end
+
                 -- [VISUAL UPDATE] Logika Icon + Gradient (Seperti Select Equipped Sword)
                 if type(v) == "table" and v.Icon and SwordDD then
                     -- 1. Set Icon Kanan (Value)
@@ -2194,6 +2205,7 @@ for i, power in ipairs(powerList) do
                 end
             end
         })
+        GachaSwordDropdown = SwordDD
 
         Row2:Dropdown({
             Title = "Passive Index",
@@ -2308,6 +2320,34 @@ task.spawn(function()
                 local lockedCount = 0
                 for _, isLocked in pairs(lockedData) do if isLocked then lockedCount = lockedCount + 1 end end
                 currentPrice = currentPrice + lockedCount
+            end
+
+            -- [REALTIME SWORD UPDATE] (Jalan terus meskipun Auto Roll OFF)
+            if power.Name == "Sword Passive" and selectedGachaSwordSID then
+                local currentSwordData = pData.Swords and pData.Swords[selectedGachaSwordSID]
+                if currentSwordData and GachaSwordDropdown and GachaSwordDropdown.SetMainImage then
+                     local sName = currentSwordData.Name
+                     local sRarity = currentSwordData.Rarity or "Common"
+                     local iconId = "rbxassetid://84366761557806"
+                     if GlobalSwordDB and GlobalSwordDB[sName] then iconId = GlobalSwordDB[sName].Icon end
+                     
+                     local gradientObj = nil
+                     if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                         local colors = GlobalGradientDB:GetRarityColor(sRarity)
+                         if colors and colors.Base and colors.Wave then
+                             gradientObj = ColorSequence.new{
+                                 ColorSequenceKeypoint.new(0, colors.Base),
+                                 ColorSequenceKeypoint.new(1, colors.Wave)
+                             }
+                         end
+                     end
+
+                     if gradientObj then
+                         GachaSwordDropdown:SetMainImage({Image = iconId, Gradient = gradientObj}, 50)
+                     else
+                         GachaSwordDropdown:SetMainImage(iconId)
+                     end
+                end
             end
 
             -- HANYA JALANKAN LOGIKA JIKA TOGGLE MENYALA (AUTO = TRUE)
@@ -2834,50 +2874,19 @@ end)
 local ExpGroup = MainTab:Group({Title = "Expedition Manager"})
 FM_Add("Expedition", ExpGroup)
 
--- [WEBHOOK CONFIG]
-local MyWebhookURL = "https://discord.com/api/webhooks/1446933055741628507/a1Xq1qieJSyuAC27ZDIQYeN_NQ-zyRgomRTtZ2lZMLs4eF0ICi4jwKF4uIgv1-r5eENY"
-
 local function SendExpeditionWebhook(status, mapName)
-    if not MyWebhookURL or MyWebhookURL == "" then return end
-    
-    local embedColor = 16776960 -- Kuning
-    local titleText = "🚀 Expedition Started"
-    
-    if status == "Claimed" then
-        embedColor = 65280 -- Hijau
-        titleText = "✅ Expedition Claimed"
-    end
-
-    -- Sensor Nama
     local pName = game.Players.LocalPlayer.Name
     local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
-
-    local data = {
-        ["embeds"] = {{
-            ["title"] = titleText,
-            ["description"] = "User: " .. censoredName .. "\nWorld: **" .. (mapName or "Unknown") .. "**",
-            ["color"] = embedColor,
-            ["footer"] = {
-                ["text"] = "ANHub - Anime Advanced | " .. os.date("%X")
-            }
-        }}
-    }
-
-    local jsonData = game:GetService("HttpService"):JSONEncode(data)
-    local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-
-    if httpRequest then
-        task.spawn(function()
-            pcall(function()
-                httpRequest({
-                    Url = MyWebhookURL,
-                    Method = "POST",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = jsonData
-                })
-            end)
-        end)
+    
+    local titleText = "🚀 Expedition Started"
+    local embedColor = 16776960
+    if status == "Claimed" then
+        embedColor = 65280
+        titleText = "✅ Expedition Claimed"
     end
+    
+    local desc = "User: " .. censoredName .. "\nWorld: **" .. (mapName or "Unknown") .. "**"
+    SendWebhook(titleText, desc, embedColor)
 end
 
 -- Vars
@@ -3020,12 +3029,9 @@ end)
 -- ============================================================================
 
 -- [WEBHOOK CONFIG - Reused]
-local EnchantWebhookURL = MyWebhookURL -- Menggunakan URL yang sama
+
 
 local function SendEnchantWebhook(swordName, oldLvl, newLvl, rarity)
-    if not EnchantWebhookURL or EnchantWebhookURL == "" then return end
-    
-    -- Sensor Nama
     local pName = game.Players.LocalPlayer.Name
     local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
     
@@ -3033,34 +3039,11 @@ local function SendEnchantWebhook(swordName, oldLvl, newLvl, rarity)
     if rarity == "Mythical" then embedColor = 10181046 
     elseif rarity == "Scarlet" then embedColor = 16711680 end
 
-    local data = {
-        ["embeds"] = {{
-            ["title"] = "⚔️ Sword Enchanted!",
-            ["description"] = "User: " .. censoredName .. "\n" ..
-                            "Sword: **" .. swordName .. "**\n" ..
-                            "Level: **" .. oldLvl .. "** ➡️ **" .. newLvl .. "**",
-            ["color"] = embedColor,
-            ["footer"] = {
-                ["text"] = "ANHub - Anime Advanced | " .. os.date("%X")
-            }
-        }}
-    }
+    local desc = "User: " .. censoredName .. "\n" ..
+                    "Sword: **" .. swordName .. "**\n" ..
+                    "Level: **" .. oldLvl .. "** ➡️ **" .. newLvl .. "**"
 
-    local jsonData = game:GetService("HttpService"):JSONEncode(data)
-    local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-
-    if httpRequest then
-        task.spawn(function()
-            pcall(function()
-                httpRequest({
-                    Url = EnchantWebhookURL,
-                    Method = "POST",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = jsonData
-                })
-            end)
-        end)
-    end
+    SendWebhook("⚔️ Sword Enchanted!", desc, embedColor)
 end
 
 -- 1. Setup Dynamic Database
@@ -3145,6 +3128,17 @@ EnchantDropdown = FM_Add("Enchant", MainTab:Dropdown({
         local val = (type(v) == "table" and v.Value) or v
         selectedEnchantSID = val
         
+        -- [FIX] Jika 'v' hanya Value (dari Config), cari Object lengkapnya agar Gradient muncul
+        if type(v) ~= "table" then
+            local list = GetEquippedSwordList()
+            for _, item in ipairs(list) do
+                if item.Value == val then
+                    v = item
+                    break
+                end
+            end
+        end
+
         if type(v) == "table" and v.Icon and EnchantDropdown then
              if EnchantDropdown.SetValueImage then EnchantDropdown:SetValueImage(v.Icon) end
              if EnchantDropdown.SetMainImage then
@@ -3250,6 +3244,31 @@ task.spawn(function()
                     lastKnownLevel = currentLevel -- Update tracker
                 end
                 
+                -- [REALTIME UPDATE] Update Visual Dropdown Enchant (Icon & Gradient)
+                if EnchantDropdown and EnchantDropdown.SetMainImage then
+                    local sName = swordData.Name
+                    local sRarity = swordData.Rarity or "Common"
+                    local iconId = "rbxassetid://84366761557806"
+                    if GlobalSwordDB and GlobalSwordDB[sName] then iconId = GlobalSwordDB[sName].Icon end
+                    
+                    local gradientObj = nil
+                    if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                        local colors = GlobalGradientDB:GetRarityColor(sRarity)
+                        if colors and colors.Base and colors.Wave then
+                            gradientObj = ColorSequence.new{
+                                ColorSequenceKeypoint.new(0, colors.Base),
+                                ColorSequenceKeypoint.new(1, colors.Wave)
+                            }
+                        end
+                    end
+
+                    if gradientObj then
+                        EnchantDropdown:SetMainImage({Image = iconId, Gradient = gradientObj}, 50)
+                    else
+                        EnchantDropdown:SetMainImage(iconId)
+                    end
+                end
+
                 -- Update Info Status UI
                 local nextLevelData = EnchantmentDB[currentLevel + 1]
                 local currentLevelData = EnchantmentDB[currentLevel] or EnchantmentDB[0]
