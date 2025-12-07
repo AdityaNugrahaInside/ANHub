@@ -2277,6 +2277,34 @@ task.spawn(function()
                 currentPrice = currentPrice + lockedCount
             end
 
+            -- [REALTIME SWORD UPDATE] (Jalan terus meskipun Auto Roll OFF)
+            if power.Name == "Sword Passive" and selectedGachaSwordSID then
+                local currentSwordData = pData.Swords and pData.Swords[selectedGachaSwordSID]
+                if currentSwordData and GachaSwordDropdown and GachaSwordDropdown.SetMainImage then
+                     local sName = currentSwordData.Name
+                     local sRarity = currentSwordData.Rarity or "Common"
+                     local iconId = "rbxassetid://84366761557806"
+                     if GlobalSwordDB and GlobalSwordDB[sName] then iconId = GlobalSwordDB[sName].Icon end
+                     
+                     local gradientObj = nil
+                     if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                         local colors = GlobalGradientDB:GetRarityColor(sRarity)
+                         if colors and colors.Base and colors.Wave then
+                             gradientObj = ColorSequence.new{
+                                 ColorSequenceKeypoint.new(0, colors.Base),
+                                 ColorSequenceKeypoint.new(1, colors.Wave)
+                             }
+                         end
+                     end
+
+                     if gradientObj then
+                         GachaSwordDropdown:SetMainImage({Image = iconId, Gradient = gradientObj}, 50)
+                     else
+                         GachaSwordDropdown:SetMainImage(iconId)
+                     end
+                end
+            end
+
             -- HANYA JALANKAN LOGIKA JIKA TOGGLE MENYALA (AUTO = TRUE)
             if power.auto == true then 
                 local canAfford = true
@@ -2306,31 +2334,6 @@ task.spawn(function()
                             
                             if currentSwordData then
                                 local myPassive = currentSwordData.Passive or "None"
-
-                                -- [REALTIME UPDATE] Update Visual Dropdown (Icon & Gradient)
-                                if GachaSwordDropdown and GachaSwordDropdown.SetMainImage then
-                                    local sName = currentSwordData.Name
-                                    local sRarity = currentSwordData.Rarity or "Common"
-                                    local iconId = "rbxassetid://84366761557806"
-                                    if GlobalSwordDB and GlobalSwordDB[sName] then iconId = GlobalSwordDB[sName].Icon end
-                                    
-                                    local gradientObj = nil
-                                    if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
-                                        local colors = GlobalGradientDB:GetRarityColor(sRarity)
-                                        if colors and colors.Base and colors.Wave then
-                                            gradientObj = ColorSequence.new{
-                                                ColorSequenceKeypoint.new(0, colors.Base),
-                                                ColorSequenceKeypoint.new(1, colors.Wave)
-                                            }
-                                        end
-                                    end
-
-                                    if gradientObj then
-                                        GachaSwordDropdown:SetMainImage({Image = iconId, Gradient = gradientObj}, 50)
-                                    else
-                                        GachaSwordDropdown:SetMainImage(iconId)
-                                    end
-                                end
                                 
                                 -- DEBUG: Print ke Console (F9) untuk memastikan nama pasif sama persis
                                 -- print("Current Passive:", myPassive, "| Targets:", HttpService:JSONEncode(SwordPassiveTargets))
