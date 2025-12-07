@@ -1740,7 +1740,21 @@ if GlobalUpgradeSystemsDB[TrialSystemName] and GlobalUpgradeSystemsDB[TrialSyste
 end
 
 -- 2. Loop Logic Auto Upgrade
+local function SendTrialUpgradeWebhook(upgradeName, lvl)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local titleText = "⚡ Trial Upgrade Upgraded!"
+    local desc = "User: " .. censoredName .. "\n" ..
+                 "Upgrade: **" .. upgradeName .. "**\n" ..
+                 "New Level: **" .. lvl .. "**"
+    
+    SendWebhook(titleText, desc, 16776960) -- Warna Kuning
+end
+
 task.spawn(function()
+    local lastTrialLogs = {} -- Tracker
+
     while not Window.Destroyed do
         local pData = getgenv().PlayerData
         local sysData = GlobalUpgradeSystemsDB[TrialSystemName]
@@ -1813,6 +1827,14 @@ task.spawn(function()
                             "\2"
                         })
                         myBalance = myBalance - currentPrice
+                        
+                        -- [WEBHOOK LOGIC]
+                        local nextLvl = currentLvl + 1
+                        if lastTrialLogs[upgradeName] ~= nextLvl then
+                            SendTrialUpgradeWebhook(upgradeName, nextLvl)
+                            lastTrialLogs[upgradeName] = nextLvl
+                        end
+
                         task.wait(0.1)
                     end
                 end
