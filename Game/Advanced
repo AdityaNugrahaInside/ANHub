@@ -797,12 +797,6 @@ local function kill(monster)
             local lookAtPos = Vector3.new(enemyRoot.Position.X, finalPosition.Y, enemyRoot.Position.Z)
             hrp.CFrame = CFrame.new(finalPosition, lookAtPos)
         end
-        
-        -- [3] KIRIM SINYAL SERANG (WAJIB ADA)
-        local EnemyID = monster:GetAttribute("ID")
-        if EnemyID and OmniRef and OmniRef.Signal then
-            OmniRef.Signal:Fire("General", "Attack", "Click", {EnemyID})
-        end
 
         -- Cek Jarak
         if getDistance(hrp, monster) > distance then return end
