@@ -1027,7 +1027,7 @@ local function checkTrial()
                 task.wait(1)
                 waitTime = waitTime + 1
                 local checkMap = getgenv().PlayerData and getgenv().PlayerData.Map
-            until checkMap ~= "TrialEasy" or waitTime > 10
+            until checkMap ~= "TrialEasy" or waitTime > 3
             
             -- Jika masih nyangkut setelah 10 detik, paksa teleport
             if getgenv().PlayerData.Map == "TrialEasy" then
@@ -1179,7 +1179,7 @@ local function checkRaid()
                 task.wait(1)
                 waitTime = waitTime + 1
                 local checkMap = getgenv().PlayerData and getgenv().PlayerData.Map
-            until checkMap ~= "Raid" or waitTime > 10
+            until checkMap ~= "Raid" or waitTime > 3
             
             -- Jika masih nyangkut di map Raid setelah 10 detik, paksa teleport
             if getgenv().PlayerData.Map == "Raid" then
