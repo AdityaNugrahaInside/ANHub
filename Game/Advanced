@@ -123,6 +123,9 @@ local function ScanPlayerData()
     if OmniRef and OmniRef.Data then
         getgenv().PlayerData = OmniRef.Data
     end
+    if OmniRef and OmniRef.Enemies then
+        getgenv().EnemiesData = OmniRef.Enemies
+    end
 end
 
 
@@ -729,87 +732,109 @@ ReplicatedStorage.BridgeNet2.dataRemoteEvent.OnClientEvent:Connect(function(data
 end)
 
 -- ============================================================================
---  FARMING LOGIC (OPTIMIZED & SAFE)
+--  FARMING LOGIC (FINAL: ANTI-FLOAT + GAMEMODE SAFE + LEG DETECTION)
 -- ============================================================================
 
--- Helper: Cek apakah kita sedang di Map Gamemode (Agar Farm Lobby Stop)
+-- [HELPER PENTING] Cek Status Gamemode
 local function IsInGamemode()
     local cm = getgenv().PlayerData and getgenv().PlayerData.Map
-    return (cm == "TrialEasy") or (cm == "Raid")
+    return (cm == "TrialEasy") or (cm == "Raid") or (cm == "EclipseDefense")
 end
 
-local function kill(monster)
-    local head = monster:FindFirstChild("Head")
-    if not head then return end
-    
-    -- Hitung posisi kaki agar tidak masuk tanah
-    local hrpToFeet = (hrp.Size.Y / 2) + (humanoid.HipHeight or 2)
-    local targetPosition = getPosition(head) + Vector3.new(5, hrpToFeet - 2, 5)        
-    
-    if hrp then hrp.CFrame = CFrame.new(targetPosition) end
+-- [HELPER] Cari Posisi Tanah Berdasarkan Kaki Musuh
+local function GetEnemyGroundLevel(monster)
+    local leg = monster:FindFirstChild("Left Leg") or monster:FindFirstChild("Right Leg") or 
+                monster:FindFirstChild("LeftFoot") or monster:FindFirstChild("RightFoot") or
+                monster:FindFirstChild("LeftLowerLeg") or monster:FindFirstChild("RightLowerLeg")
 
-    -- Validasi target awal
-    local stillTarget = false
-    for _, target in pairs(targetList) do
-        local mName = monster:GetAttribute("CustomEnemyType") or monster:GetAttribute("ID") or monster.Name
-        if mName == target or monster.Name == target then stillTarget = true break end
-    end        
+    if leg then
+        return leg.Position.Y - (leg.Size.Y / 2)
+    end
     
-    -- Loop Kill
-    while isFarm1 and stillTarget and not isGlobalBossActive and not isTransitioning and not Window.Destroyed do 
-        -- [PERBAIKAN]: Cek darurat, jika tiba-tiba masuk Raid/Trial, STOP Farm Lobby!
+    local hrp = monster:FindFirstChild("HumanoidRootPart")
+    if hrp then return hrp.Position.Y - 2.5 end
+    return nil
+end
+
+-- [1. FUNGSI KILL (LOBBY/WORLD FARM)]
+local function kill(monster, realEnemyName)
+    local head = monster:FindFirstChild("Head")
+    local enemyRoot = monster:FindFirstChild("HumanoidRootPart") or monster:FindFirstChild("Head")
+    
+    if not head or not enemyRoot then return end
+    
+    local myHip = humanoid.HipHeight
+    if myHip == 0 then myHip = 2 end
+    local myHeightOffset = myHip + (hrp.Size.Y / 2)
+
+    while isFarm1 and not isGlobalBossActive and not isTransitioning and not Window.Destroyed do 
+        -- [PENGAMAN] Stop farming jika tiba-tiba masuk Gamemode
         if IsInGamemode() then break end
 
-        if not head or head.Transparency ~= 0 then break end
+        -- Validasi
+        if not head or head.Transparency ~= 0 or not monster.Parent then break end
         if not character or not hrp then break end 
         
-        -- Update posisi terus menerus (Tween/CFrame)
-        if hrp then hrp.CFrame = CFrame.new(targetPosition) end
+        -- Cek Target
+        local isStillWanted = false
+        if realEnemyName then
+            for _, target in pairs(targetList) do
+                if target == realEnemyName then isStillWanted = true break end
+            end
+        else
+            isStillWanted = true 
+        end
+        if not isStillWanted then break end
+
+        -- [POSISI] Ikuti Kaki Musuh (Anti Melayang)
+        local combatDistance = 5 + (enemyRoot.Size.Z/2) -- Jarak Dinamis
+        local backPosCFrame = enemyRoot.CFrame * CFrame.new(0, 0, combatDistance)
+        local enemyFloorY = GetEnemyGroundLevel(monster)
         
-        -- Cek jarak (agar tidak ngejar musuh yang spawn di ujung dunia lain)
-        if getDistance(hrp, monster) > distance then return end
-        
-        -- Cek ulang apakah musuh masih dalam daftar target (biar responsif kalau uncheck)
-        stillTarget = false
-        for _, target in pairs(targetList) do
-            local mName = monster:GetAttribute("CustomEnemyType") or monster:GetAttribute("ID") or monster.Name
-            if mName == target or monster.Name == target then stillTarget = true break end
+        local finalY = (enemyFloorY or enemyRoot.Position.Y) + myHeightOffset
+
+        if hrp then 
+            local finalPos = Vector3.new(backPosCFrame.X, finalY, backPosCFrame.Z)
+            local lookAtPos = Vector3.new(enemyRoot.Position.X, finalY, enemyRoot.Position.Z)
+            hrp.CFrame = CFrame.new(finalPos, lookAtPos)
         end
         
-        task.wait()
+        if getDistance(hrp, monster) > distance then return end
+        task.wait() 
     end
 end
 
+-- [2. FUNGSI CHECK (SCANNER)]
 local function check()
-    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
-    if not EnemiesFolder then return end
-    
-    for _, monster in pairs(EnemiesFolder:GetChildren()) do
-        -- Stop checking jika transisi atau boss muncul
-        if isTransitioning or isGlobalBossActive then break end
-        
-        -- [PERBAIKAN]: Jangan cari target jika sudah pindah map ke Gamemode
-        if IsInGamemode() then break end
+    -- Jangan scan musuh biasa jika sedang di Gamemode (karena Gamemode punya controllernya sendiri)
+    if IsInGamemode() then return end
+    ScanPlayerData()
 
-        if not monster:FindFirstChild("Head") or monster.Head.Transparency ~= 0 then continue end
-        if not hrp then task.wait() continue end
-        if getDistance(hrp, monster) >= distance then continue end
+    for id, data in pairs(getgenv().EnemiesData) do
+        if data.Health and data.Health > 0 and (data.Model or data.Instance) then
+            local monsterModel = data.Model or data.Instance
+            local realName = (data.Info and data.Info.Name) or "Unknown"
 
-        local mName = monster:GetAttribute("CustomEnemyType") or monster:GetAttribute("ID") or monster.Name
-        for _, target in ipairs(targetList) do
-            if (target == mName or target == monster.Name) then
-                kill(monster)
-                break
+            for _, target in ipairs(targetList) do
+                if target == realName then
+                    if monsterModel:FindFirstChild("Head") then
+                        if not monsterModel:GetAttribute("ID") then
+                            monsterModel:SetAttribute("ID", id)
+                        end
+                        kill(monsterModel, realName) 
+                        return 
+                    end
+                end
             end
         end
     end
 end
 
--- Loop Utama Farm
+-- [LOOP UTAMA]
 task.spawn(function()
     while not Window.Destroyed do
-        -- Cek kondisi stop global
-        if (isFarm1 == false) or isGlobalBossActive or isTransitioning == true or IsInGamemode() then 
+        -- Cek kondisi global: Jika Boss aktif, Transisi, atau Gamemode -> PAUSE FARM
+        if (isFarm1 == false) or isGlobalBossActive or isTransitioning or IsInGamemode() then 
             task.wait(1)
             continue
         end
@@ -891,385 +916,234 @@ local function SendChatDropWebhook(finalText)
     SendWebhook("🎁 Item/Pet Drop Notification", finalText, 16763904)
 end
 
+-- [VARS UPDATED] - Taruh ini SEBELUM Chat Listener
+local GamemodeVars = {
+    Trial = {Active = false, Name = "TrialEasy", TargetWave = 500},
+    Raid = {Active = false, Name = "Raid", TargetWave = 50, KeyItem = "Raid Key", BroadcastActive = false},
+    Eclipse = {Active = false, Name = "EclipseDefense", TargetWave = 50, KeyItem = "Eclipse Key", BroadcastActive = false}
+}
+
+-- [CHAT LISTENER UPDATE]
 TextChatService.MessageReceived:Connect(function(message)
     if Window.Destroyed then return end
     
-    -- 1. Ambil teks asli (Masih kotor dengan <font color...>)
     local rawText = message.Text
-    
-    -- 2. Bersihkan teksnya DULUAN
-    -- Dari: "<b><font...>You got a Mythical...</font></b>"
-    -- Menjadi: "You got a Mythical..."
     local cleanText = CleanRichText(rawText)
 
-    -- [FITUR DROP WEBHOOK]
-    -- Cek teks yang SUDAH BERSIH
+    -- 1. DETEKSI GAMEMODE START
+    if string.find(rawText, "%[GAMEMODE%]") and string.find(rawText, "has started") then
+        if string.find(cleanText, "Eclipse Defense") then
+            GamemodeVars.Eclipse.BroadcastActive = true
+            task.delay(60, function() GamemodeVars.Eclipse.BroadcastActive = false end)
+        end
+        if string.find(cleanText, "Raid") then
+            GamemodeVars.Raid.BroadcastActive = true
+            task.delay(60, function() GamemodeVars.Raid.BroadcastActive = false end)
+        end
+    end
+
+    -- 2. FITUR DROP WEBHOOK
     if string.find(cleanText, "You got") then
-        
-        -- Siapkan Nama Sensor: "Aditya" -> "||Adi***||"
         local pName = game.Players.LocalPlayer.Name
         local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
-        
-        -- Ganti "You" menjadi Nama Sensor
         local newText = string.gsub(cleanText, "You", censoredName)
-        
-        -- Kirim Webhook (Teks sudah bersih & tersensor)
         SendChatDropWebhook(newText)
     end
 
-    -- [FITUR BOSS HUNT]
+    -- 3. FITUR BOSS HUNT
     if isAutoBoss then 
-        local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-        local isGamemode = (currentMap == "TrialEasy") or (currentMap == "Raid")
+        if IsInGamemode() then return end -- Jangan ganggu Gamemode
 
-        if not isGamemode then
-            for _, bossName in pairs(selectedBosses) do
-                local data = GlobalBossDB[bossName]
-                if data and data.Map then
-                    -- Gunakan cleanText agar pencarian nama boss akurat
-                    if string.find(cleanText, bossName) and string.find(cleanText, data.Map) then
-                        TriggerGlobalBoss(bossName, data.Map)
-                        break 
+        for _, bossName in pairs(selectedBosses) do
+            local data = GlobalBossDB[bossName]
+            if data and data.Map then
+                if string.find(cleanText, bossName) and string.find(cleanText, data.Map) then
+                    TriggerGlobalBoss(bossName, data.Map)
+                    break 
+                end
+            end
+        end
+    end
+end)
+
+-- ============================================================================
+--  GAMEMODES LOGIC (FINAL: KEY PRIORITY + CHAT BROADCAST + ANTI-FLOAT)
+-- ============================================================================
+
+-- [HELPER] Kirim Signal Gamemode
+local function FireGamemode(modeName, action)
+    if ReplicatedStorage:FindFirstChild("BridgeNet2") then
+        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+            {"Gamemodes", modeName, action, n = 3}, 
+            "\2"
+        })
+    end
+end
+
+-- [HELPER] Deteksi Wave via UI
+local function GetCurrentWave(modeName)
+    local pGui = Players.LocalPlayer:FindFirstChild("PlayerGui")
+    local hud = pGui and pGui:FindFirstChild("Interface") and pGui.Interface:FindFirstChild("HUD")
+    if not hud then return 0 end
+
+    local modeFrame = hud:FindFirstChild("Gamemodes") and hud.Gamemodes:FindFirstChild(modeName)
+    if modeFrame and modeFrame.Visible then
+        local waveTxt = modeFrame:FindFirstChild("Background") and modeFrame.Background:FindFirstChild("Wave")
+        if waveTxt then
+            return tonumber(string.match(waveTxt.Text, "%d+")) or 0
+        end
+    end
+    return 0
+end
+
+-- [LOGIKA KILLER GAMEMODE]
+local function GamemodeKiller(stopCheckFunc)
+    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
+    if not EnemiesFolder then return end
+
+    for _, monster in pairs(EnemiesFolder:GetChildren()) do
+        if not stopCheckFunc() then break end 
+        
+        local head = monster:FindFirstChild("Head")
+        local enemyRoot = monster:FindFirstChild("HumanoidRootPart") or monster:FindFirstChild("Head")
+        
+        if head and enemyRoot and head.Transparency == 0 then
+            local myHip = humanoid.HipHeight
+            if myHip == 0 then myHip = 2 end
+            local myHeightOffset = myHip + (hrp.Size.Y / 2)
+
+            while head and head.Transparency == 0 and monster.Parent and not Window.Destroyed do
+                if not stopCheckFunc() then break end
+
+                -- Posisi
+                local combatDistance = 5 + (enemyRoot.Size.Z/2)
+                local backPosCFrame = enemyRoot.CFrame * CFrame.new(0, 0, combatDistance)
+                
+                local enemyFloorY = enemyRoot.Position.Y - 2.5
+                local leg = monster:FindFirstChild("Left Leg") or monster:FindFirstChild("Right Leg") or 
+                            monster:FindFirstChild("LeftFoot") or monster:FindFirstChild("RightFoot")
+                if leg then enemyFloorY = leg.Position.Y - (leg.Size.Y / 2) end
+
+                local finalY = enemyFloorY + myHeightOffset
+
+                if hrp then 
+                    local finalPos = Vector3.new(backPosCFrame.X, finalY, backPosCFrame.Z)
+                    local lookAtPos = Vector3.new(enemyRoot.Position.X, finalY, enemyRoot.Position.Z)
+                    hrp.CFrame = CFrame.new(finalPos, lookAtPos)
+                end
+                
+                task.wait()
+            end
+        end
+    end
+end
+
+-- [CONTROLLER UTAMA]
+local function GamemodeController(configKey)
+    local Config = GamemodeVars[configKey]
+    if not Config then return end
+
+    while Config.Active and not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        local currentMap = pData and pData.Map
+        local ModeInternalName = Config.Name 
+
+        -- KONDISI 1: SEDANG DI DALAM GAMEMODE
+        if currentMap == ModeInternalName then
+            local currWave = GetCurrentWave(ModeInternalName)
+            
+            if currWave >= Config.TargetWave then
+                Notify(configKey, "Target Reached! Leaving...", "check")
+                FireGamemode(ModeInternalName, "Leave")
+                
+                local waitTime = 0
+                repeat task.wait(1) waitTime=waitTime+1 until getgenv().PlayerData.Map ~= ModeInternalName or waitTime > 15
+                task.wait(2)
+
+                if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= "Trial Lobby" then
+                    Notify("Smart Return", "Returning to: " .. savedPreviousMap, "map")
+                    SmartTeleport(savedPreviousMap)
+                    savedPreviousMap = nil
+                end
+            else
+                GamemodeKiller(function()
+                    return Config.Active and (getgenv().PlayerData.Map == ModeInternalName)
+                end)
+            end
+
+        -- KONDISI 2: DI LOBBY (SIAP JOIN)
+        elseif not isGlobalBossActive and not isTransitioning then
+            if currentMap ~= "None" and currentMap ~= "Loading" then
+                
+                -- CEK KONFLIK GAMEMODE
+                if IsInGamemode() then
+                    task.wait(1)
+                else
+                    local canJoin = false
+                    local joinReason = ""
+
+                    -- [LOGIKA 1: TRIAL (WINDOW 5 MENIT)]
+                    if configKey == "Trial" then
+                        local t = os.date("*t")
+                        local m = t.min
+                        
+                        if trialList then
+                            for _, trial in pairs(trialList) do
+                                local start1 = trial.time 
+                                local end1 = start1 + 1
+                                local start2 = (trial.time + 30) % 60 
+                                local end2 = start2 + 1
+                                
+                                if (m >= start1 and m < end1) or (m >= start2 and m < end2) then
+                                    canJoin = true 
+                                    joinReason = "Time Window"
+                                    break 
+                                end
+                            end
+                        end
+                    
+                    -- [LOGIKA 2: RAID & ECLIPSE (KEY > BROADCAST)]
+                    else
+                        local keyCount = 0
+                        if pData.Items and Config.KeyItem then
+                            keyCount = pData.Items[Config.KeyItem] or 0
+                        end
+
+                        if keyCount > 0 then
+                            canJoin = true
+                            joinReason = "Key Available ("..keyCount..")"
+                        elseif Config.BroadcastActive then
+                            canJoin = true
+                            joinReason = "Event Started (Chat)"
+                        end
+                    end
+
+                    -- Eksekusi Join
+                    if canJoin then
+                        if currentMap ~= ModeInternalName and currentMap ~= "Trial Lobby" then
+                            savedPreviousMap = currentMap
+                        end
+
+                        Notify(configKey, "Joining via " .. joinReason, "swords")
+                        FireGamemode(ModeInternalName, "Join")
+                        
+                        if Config.BroadcastActive then 
+                            Config.BroadcastActive = false 
+                        end
+                        
+                        if configKey == "Trial" then
+                            Notify("Trial", "Attempting to join...", "hourglass")
+                            task.wait(10) 
+                        else
+                            task.wait(5)
+                        end
                     end
                 end
             end
         end
-    end
-end)
-
--- ============================================================================
---  GAMEMODES: TRIAL & RAID LOGIC
--- ============================================================================
-
--- [1. DETEKSI WAVE REAL-TIME: TRIAL & RAID]
-task.spawn(function()
-    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-    
-    local function UpdateWaveValue()
-        local success, hud = pcall(function() return playerGui:FindFirstChild("Interface") and playerGui.Interface:FindFirstChild("HUD") end)
-        if not success or not hud then return end
-        
-        -- > Update Wave Trial
-        local trialNode = hud:FindFirstChild("Gamemodes") and hud.Gamemodes:FindFirstChild("TrialEasy")
-        local trialWaveLabel = trialNode and trialNode:FindFirstChild("Background") and trialNode.Background:FindFirstChild("Wave")
-        if trialWaveLabel then
-            local txt = trialWaveLabel.Text
-            local num = string.match(txt, "%d+")
-            if num then waveTrial = tonumber(num) end
-        end
-
-        -- > Update Wave Raid (NEW)
-        local raidNode = hud:FindFirstChild("Gamemodes") and hud.Gamemodes:FindFirstChild("Raid")
-        local raidWaveLabel = raidNode and raidNode:FindFirstChild("Background") and raidNode.Background:FindFirstChild("Wave")
-        if raidWaveLabel then
-            local txt = raidWaveLabel.Text
-            local num = string.match(txt, "%d+")
-            if num then waveRaid = tonumber(num) end
-        end
-    end
-
-    while not Window.Destroyed do
-        UpdateWaveValue()
-        task.wait(2)
-    end
-end)
-
--- [2. FUNGSI KILL GENERIC]
-local function killGamemodeGeneric(monster, stopConditionFunc)
-    local head = monster:FindFirstChild("Head")
-    if not head then return end
-    local hrpToFeet = (hrp.Size.Y / 2) + (humanoid.HipHeight or 2)
-    local targetPosition = getPosition(head) + Vector3.new(5, hrpToFeet - 2, 5)        
-    
-    while not isGlobalBossActive and not Window.Destroyed do 
-        -- Cek Toggle
-        if not stopConditionFunc() then break end
-
-        if hrp then hrp.CFrame = CFrame.new(targetPosition) end
-        if not head or head.Transparency ~= 0 then break end
-        if getDistance(hrp, monster) > distance then return end
-        
-        task.wait()
+        task.wait(1)
     end
 end
-
--- ============================================================================
---  TRIAL LOGIC SPECIFIC (FIXED LOOP)
--- ============================================================================
-
-local function checkTrial() 
-    -- Loop berjalan selama Toggle Hidup (isTrial) dan Boss Global tidak aktif
-    while isTrial and not isGlobalBossActive and not Window.Destroyed do
-        
-        -- Update data map real-time
-        local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-
-        -- 1. JIKA SUDAH KELUAR DARI TRIAL (Misal disconnect atau teleport selesai)
-        if currentMap ~= "TrialEasy" then
-            return -- Kembali ke loop utama untuk menunggu jadwal berikutnya
-        end
-
-        -- 2. CEK TARGET WAVE
-        if waveTrial >= targetWaveTrial then
-            -- [PERBAIKAN UTAMA]: Hapus 'isTrial = false' agar loop tidak mati
-            
-            Notify("Trial", "Target Wave " .. waveTrial .. " Reached! Leaving...", "check")
-            
-            -- Jika masih nyangkut setelah 10 detik, paksa teleport
-            if getgenv().PlayerData.Map == "TrialEasy" then
-                if savedPreviousMap and savedPreviousMap ~= "None" then
-                    SmartTeleport(savedPreviousMap)
-                else
-                    SmartTeleport("Trial Lobby")
-                end
-            end
-            
-            return -- Selesai run ini, kembali ke loop utama
-        end
-
-        -- 3. LOGIKA KILL MUSUH
-        local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
-        if EnemiesFolder then
-            local foundEnemy = false
-            for _, monster in pairs(EnemiesFolder:GetChildren()) do
-                if not monster:FindFirstChild("Head") or monster.Head.Transparency ~= 0 then continue end
-                
-                foundEnemy = true
-                killGamemodeGeneric(monster, function() 
-                    -- Stop kill jika: Toggle mati, Wave tercapai, atau Map berubah
-                    local currMap = getgenv().PlayerData and getgenv().PlayerData.Map
-                    return isTrial and waveTrial < targetWaveTrial and currMap == "TrialEasy"
-                end)
-                
-                if not isTrial or waveTrial >= targetWaveTrial then break end 
-                task.wait()
-            end
-            if not foundEnemy then task.wait(0.5) end
-        end
-        task.wait(0.1)
-    end
-end
-
-local function joinDungeon()
-    local isTargetTrial = false
-    local currentTime = os.date("*t")
-    
-    -- Cek Waktu (Menit 00-05 dan 30-35)
-    for i, trial in pairs(trialList) do
-        -- Kita beri toleransi waktu 5 menit untuk mencoba join
-        if (currentTime.min >= trial.time and currentTime.min < trial.time + 1) or 
-           (currentTime.min >= (trial.time + 30) % 60 and currentTime.min < ((trial.time + 30) % 60) + 1) then 
-            isTargetTrial = trial.name 
-            break 
-        end
-    end
-
-    -- Jika bukan waktunya, return (tunggu loop berikutnya)
-    if not isTargetTrial then return end
-
-    -- Simpan map asal
-    local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-    if currentMap and currentMap ~= "TrialEasy" and currentMap ~= "None" then savedPreviousMap = currentMap
-    elseif not savedPreviousMap then savedPreviousMap = "Trial Lobby" end
-
-    Notify("Trial", "Joining " .. isTargetTrial .. "...", "hourglass")
-    
-    -- Spam Join Signal
-    for i=1, 3 do
-        if not isTrial then return end
-        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
-            {"Gamemodes", isTargetTrial, "Join", n = 3}, 
-            "\2"
-        })
-        task.wait(1.5)
-        
-        -- Cek jika sudah masuk map
-        if getgenv().PlayerData.Map == "TrialEasy" then break end
-    end
-    
-    task.wait(5)
-    checkTrial() -- Masuk ke fungsi logic di dalam Trial
-end
-
-local function autoFarmDungeon()
-    while isTrial and not Window.Destroyed do 
-        local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-        
-        if currentMap == "TrialEasy" then 
-            -- Jika sudah di dalam, jalankan logic kill
-            checkTrial()
-        elseif not isGlobalBossActive and not isTransitioning then 
-            -- Jika di luar, cek jadwal dan join
-            joinDungeon() 
-        end
-        
-        task.wait(2) -- Cek status setiap 2 detik
-    end
-end
-
--- ============================================================================
---  RAID LOGIC SPECIFIC (IMPROVED)
--- ============================================================================
-
--- Helper: Cek apakah saat ini sedang dalam 5 menit pertama Trial berjalan
-local function IsTrialActiveTime()
-    local currentTime = os.date("*t")
-    local currentMin = currentTime.min
-    
-    -- Loop list trial kamu (misal trial jam xx:15 dan xx:45)
-    -- Format trialList kamu: {{name = "TrialEasy", time = 15}}
-    for _, trial in pairs(trialList) do
-        local start1 = trial.time -- Contoh: 15
-        local end1 = start1 + 5   -- Sampai: 20 (5 menit buffer)
-        
-        local start2 = (trial.time + 30) % 60 -- Contoh: 45
-        local end2 = start2 + 5               -- Sampai: 50
-        
-        -- Cek apakah menit sekarang ada di dalam rentang waktu terlarang
-        if (currentMin >= start1 and currentMin < end1) or (currentMin >= start2 and currentMin < end2) then
-            return true -- Sedang waktu Trial, jangan Raid dulu
-        end
-    end
-    return false
-end
-
--- ============================================================================
---  RAID LOGIC SPECIFIC (FIXED LOOP)
--- ============================================================================
-
-local function checkRaid() 
-    -- Loop berjalan selama Toggle Hidup (isRaid) dan Boss Global tidak aktif
-    while isRaid and not isGlobalBossActive and not Window.Destroyed do
-        
-        -- Update data map real-time agar sinkron
-        local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-
-        -- 1. JIKA SUDAH KELUAR DARI RAID (Misal disconnect atau teleport selesai)
-        if currentMap ~= "Raid" then
-            return -- Kembali ke fungsi autoFarmRaid untuk Join ulang
-        end
-
-        -- 2. CEK TARGET WAVE
-        if waveRaid >= targetWaveRaid then
-            -- JANGAN matikan isRaid (Hapus isRaid = false)
-            -- Biarkan toggle tetap ON agar loop berlanjut
-            
-            Notify("Raid", "Target Reached! Leaving & Rejoining...", "check")
-            
-            -- Jika masih nyangkut di map Raid setelah 10 detik, paksa teleport
-            if getgenv().PlayerData.Map == "Raid" then
-                if savedPreviousMap and savedPreviousMap ~= "None" then
-                    SmartTeleport(savedPreviousMap)
-                else
-                    SmartTeleport("Trial Lobby") 
-                end
-            end
-            
-            return -- Keluar dari checkRaid, biar loop utama yang urus Join lagi
-        end
-
-        -- 3. LOGIKA KILL MUSUH (Sama seperti sebelumnya)
-        local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
-        if EnemiesFolder then
-            local foundEnemy = false
-            for _, monster in pairs(EnemiesFolder:GetChildren()) do
-                if not monster:FindFirstChild("Head") or monster.Head.Transparency ~= 0 then continue end
-                
-                foundEnemy = true
-                killGamemodeGeneric(monster, function() 
-                    -- Stop kill jika: Toggle mati, Wave tercapai, atau Map berubah
-                    local currMap = getgenv().PlayerData and getgenv().PlayerData.Map
-                    return isRaid and waveRaid < targetWaveRaid and currMap == "Raid"
-                end)
-                
-                -- Break loop kill untuk cek kondisi wave lagi
-                if not isRaid or waveRaid >= targetWaveRaid then break end 
-                task.wait()
-            end
-            
-            -- Jika tidak ada musuh tapi wave belum kelar, tunggu sebentar (spawn delay)
-            if not foundEnemy then task.wait(0.5) end
-        end
-        task.wait(0.1)
-    end
-end
-
--- Logika Join Raid (Diperbarui agar lebih agresif jika punya Key)
-local function joinRaid()
-    local currentTime = os.date("*t")
-    local shouldJoin = false
-    local joinReason = ""
-
-    -- 1. CEK WAKTU TRIAL (Tetap Block jika Trial baru mulai)
-    if IsTrialActiveTime() then
-        -- Optional: Tambahkan status di UI bahwa sedang menunggu Trial
-        return 
-    end
-
-    -- 2. CEK RAID KEY (Prioritas Utama)
-    if getgenv().PlayerData and getgenv().PlayerData.Items then
-         local keys = getgenv().PlayerData.Items["Raid Key"] or 0
-         if keys > 0 then
-             shouldJoin = true
-             joinReason = "Key Available (" .. keys .. ")"
-         end
-    end
-
-    -- 3. CEK JADWAL RAID GRATIS (Backup)
-    if not shouldJoin then
-        for i, raid in pairs(raidJoinList) do
-            if raid.time == currentTime.min or (raid.time + 30) == currentTime.min then 
-                shouldJoin = true
-                joinReason = "Free Raid Time"
-                break 
-            end
-        end
-    end
-
-    -- Jika tidak memenuhi syarat, berhenti
-    if not shouldJoin then return end
-
-    -- 4. SIMPAN MAP & JOIN
-    local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-    if currentMap and currentMap ~= "Raid" and currentMap ~= "None" then savedPreviousMap = currentMap
-    elseif not savedPreviousMap then savedPreviousMap = "Trial Lobby" end 
-
-    Notify("Raid", "Joining... (" .. joinReason .. ")", "swords")
-    
-    -- Spam Sinyal Join beberapa kali biar masuk
-    for i=1, 3 do
-        if not isRaid then return end -- Cek jika user mematikan toggle tiba-tiba
-        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
-            {"Gamemodes", "Raid", "Join", n = 3}, 
-            "\2"
-        })
-        task.wait(1.5) -- Jeda antar request
-        
-        -- Cek jika sudah berhasil masuk map Raid, langsung stop spamming
-        if getgenv().PlayerData.Map == "Raid" then break end
-    end
-    
-    task.wait(3) -- Tunggu loading screen game
-end
-
-local function autoFarmRaid()
-    while isRaid and not Window.Destroyed do 
-        local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-        
-        if currentMap == "Raid" then 
-            -- Jika di dalam Raid -> Fokus Kill & Cek Wave
-            checkRaid()
-        elseif not isGlobalBossActive and not isTransitioning then 
-            -- Jika di Lobby -> Coba Join
-            joinRaid() 
-        end
-        
-        task.wait(2) -- Cek status setiap 2 detik
-    end
-end
-
-
-
 -- [UPDATED GACHA LOGIC WITH DYNAMIC CHECK & BALANCE PROTECTION]
 local function changePower(name, value)
     for _, power in pairs(powerList) do
@@ -1662,17 +1536,84 @@ FM_Add("Bosses", MainTab:Toggle({Title = "Enable Auto Boss Hunt", Desc = "Turn t
 FM_Add("Bosses", MainTab:Dropdown({Title = "Select Boss Targets", Values = BossListData, Multi = true, AllowNone = true, Flag = "GlobalBoss_Selection", Callback = function(val) selectedBosses = {} if type(val) == "table" then for _, v in ipairs(val) do table.insert(selectedBosses, (type(v)=="table" and v.Value) or v) end else selectedBosses = val end end}))
 FM_Add("Bosses", MainTab:Button({Title = "Force Start / Scan Current Map", Desc = "Manually check if a selected boss is in the current map", Icon = "swords", Callback = function() isAutoBoss = true local found = false local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies") if EnemiesFolder then for _, mob in pairs(EnemiesFolder:GetChildren()) do for _, targetName in pairs(selectedBosses) do if mob.Name == targetName then found = true isGlobalBossActive = true ExecuteKillBoss(targetName) break end end if found then break end end end if not found then Notify("System", "No selected boss found here.", "search") end end}))
 
--- GAMEMODES (Trial & Raid)
-local TrialNames = {}
-for _, t in ipairs(trialList) do
-    table.insert(TrialNames, t.name)
+-- GAMEMODES UI
+local TrialNamesList = {}
+if trialList and #trialList > 0 then 
+    for _, t in ipairs(trialList) do table.insert(TrialNamesList, t.name) end 
+else 
+    TrialNamesList = {"TrialEasy"} 
 end
-FM_Add("Gamemodes", MainTab:Dropdown({Title="Trial Selection", Values=TrialNames, Multi=true, Flag="TrialSelect_Cfg", Callback=function(v) end})) 
-FM_Add("Gamemodes", MainTab:Input({Title="Target Wave (Trial)", Value="500", Flag="WaveTarget_Cfg", Callback=function(v) targetWaveTrial = tonumber(v) or 500 end}))
-FM_Add("Gamemodes", MainTab:Toggle({Title="Auto Farm Trial", Flag="AutoTrial_Cfg", Callback=function(v) isTrial = v; if v then task.spawn(autoFarmDungeon) end end}))
 
-FM_Add("Gamemodes", MainTab:Input({Title="Target Wave (Raid)", Value="50", Flag="WaveTargetRaid_Cfg", Callback=function(v) targetWaveRaid = tonumber(v) or 50 end}))
-FM_Add("Gamemodes", MainTab:Toggle({Title="Auto Farm Raid", Flag="AutoRaid_Cfg", Callback=function(v) isRaid = v; if v then task.spawn(autoFarmRaid) end end}))
+FM_Add("Gamemodes", MainTab:Dropdown({
+    Title="Trial Type", 
+    Values=TrialNamesList, 
+    Multi=false, 
+    Default="TrialEasy", 
+    Flag="TrialSelect_Unique_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Trial then GamemodeVars.Trial.Name = v end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Input({
+    Title="Target Wave (Trial)", 
+    Value="500", 
+    Flag="WaveTarget_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Trial then GamemodeVars.Trial.TargetWave = tonumber(v) or 500 end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Toggle({
+    Title="Auto Farm Trial", 
+    Flag="AutoTrial_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Trial then 
+            GamemodeVars.Trial.Active = v
+            if v then task.spawn(function() GamemodeController("Trial") end) end 
+        end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Input({
+    Title="Target Wave (Raid)", 
+    Value="50", 
+    Flag="WaveTargetRaid_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Raid then GamemodeVars.Raid.TargetWave = tonumber(v) or 50 end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Toggle({
+    Title="Auto Farm Raid", 
+    Flag="AutoRaid_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Raid then 
+            GamemodeVars.Raid.Active = v
+            if v then task.spawn(function() GamemodeController("Raid") end) end 
+        end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Input({
+    Title="Target Wave (Eclipse)", 
+    Value="50", 
+    Flag="WaveTargetEclipse_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Eclipse then GamemodeVars.Eclipse.TargetWave = tonumber(v) or 50 end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Toggle({
+    Title="Auto Farm Eclipse", 
+    Flag="AutoEclipse_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Eclipse then 
+            GamemodeVars.Eclipse.Active = v
+            if v then task.spawn(function() GamemodeController("Eclipse") end) end 
+        end 
+    end
+}))
 
 -- ============================================================================
 --  TRIAL UPGRADES (DYNAMIC SYSTEM - 2 PER GROUP & PERKS INFO)
@@ -2536,7 +2477,7 @@ task.spawn(function()
     while not Window.Destroyed do
         local pData = getgenv().PlayerData
         local currentMap = pData and pData.Map
-        local isGamemode = (currentMap == "TrialEasy") or (currentMap == "Raid")
+        local isGamemode = IsInGamemode()
         
         -- [KONDISI STOP/PAUSE]
         if targetStar == "None" then
