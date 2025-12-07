@@ -157,30 +157,8 @@ local function SendWebhook(title, description, color)
                     Body = jsonData
                 })
             end)
+        end)
     end
-end
-
--- [WEBHOOK: WORLD UPGRADE]
-local function SendWorldUpgradeWebhook(mapName, upgradeType, level)
-    local pName = game.Players.LocalPlayer.Name
-    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
-    
-    local desc = "User: " .. censoredName .. "\n" ..
-                    "Map: **" .. mapName .. "**\n" ..
-                    "Upgrade: **" .. upgradeType .. "** (Lvl " .. level .. ")"
-    
-    SendWebhook("🌍 World Upgrade Upgraded!", desc, 39423)
-end
-
--- [WEBHOOK: TRIAL UPGRADE]
-local function SendTrialUpgradeWebhook(upgradeName, level)
-    local pName = game.Players.LocalPlayer.Name
-    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
-    
-    local desc = "User: " .. censoredName .. "\n" ..
-                    "Upgrade: **" .. upgradeName .. "** (Lvl " .. level .. ")"
-    
-    SendWebhook("⚡ Trial Upgrade Purchased!", desc, 16776960)
 end
 
 -- [UI LIBRARY]
@@ -1835,10 +1813,6 @@ task.spawn(function()
                             "\2"
                         })
                         myBalance = myBalance - currentPrice
-                        
-                        -- [WEBHOOK] Send Log
-                        SendTrialUpgradeWebhook(upgradeName, currentLvl + 1)
-
                         task.wait(0.1)
                     end
                 end
@@ -1926,8 +1900,23 @@ WUCoinsToggle = FM_Add("World Upgrade", MainTab:Toggle({
     end
 }))
 
+local function SendWorldUpgradeWebhook(mapName, typeStr, lvl)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local titleText = "🌍 World Upgrade Upgraded!"
+    local desc = "User: " .. censoredName .. "\n" ..
+                 "Map: **" .. mapName .. "**\n" ..
+                 "Upgrade: **" .. typeStr .. "**\n" ..
+                 "New Level: **" .. lvl .. "**"
+    
+    SendWebhook(titleText, desc, 65280) -- Warna Hijau
+end
+
 -- 5. Loop Logic World Upgrade (Updated: Remove Current Map Logic)
 task.spawn(function()
+    local lastWULogs = {} -- Tracker untuk menghindari spam webhook
+
     while not Window.Destroyed do
         local targetMap = wu_SelectedMap
         local pData = getgenv().PlayerData
@@ -1958,9 +1947,13 @@ task.spawn(function()
                                     ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "WorldUpgrades", "Upgrade", targetMap, typeStr, n = 5}, "\2"})
                                     myCoins = myCoins - price 
                                     
-                                    -- [WEBHOOK] Send Log
-                                    SendWorldUpgradeWebhook(targetMap, typeStr, nextLvl)
-                                    
+                                    -- [WEBHOOK LOGIC]
+                                    local key = targetMap .. "_" .. typeStr
+                                    if lastWULogs[key] ~= nextLvl then
+                                        SendWorldUpgradeWebhook(targetMap, typeStr, nextLvl)
+                                        lastWULogs[key] = nextLvl
+                                    end
+
                                     task.wait(0.1) 
                                 end
                             end
@@ -3029,32 +3022,6 @@ local function SendEnchantWebhook(swordName, oldLvl, newLvl, rarity)
                     "Level: **" .. oldLvl .. "** ➡️ **" .. newLvl .. "**"
 
     SendWebhook("⚔️ Sword Enchanted!", desc, embedColor)
-end
-
--- [NEW] Webhook World Upgrade
-local function SendWorldUpgradeWebhook(mapName, upgradeType, level)
-    local pName = game.Players.LocalPlayer.Name
-    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
-    
-    local desc = "User: " .. censoredName .. "\n" ..
-                    "Map: **" .. mapName .. "**\n" ..
-                    "Upgrade: **" .. upgradeType .. "** (Lvl " .. level .. ")"
-    
-    -- Warna Biru Muda
-    SendWebhook("🌍 World Upgrade Upgraded!", desc, 39423)
-end
-
--- [NEW] Webhook Trial Upgrade
-local function SendTrialUpgradeWebhook(upgradeType, level)
-    local pName = game.Players.LocalPlayer.Name
-    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
-    
-    local desc = "User: " .. censoredName .. "\n" ..
-                    "Type: **" .. upgradeType .. "**\n" ..
-                    "New Level: **" .. level .. "**"
-    
-    -- Warna Merah Gelap (Trial)
-    SendWebhook("🔥 Trial Upgrade Upgraded!", desc, 10038562)
 end
 
 -- 1. Setup Dynamic Database
