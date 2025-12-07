@@ -3196,6 +3196,31 @@ task.spawn(function()
                     lastKnownLevel = currentLevel -- Update tracker
                 end
                 
+                -- [REALTIME UPDATE] Update Visual Dropdown Enchant (Icon & Gradient)
+                if EnchantDropdown and EnchantDropdown.SetMainImage then
+                    local sName = swordData.Name
+                    local sRarity = swordData.Rarity or "Common"
+                    local iconId = "rbxassetid://84366761557806"
+                    if GlobalSwordDB and GlobalSwordDB[sName] then iconId = GlobalSwordDB[sName].Icon end
+                    
+                    local gradientObj = nil
+                    if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                        local colors = GlobalGradientDB:GetRarityColor(sRarity)
+                        if colors and colors.Base and colors.Wave then
+                            gradientObj = ColorSequence.new{
+                                ColorSequenceKeypoint.new(0, colors.Base),
+                                ColorSequenceKeypoint.new(1, colors.Wave)
+                            }
+                        end
+                    end
+
+                    if gradientObj then
+                        EnchantDropdown:SetMainImage({Image = iconId, Gradient = gradientObj}, 50)
+                    else
+                        EnchantDropdown:SetMainImage(iconId)
+                    end
+                end
+
                 -- Update Info Status UI
                 local nextLevelData = EnchantmentDB[currentLevel + 1]
                 local currentLevelData = EnchantmentDB[currentLevel] or EnchantmentDB[0]
