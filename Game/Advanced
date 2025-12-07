@@ -1015,20 +1015,6 @@ local function checkTrial()
             
             Notify("Trial", "Target Wave " .. waveTrial .. " Reached! Leaving...", "check")
             
-            -- Kirim sinyal Leave (Sesuai Decompile)
-            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
-                {"Gamemodes", "TrialEasy", "Leave", n = 3}, 
-                "\2"
-            })
-            
-            -- Tunggu proses pindah map
-            local waitTime = 0
-            repeat 
-                task.wait(1)
-                waitTime = waitTime + 1
-                local checkMap = getgenv().PlayerData and getgenv().PlayerData.Map
-            until checkMap ~= "TrialEasy" or waitTime > 3
-            
             -- Jika masih nyangkut setelah 10 detik, paksa teleport
             if getgenv().PlayerData.Map == "TrialEasy" then
                 if savedPreviousMap and savedPreviousMap ~= "None" then
@@ -1169,17 +1155,6 @@ local function checkRaid()
             -- Biarkan toggle tetap ON agar loop berlanjut
             
             Notify("Raid", "Target Reached! Leaving & Rejoining...", "check")
-            
-            -- Kirim sinyal Leave
-            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"Gamemodes", "Raid", "Leave", n = 3}, "\2"})
-            
-            -- Tunggu sampai benar-benar pindah map (Max wait 10 detik agar tidak stuck)
-            local waitTime = 0
-            repeat 
-                task.wait(1)
-                waitTime = waitTime + 1
-                local checkMap = getgenv().PlayerData and getgenv().PlayerData.Map
-            until checkMap ~= "Raid" or waitTime > 3
             
             -- Jika masih nyangkut di map Raid setelah 10 detik, paksa teleport
             if getgenv().PlayerData.Map == "Raid" then
