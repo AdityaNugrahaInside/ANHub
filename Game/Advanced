@@ -732,109 +732,118 @@ ReplicatedStorage.BridgeNet2.dataRemoteEvent.OnClientEvent:Connect(function(data
 end)
 
 -- ============================================================================
---  FARMING LOGIC (FINAL: ANTI-FLOAT + GAMEMODE SAFE + LEG DETECTION)
+--  FARMING LOGIC (ANTI-FLOAT FIX + LEG DETECTION)
 -- ============================================================================
 
--- [HELPER PENTING] Cek Status Gamemode
+-- Helper: Cek apakah kita sedang di Map Gamemode
 local function IsInGamemode()
     local cm = getgenv().PlayerData and getgenv().PlayerData.Map
     return (cm == "TrialEasy") or (cm == "Raid") or (cm == "EclipseDefense")
 end
 
--- [HELPER] Cari Posisi Tanah Berdasarkan Kaki Musuh
-local function GetEnemyGroundLevel(monster)
-    local leg = monster:FindFirstChild("Left Leg") or monster:FindFirstChild("Right Leg") or 
-                monster:FindFirstChild("LeftFoot") or monster:FindFirstChild("RightFoot") or
-                monster:FindFirstChild("LeftLowerLeg") or monster:FindFirstChild("RightLowerLeg")
-
-    if leg then
-        return leg.Position.Y - (leg.Size.Y / 2)
-    end
-    
-    local hrp = monster:FindFirstChild("HumanoidRootPart")
-    if hrp then return hrp.Position.Y - 2.5 end
-    return nil
-end
-
--- [1. FUNGSI KILL (LOBBY/WORLD FARM)]
-local function kill(monster, realEnemyName)
+local function kill(monster)
     local head = monster:FindFirstChild("Head")
+    -- Kita butuh HumanoidRootPart untuk arah hadap yang stabil
     local enemyRoot = monster:FindFirstChild("HumanoidRootPart") or monster:FindFirstChild("Head")
     
     if not head or not enemyRoot then return end
     
+    -- [1] Hitung Tinggi Badan Karakter Kita
+    -- HipHeight = Jarak kaki ke pinggang. hrp.Size.Y/2 = Jarak pinggang ke tengah badan.
     local myHip = humanoid.HipHeight
-    if myHip == 0 then myHip = 2 end
+    if myHip == 0 then myHip = 2 end -- Default R6
     local myHeightOffset = myHip + (hrp.Size.Y / 2)
 
+    -- Loop Kill
     while isFarm1 and not isGlobalBossActive and not isTransitioning and not Window.Destroyed do 
-        -- [PENGAMAN] Stop farming jika tiba-tiba masuk Gamemode
         if IsInGamemode() then break end
 
-        -- Validasi
-        if not head or head.Transparency ~= 0 or not monster.Parent then break end
+        -- Validasi Musuh
+        if not head or head.Transparency ~= 0 then break end
         if not character or not hrp then break end 
-        
-        -- Cek Target
+        if not monster.Parent then break end
+
+        -- Cek apakah target masih valid (User tidak uncheck)
         local isStillWanted = false
-        if realEnemyName then
-            for _, target in pairs(targetList) do
-                if target == realEnemyName then isStillWanted = true break end
-            end
-        else
-            isStillWanted = true 
+        local mName = monster:GetAttribute("CustomEnemyType") or monster:GetAttribute("ID") or monster.Name
+        for _, target in pairs(targetList) do
+             if mName == target or monster.Name == target then isStillWanted = true break end
         end
         if not isStillWanted then break end
 
-        -- [POSISI] Ikuti Kaki Musuh (Anti Melayang)
-        local combatDistance = 5 + (enemyRoot.Size.Z/2) -- Jarak Dinamis
-        local backPosCFrame = enemyRoot.CFrame * CFrame.new(0, 0, combatDistance)
-        local enemyFloorY = GetEnemyGroundLevel(monster)
+        -- [2] LOGIKA POSISI (ANTI MELAYANG)
+        -- A. Cari Posisi Lantai Musuh (Cek Kakinya)
+        local enemyFloorY = enemyRoot.Position.Y - 2.5 -- Fallback default jika kaki tidak ketemu
         
-        local finalY = (enemyFloorY or enemyRoot.Position.Y) + myHeightOffset
+        local leg = monster:FindFirstChild("Left Leg") or monster:FindFirstChild("Right Leg") or 
+                    monster:FindFirstChild("LeftFoot") or monster:FindFirstChild("RightFoot") or
+                    monster:FindFirstChild("LeftLowerLeg") or monster:FindFirstChild("RightLowerLeg")
+        
+        if leg then 
+            -- Posisi Kaki - Setengah Tinggi Kaki = Lantai
+            enemyFloorY = leg.Position.Y - (leg.Size.Y / 2)
+        end
 
+        -- B. Hitung Posisi Akhir (Di Belakang Musuh)
+        local combatDistance = 5 
+        local backPosCFrame = enemyRoot.CFrame * CFrame.new(0, 0, combatDistance)
+        
+        -- Gabungkan: X/Z dari Belakang Musuh, Y dari Lantai Kaki + Tinggi Kita
+        local finalPosition = Vector3.new(backPosCFrame.X, enemyFloorY + myHeightOffset, backPosCFrame.Z)
+        
+        -- C. Teleport & Hadapkan ke Musuh
         if hrp then 
-            local finalPos = Vector3.new(backPosCFrame.X, finalY, backPosCFrame.Z)
-            local lookAtPos = Vector3.new(enemyRoot.Position.X, finalY, enemyRoot.Position.Z)
-            hrp.CFrame = CFrame.new(finalPos, lookAtPos)
+            -- LookAt: Posisi kita, melihat ke arah HRP musuh (tapi Y nya disamakan biar badan tegak)
+            local lookAtPos = Vector3.new(enemyRoot.Position.X, finalPosition.Y, enemyRoot.Position.Z)
+            hrp.CFrame = CFrame.new(finalPosition, lookAtPos)
         end
         
+        -- [3] KIRIM SINYAL SERANG (WAJIB ADA)
+        local EnemyID = monster:GetAttribute("ID")
+        if EnemyID and OmniRef and OmniRef.Signal then
+            OmniRef.Signal:Fire("General", "Attack", "Click", {EnemyID})
+        end
+
+        -- Cek Jarak
         if getDistance(hrp, monster) > distance then return end
-        task.wait() 
+        
+        task.wait()
     end
 end
 
--- [2. FUNGSI CHECK (SCANNER)]
 local function check()
-    -- Jangan scan musuh biasa jika sedang di Gamemode (karena Gamemode punya controllernya sendiri)
-    if IsInGamemode() then return end
-    ScanPlayerData()
+    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
+    if not EnemiesFolder then return end
+    
+    for _, monster in pairs(EnemiesFolder:GetChildren()) do
+        if isTransitioning or isGlobalBossActive or IsInGamemode() then break end
+        
+        if not monster:FindFirstChild("Head") or monster.Head.Transparency ~= 0 then continue end
+        if not hrp then task.wait() continue end
+        if getDistance(hrp, monster) >= distance then continue end
 
-    for id, data in pairs(getgenv().EnemiesData) do
-        if data.Health and data.Health > 0 and (data.Model or data.Instance) then
-            local monsterModel = data.Model or data.Instance
-            local realName = (data.Info and data.Info.Name) or "Unknown"
-
-            for _, target in ipairs(targetList) do
-                if target == realName then
-                    if monsterModel:FindFirstChild("Head") then
-                        if not monsterModel:GetAttribute("ID") then
-                            monsterModel:SetAttribute("ID", id)
-                        end
-                        kill(monsterModel, realName) 
-                        return 
-                    end
+        local mName = monster:GetAttribute("CustomEnemyType") or monster:GetAttribute("ID") or monster.Name
+        
+        for _, target in ipairs(targetList) do
+            if (target == mName or target == monster.Name) then
+                -- Ambil ID dari Data Server jika di workspace tidak ada (Opsional untuk akurasi attack)
+                if not monster:GetAttribute("ID") and getgenv().EnemiesData then
+                     for id, d in pairs(getgenv().EnemiesData) do
+                        if d.Model == monster then monster:SetAttribute("ID", id) break end
+                     end
                 end
+                
+                kill(monster)
+                break
             end
         end
     end
 end
 
--- [LOOP UTAMA]
+-- Loop Utama Farm
 task.spawn(function()
     while not Window.Destroyed do
-        -- Cek kondisi global: Jika Boss aktif, Transisi, atau Gamemode -> PAUSE FARM
-        if (isFarm1 == false) or isGlobalBossActive or isTransitioning or IsInGamemode() then 
+        if (isFarm1 == false) or isGlobalBossActive or isTransitioning == true or IsInGamemode() then 
             task.wait(1)
             continue
         end
