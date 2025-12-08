@@ -1833,6 +1833,7 @@ LoadDefenseData();
 local function LogicGamemodes()
     local wasInGamemode = false;
     local currentTargetObj = nil;
+    local lastTeleportedUid = nil;
     local hasTeleportedToBossInRaid = false;
     
     local hrp = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
@@ -1846,244 +1847,244 @@ local function LogicGamemodes()
         end
 
         local currentMap = GetCurrentMapStatus();
-        
-        -- Deteksi apakah kita berada di Lobby Dungeon (Zona Aman)
         local inLobbyZone = false;
+        
+        -- Cek Lobby Dungeon
         if Workspace:FindFirstChild("Zones") and Workspace.Zones:FindFirstChild("Dungeon") then
             if isPlayerInZone(Workspace.Zones.Dungeon) then
                 inLobbyZone = true;
             end;
         end;
 
-        -- [MODIFIKASI 1: DETEKSI FIGHTING ZONE YANG LEBIH KUAT]
-        -- Kita cek langsung apakah Foldernya ada di Workspace agar tidak salah deteksi saat jeda wave Defense
-        local isFightingZone = false
+        -- Deteksi Mode Bertarung
+        local EnemiesFolder = Workspace:FindFirstChild("Enemies")
+        local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
+        local isFightingZone = string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate");
         
-        if Workspace:FindFirstChild("Raid") or 
-           Workspace:FindFirstChild("Defense") or 
-           Workspace:FindFirstChild("PirateTower") or 
-           Workspace:FindFirstChild("ShadowGate") then
-            isFightingZone = true
-        elseif Workspace:FindFirstChild("Dungeon") and not inLobbyZone then
-            -- Khusus Dungeon, pastikan bukan Lobby
-            isFightingZone = true
+        if currentMap == "Raid" then isFightingZone = true 
+        elseif currentMap == "Defense" then isFightingZone = hasEnemies
+        elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
         end
 
-        -- Fallback ke logika lama jika folder tidak terdeteksi tapi nama map mengandung ":"
-        if not isFightingZone and string.find(currentMap, ":") then
-            isFightingZone = true
-        end
+        if currentMap ~= "Unknown" then
+            if isFightingZone then
+                -- [LOGIKA SAAT BERTARUNG]
+                wasInGamemode = true;
 
-        -- [MODIFIKASI 2: LOGIKA PENYIMPANAN MAP TERAKHIR]
-        -- Simpan LastZone hanya jika kita murni farming biasa (Bukan di Gamemode, Bukan di Lobby)
-        if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") and currentMap ~= "Dungeon" then
-            LastZone = currentMap
-        end
-
-        if isFightingZone then
-            -- [A. SEDANG BERTARUNG DALAM GAMEMODE]
-            wasInGamemode = true;
-
-            -- Lock Target Logic
-            local isTargetStillAlive = false
-            if currentTargetObj then
-                if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
-                    local data = currentTargetObj.Data
-                    local hp = (data and data.Health) or 0
-                    local aliveFlag = currentTargetObj.Alive
-                    if aliveFlag == true and hp > 0 then
-                        isTargetStillAlive = true
-                    end
-                end
-            end
-
-            if not isTargetStillAlive then
-                currentTargetObj = nil
-            end
-
-            if not currentTargetObj and hrp and MainController and MainController.Enemies then
-                local isRaid = Workspace:FindFirstChild("Raid")
-                local isPriorityMode = Workspace:FindFirstChild("Dungeon") or Workspace:FindFirstChild("Defense") or Workspace:FindFirstChild("PirateTower") or Workspace:FindFirstChild("ShadowGate")
-                
-                local validEnemies = {}
-                local myPos = hrp.Position
-
-                for _, enemyData in pairs(MainController.Enemies) do
-                    if enemyData.Alive and enemyData.Root and enemyData.Data then
-                        local hp = enemyData.Data.Health or 0
-                        -- Filter jarak agar tidak target musuh bug di void
-                        if hp > 0 and (enemyData.Root.Position - myPos).Magnitude < 10000 then
-                            table.insert(validEnemies, enemyData)
+                -- Lock Target Logic
+                local isTargetStillAlive = false
+                if currentTargetObj then
+                    if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
+                        local data = currentTargetObj.Data
+                        local hp = (data and data.Health) or 0
+                        local aliveFlag = currentTargetObj.Alive
+                        if aliveFlag == true and hp > 0 then
+                            isTargetStillAlive = true
                         end
                     end
                 end
 
-                if #validEnemies > 0 then
-                    if isRaid then
-                        -- RAID Logic (Boss First)
-                        local bossFound = nil
-                        for _, enemy in ipairs(validEnemies) do
-                            local config = rawget(enemy, "Config")
-                            if config and config.Difficult == "Emperor" then
-                                bossFound = enemy
-                                break
+                if not isTargetStillAlive then
+                    currentTargetObj = nil
+                end
+
+                if not currentTargetObj and hrp and MainController and MainController.Enemies then
+                    local isRaid = string.find(currentMap, "Raid")
+                    local isPriorityMode = string.find(currentMap, "Dungeon") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate"
+                    
+                    local validEnemies = {}
+                    local myPos = hrp.Position
+
+                    for _, enemyData in pairs(MainController.Enemies) do
+                        if enemyData.Alive and enemyData.Root and enemyData.Data then
+                            local hp = enemyData.Data.Health or 0
+                            if hp > 0 and (enemyData.Root.Position - myPos).Magnitude < 10000 then
+                                table.insert(validEnemies, enemyData)
                             end
                         end
-                        
-                        if bossFound then
-                            currentTargetObj = bossFound
-                            if not hasTeleportedToBossInRaid then
-                                pcall(function()
-                                    hrp.CFrame = bossFound.Root.CFrame * CFrame.new(0, 5, 2)
+                    end
+
+                    if #validEnemies > 0 then
+                        if isRaid then
+                            -- RAID Logic
+                            local bossFound = nil
+                            for _, enemy in ipairs(validEnemies) do
+                                local config = rawget(enemy, "Config")
+                                if config and config.Difficult == "Emperor" then
+                                    bossFound = enemy
+                                    break
+                                end
+                            end
+                            
+                            if bossFound then
+                                currentTargetObj = bossFound
+                                if not hasTeleportedToBossInRaid then
+                                    pcall(function()
+                                        hrp.CFrame = bossFound.Data.CFrame * CFrame.new(0, 5, 2)
+                                    end)
+                                    hasTeleportedToBossInRaid = true
+                                end
+                            else
+                                table.sort(validEnemies, function(a, b)
+                                    return (a.Root.Position - myPos).Magnitude < (b.Root.Position - myPos).Magnitude
                                 end)
-                                hasTeleportedToBossInRaid = true
+                                currentTargetObj = validEnemies[1]
                             end
-                        else
+
+                        elseif isPriorityMode then
+                            -- Priority Logic (HP Terendah)
                             table.sort(validEnemies, function(a, b)
-                                return (a.Root.Position - myPos).Magnitude < (b.Root.Position - myPos).Magnitude
+                                local hpA = (a.Data and a.Data.MaxHealth) or math.huge
+                                local hpB = (b.Data and b.Data.MaxHealth) or math.huge
+                                return hpA < hpB
                             end)
                             currentTargetObj = validEnemies[1]
                         end
-
-                    elseif isPriorityMode then
-                        -- OTHERS Logic (Lowest HP First)
-                        table.sort(validEnemies, function(a, b)
-                            local hpA = (a.Data and a.Data.MaxHealth) or math.huge
-                            local hpB = (b.Data and b.Data.MaxHealth) or math.huge
-                            return hpA < hpB
-                        end)
-                        currentTargetObj = validEnemies[1]
                     end
                 end
-            end
 
-            -- Attack Execution
-            if currentTargetObj and currentTargetObj.Root then
-                pcall(function()
-                    local enemyCFrame = currentTargetObj.Root.CFrame
-                    local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
-                    hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
-                    if hrp.AssemblyLinearVelocity.Magnitude > 0 then
-                        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                    end
-                end)
-            end
-            task.wait()
+                -- Attack Execution
+                if currentTargetObj and currentTargetObj.Root then
+                    pcall(function()
+                        local enemyCFrame = currentTargetObj.Data.CFrame
+                        local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
+                        hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
+                        if hrp.AssemblyLinearVelocity.Magnitude > 0 then
+                            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                        end
+                    end)
+                end
+                task.wait()
 
-        elseif wasInGamemode then
-            -- [B. SELESAI MATCH / KELUAR DARI MODE]
-            -- MODIFIKASI: Menghapus syarat "inLobbyZone".
-            -- Logika: Jika sebelumnya main (wasInGamemode=true) DAN sekarang TIDAK di fighting zone (isFightingZone=false),
-            -- Maka kita pasti sudah keluar/selesai. Langsung trigger Teleport.
-            
-            currentTargetObj = nil;
-            hasTeleportedToBossInRaid = false;
-            
-            if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
-                Notify("Mode Finished", "Returning to " .. LastZone, "map-pin");
-                if Reliable then
-                    pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end);
-                end;
-                wasInGamemode = false;
+            elseif inLobbyZone and wasInGamemode and (not isFightingZone) then
+                -- [LOGIKA KEMBALI KE LOBBY]
+                currentTargetObj = nil;
+                hasTeleportedToBossInRaid = false;
                 
-                -- Tunggu sebentar sampai teleportasi benar-benar terjadi
-                task.wait(6); 
+                if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
+                    Notify("Mode Finished", "Returning to " .. LastZone, "map-pin");
+                    if Reliable then
+                        pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end);
+                    end;
+                    wasInGamemode = false;
+                    task.wait(6);
+                else
+                    wasInGamemode = false;
+                end;
             else
-                -- Jika LastZone tidak valid, reset status saja biar tidak nyangkut
-                wasInGamemode = false;
-            end;
-        else
-            -- [C. AUTO JOIN / SCANNING]
-            local t = os.date("*t");
-            local currentMinute = t.min;
-            local targetString, targetName = nil, "";
+                -- [LOGIKA AUTO JOIN / OPEN GAMEMODE]
+                local t = os.date("*t");
+                local currentMinute = t.min;
+                local targetString, targetName = nil, "";
 
-            -- 1. KEY MODES (Pirate & Shadow)
-            local function CheckAndSetKeyMode(modeName, keyName, configTable)
-                if not targetString and configTable and #configTable > 0 then
-                    local isOpen = false
-                    if MainController and MainController.IsJoinable then
-                        isOpen = MainController.IsJoinable(modeName)
-                    end
-
-                    if isOpen then
-                        targetString = modeName
-                        targetName = modeName .. " (Public/Open)"
-                    else
-                        local pData = getgenv().PlayerData
-                        local keyCount = (pData and pData.Materials and pData.Materials[keyName]) or 0
+                -- =============================================
+                -- 1. CEK KEY MODES (Pirate Tower & Shadow Gate)
+                -- =============================================
+                
+                local function CheckAndSetKeyMode(modeName, keyName, configTable)
+                    if not targetString and configTable and #configTable > 0 then
                         
-                        if keyCount > 0 then
-                            if Reliable then
-                                pcall(function()
-                                    Reliable:FireServer("Open Gamemode", { modeName });
-                                end)
-                            end
+                        -- [MODIFIKASI] Cek IsJoinable via MainController
+                        -- IsJoinable return: (boolean, timeLeft)
+                        local isOpen = false
+                        if MainController and MainController.IsJoinable then
+                            isOpen = MainController.IsJoinable(modeName)
+                        end
+
+                        if isOpen then
+                            -- KASUS 1: Sesi Aktif (Timer masih jalan) -> Join Gratis
                             targetString = modeName
-                            targetName = modeName .. " (New Session)"
+                            targetName = modeName .. " (Public/Open)"
+                        else
+                            -- KASUS 2: Sesi Tutup -> Cek Key -> Buka Baru
+                            local pData = getgenv().PlayerData
+                            local keyCount = (pData and pData.Materials and pData.Materials[keyName]) or 0
+                            
+                            if keyCount > 0 then
+                                if Reliable then
+                                    pcall(function()
+                                        Reliable:FireServer("Open Gamemode", { modeName });
+                                    end)
+                                end
+                                targetString = modeName
+                                targetName = modeName .. " (New Session)"
+                            end
                         end
                     end
                 end
-            end
 
-            CheckAndSetKeyMode("PirateTower", "PirateTowerModeKey", Config.TargetPirateTower)
-            CheckAndSetKeyMode("ShadowGate", "ShadowPortalModeKey", Config.TargetShadowGate)
-
-            -- 2. TIME MODES
-            if not targetString and Config.TargetDungeon then
-                for _, dName in pairs(Config.TargetDungeon) do
-                    local data = dungeonDB[dName];
-                    if data and currentMinute == data.Time then
-                        targetString = "Dungeon:" .. tostring(data.ID);
-                        targetName = dName;
-                        break;
-                    end;
-                end;
-            end;
-
-            if not targetString and Config.TargetRaid then
-                for _, rName in pairs(Config.TargetRaid) do
-                    local data = raidDB[rName];
-                    if data and data.Times then
-                        for _, timeVal in ipairs(data.Times) do
-                            if currentMinute == timeVal then
-                                targetString = "Raid:" .. tostring(data.ID);
-                                targetName = rName;
-                                break;
-                            end;
-                        end;
-                    end;
-                    if targetString then break end;
-                end;
-            end;
-
-            if not targetString and Config.TargetDefense then
-                for _, dName in pairs(Config.TargetDefense) do
-                    local data = defenseDB[dName];
-                    if data and data.Times then
-                        for _, timeVal in ipairs(data.Times) do
-                            if currentMinute == timeVal then
-                                targetString = "Defense:" .. tostring(data.ID);
-                                targetName = dName;
-                                break;
-                            end;
-                        end;
-                    end;
-                    if targetString then break end;
-                end;
-            end;
-
-            -- 3. EKSEKUSI JOIN
-            if targetString then
-                Notify("Auto Mode", "Joining " .. targetName, "swords");
+                -- Cek Pirate Tower
+                CheckAndSetKeyMode("PirateTower", "PirateTowerModeKey", Config.TargetPirateTower)
                 
-                if Reliable then
-                    pcall(function()
-                        Reliable:FireServer("Join Gamemode", { targetString });
-                    end);
-                end
-                task.wait(5); 
+                -- Cek Shadow Gate
+                CheckAndSetKeyMode("ShadowGate", "ShadowPortalModeKey", Config.TargetShadowGate)
+
+                -- =============================================
+                -- 2. CEK TIME MODES (Dungeon, Raid, Defense)
+                -- =============================================
+                if not targetString and Config.TargetDungeon then
+                    for _, dName in pairs(Config.TargetDungeon) do
+                        local data = dungeonDB[dName];
+                        if data and currentMinute == data.Time then
+                            targetString = "Dungeon:" .. tostring(data.ID);
+                            targetName = dName;
+                            break;
+                        end;
+                    end;
+                end;
+
+                if not targetString and Config.TargetRaid then
+                    for _, rName in pairs(Config.TargetRaid) do
+                        local data = raidDB[rName];
+                        if data and data.Times then
+                            for _, timeVal in ipairs(data.Times) do
+                                if currentMinute == timeVal then
+                                    targetString = "Raid:" .. tostring(data.ID);
+                                    targetName = rName;
+                                    break;
+                                end;
+                            end;
+                        end;
+                        if targetString then break end;
+                    end;
+                end;
+
+                if not targetString and Config.TargetDefense then
+                    for _, dName in pairs(Config.TargetDefense) do
+                        local data = defenseDB[dName];
+                        if data and data.Times then
+                            for _, timeVal in ipairs(data.Times) do
+                                if currentMinute == timeVal then
+                                    targetString = "Defense:" .. tostring(data.ID);
+                                    targetName = dName;
+                                    break;
+                                end;
+                            end;
+                        end;
+                        if targetString then break end;
+                    end;
+                end;
+
+                -- =============================================
+                -- 3. EKSEKUSI JOIN
+                -- =============================================
+                if targetString then
+                    if not string.find(currentMap, "Dungeon") and (not string.find(currentMap, "Raid")) and (not string.find(currentMap, "Defense")) and currentMap ~= "PirateTower" and currentMap ~= "ShadowGate" then
+                        LastZone = currentMap;
+                    end;
+                    
+                    Notify("Auto Mode", "Joining " .. targetName, "swords");
+                    
+                    if Reliable then
+                        pcall(function()
+                            Reliable:FireServer("Join Gamemode", { targetString });
+                        end);
+                    end;
+                    task.wait(5); 
+                end;
+                task.wait(1);
             end;
+        else
             task.wait(1);
         end;
     end;
