@@ -128,6 +128,10 @@ local RollConfigs = {};
 local LastEnemyScanTime = 0;
 local LastEnemyChildCount = 0;
 local AllRollTypes = {};
+-- [METEOR VARIABLES]
+local IsMeteorEventActive = false
+local MeteorTargetZone = nil -- Variable baru untuk menyimpan nama map meteor
+local MeteorQueue = {}
 local function GetMaxItemCount(rollType)
     local config = RollConfigs[rollType]
     -- Cek di module Gacha biasa
@@ -918,89 +922,123 @@ local function LogicAutoFarm()
     while Config.AutoFarm do
         if Window.Destroyed then break end
         
-        -- 1. Validasi Karakter Sendiri (Apakah kita mati/respawn?)
-        if not hrp or not hrp.Parent or not humanoid or humanoid.Health <= 0 then
-            currentTargetObj = nil -- Lepas target jika kita mati
-            local char = LocalPlayer.Character
-            if char then
-                hrp = char:FindFirstChild("HumanoidRootPart")
-                humanoid = char:FindFirstChild("Humanoid")
-            end
-            task.wait(1)
-        else
-            -- 2. Cek Status Target Saat Ini (STRICT CHECK)
-            local isTargetStillAlive = false
-
-            if currentTargetObj then
-                -- Cek Fisik: Apakah Model dan RootPart masih ada di workspace?
-                if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
-                    -- Cek Data Game: Apakah Status Alive True DAN HP > 0?
-                    local data = currentTargetObj.Data
-                    local hp = (data and data.Health) or 0
-                    local aliveFlag = currentTargetObj.Alive
-
-                    if aliveFlag == true and hp > 0 then
-                        isTargetStillAlive = true
+        -- [LOGIKA 1: CEK METEOR EVENT]
+        if Config.AutoMeteor and IsMeteorEventActive and MeteorTargetZone then
+            
+            -- [CEK ZONE: APAKAH KITA DI MAP YANG BENAR?]
+            if CurrentZoneName ~= MeteorTargetZone then
+                -- Jika beda map, lakukan Zone Teleport DULU
+                if not IsTeleporting then
+                    Notify("Meteor", "Warping to " .. tostring(MeteorTargetZone), "map-pin")
+                    if Reliable then
+                        pcall(function()
+                            Reliable:FireServer("Zone Teleport", { MeteorTargetZone })
+                        end)
                     end
+                    -- Tunggu sebentar agar tidak spam request (IsTeleporting akan dihandle oleh Listener "Do Teleport")
+                    task.wait(3) 
+                end
+                -- Jangan lanjut ke kode bawah, tunggu sampai pindah map selesai
+                task.wait(0.5)
+            
+            else
+                -- [SUDAH DI MAP YANG BENAR: LANJUT KE LOGIKA METEOR]
+                if #MeteorQueue > 0 then
+                    local targetMet = MeteorQueue[1]
+                    
+                    -- Tunggu meteor mendarat (Durasi jatuh ~4.5 - 5 detik)
+                    if os.time() - targetMet.Time >= 4.5 then
+                        if hrp then
+                            pcall(function()
+                                -- CFrame Teleport ke Posisi Meteor
+                                hrp.CFrame = CFrame.new(targetMet.Pos + Vector3.new(0, 3, 0))
+                                
+                                if hrp.AssemblyLinearVelocity.Magnitude > 0 then
+                                    hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                                end
+                            end)
+                            
+                            -- Jarak dekat? Hapus antrian
+                            if (hrp.Position - targetMet.Pos).Magnitude < 15 then
+                                task.wait(1.5) 
+                                table.remove(MeteorQueue, 1) 
+                            end
+                        end
+                    else
+                        task.wait(0.1)
+                    end
+                else
+                    task.wait(0.5)
                 end
             end
-
-            -- Jika target sudah mati/hilang, hapus dari memori agar bisa cari baru
-            if not isTargetStillAlive then
-                currentTargetObj = nil
-            end
-
-            -- 3. Cari Target Baru (Hanya jalan jika currentTargetObj KOSONG)
-            if not currentTargetObj then
-                local targetName = Config.SelectedEnemy
-                
-                if targetName and GlobalEnemyMap[targetName] then
-                    local enemyList = GlobalEnemyMap[targetName]
-                    local closestEnemy = nil
-                    local minDistance = math.huge
-                    local myPos = hrp.Position
-                    
-                    for _, enemyObj in ipairs(enemyList) do
-                        -- Validasi calon target (Harus Hidup & HP > 0)
-                        local data = enemyObj.Data
+            
+        else 
+            -- [LOGIKA 2: FARMING BIASA (NORMAL)]
+            -- Sama seperti sebelumnya...
+            if not hrp or not hrp.Parent or not humanoid or humanoid.Health <= 0 then
+                currentTargetObj = nil 
+                local char = LocalPlayer.Character
+                if char then
+                    hrp = char:FindFirstChild("HumanoidRootPart")
+                    humanoid = char:FindFirstChild("Humanoid")
+                end
+                task.wait(1)
+            else
+                local isTargetStillAlive = false
+                if currentTargetObj then
+                    if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
+                        local data = currentTargetObj.Data
                         local hp = (data and data.Health) or 0
+                        local aliveFlag = currentTargetObj.Alive
+                        if aliveFlag == true and hp > 0 then
+                            isTargetStillAlive = true
+                        end
+                    end
+                end
+
+                if not isTargetStillAlive then
+                    currentTargetObj = nil
+                end
+
+                if not currentTargetObj then
+                    local targetName = Config.SelectedEnemy
+                    
+                    if targetName and GlobalEnemyMap[targetName] then
+                        local enemyList = GlobalEnemyMap[targetName]
+                        local minDistance = math.huge
+                        local myPos = hrp.Position
                         
-                        if enemyObj.Alive == true and hp > 0 and enemyObj.Root and enemyObj.Root.Parent then
-                            local enemyPos = enemyObj.Root.Position
-                            local dist = (myPos - enemyPos).Magnitude
+                        for _, enemyObj in ipairs(enemyList) do
+                            local data = enemyObj.Data
+                            local hp = (data and data.Health) or 0
                             
-                            if dist < minDistance then
-                                minDistance = dist
-                                closestEnemy = enemyObj
+                            if enemyObj.Alive == true and hp > 0 and enemyObj.Root and enemyObj.Root.Parent then
+                                local enemyPos = enemyObj.Root.Position
+                                local dist = (myPos - enemyPos).Magnitude
+                                
+                                if dist < minDistance then
+                                    minDistance = dist
+                                    currentTargetObj = enemyObj
+                                end
                             end
                         end
                     end
-                    
-                    if closestEnemy then
-                        currentTargetObj = closestEnemy -- KUNCI TARGET BARU
-                    end
                 end
-            end
 
-            -- 4. Eksekusi Teleport ke Target yang Dikunci
-            if currentTargetObj and currentTargetObj.Root then
-                pcall(function()
-                    local enemyCFrame = currentTargetObj.Data.CFrame
-                    -- Teleport ke belakang musuh (Jarak 6 stud)
-                    local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
-                    
-                    -- Arahkan pandangan ke musuh
-                    hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
-                    
-                    -- Reset velocity agar tidak jatuh/terlempar
-                    if hrp.AssemblyLinearVelocity.Magnitude > 0 then
-                        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                    end
-                end)
+                if currentTargetObj and currentTargetObj.Root then
+                    pcall(function()
+                        local enemyCFrame = currentTargetObj.Data.CFrame
+                        local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
+                        hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
+                        if hrp.AssemblyLinearVelocity.Magnitude > 0 then
+                            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                        end
+                    end)
+                end
             end
         end
         
-        task.wait() -- Loop secepat mungkin
+        task.wait() 
     end
 end
 local function MaintainAutoStatus()
@@ -1436,6 +1474,15 @@ local FarmToggle = FarmTab:Toggle({
     end
 });
 FM_Add("Zone Farming", FarmToggle);
+local MeteorToggle = FarmTab:Toggle({
+    Title = "Auto Farm Meteor Event",
+    Desc = "Pauses normal farm when Meteor Shower starts",
+    Flag = "AutoMeteor_Cfg",
+    Callback = function(val)
+        Config.AutoMeteor = val
+    end
+})
+FM_Add("Zone Farming", MeteorToggle)
 
 -- [ACCESSORIES UI WITH GRADIENT]
 
@@ -3126,25 +3173,48 @@ SettingsTab:Paragraph({
 });
 if Reliable then
     Reliable.OnClientEvent:Connect(function(msg, args)
-        if msg == "Do Teleport" and type(args) == "table" then
+        if msg == "Meteor Shower Started" then
+            IsMeteorEventActive = true
+            
+            -- [UPDATE: SIMPAN NAMA ZONE]
+            -- Berdasarkan script MeteorEvent.c, args adalah Nama Zone
+            if type(args) == "string" then
+                MeteorTargetZone = args
+            elseif type(args) == "table" then
+                MeteorTargetZone = args[1]
+            end
+            
+            Notify("Event", "Meteor in " .. tostring(MeteorTargetZone) .. "! Pausing Farm...", "flame")
+        
+        elseif msg == "Meteor Shower Ended" then
+            IsMeteorEventActive = false
+            MeteorQueue = {} 
+            MeteorTargetZone = nil -- Reset nama zone
+            Notify("Event", "Meteor Shower Ended. Resuming Farm.", "check")
+        
+        elseif msg == "Meteor Spawn" then
+            if typeof(args) == "Vector3" then
+                table.insert(MeteorQueue, {Pos = args, Time = os.time()})
+            elseif type(args) == "table" and typeof(args[1]) == "Vector3" then
+                table.insert(MeteorQueue, {Pos = args[1], Time = os.time()})
+            end
+
+        -- [BAGIAN BAWAH INI TETAP SAMA SEPERTI YANG ANDA KIRIM]
+        elseif msg == "Do Teleport" and type(args) == "table" then
             local targetZoneName = args[1];
             IsTeleporting = true;
             IsLoadingConfig = true;
             CurrentZoneName = targetZoneName;
             Config.SelectedEnemy = nil;
             if EnemyDropdown and EnemyDropdown.Select then
-                pcall(function()
-                    EnemyDropdown:Select(nil);
-                end);
+                pcall(function() EnemyDropdown:Select(nil); end);
             end;
             task.spawn(function()
                 task.wait(2.5);
                 local freshEnemies = RefreshEnemyData();
                 CurrentZoneEnemiesCache = freshEnemies;
                 if EnemyDropdown and EnemyDropdown.Refresh then
-                    pcall(function()
-                        EnemyDropdown:Refresh(freshEnemies);
-                    end);
+                    pcall(function() EnemyDropdown:Refresh(freshEnemies); end);
                 end;
                 local savedEntry = Config.ZoneConfigurations[targetZoneName];
                 if savedEntry then
@@ -3152,9 +3222,7 @@ if Reliable then
                         if enemy.Value == savedEntry.Value then
                             Config.SelectedEnemy = enemy.Value;
                             if EnemyDropdown and EnemyDropdown.Select then
-                                pcall(function()
-                                    EnemyDropdown:Select(enemy.Value);
-                                end);
+                                pcall(function() EnemyDropdown:Select(enemy.Value); end);
                             end;
                             break;
                         end;
@@ -3163,9 +3231,9 @@ if Reliable then
                 IsLoadingConfig = false;
                 IsTeleporting = false;
             end);
-        end;
-    end);
-end;
+        end
+    end)
+end
 task.spawn(function()
     local prevZone = "";
     local refreshTick = 0;
