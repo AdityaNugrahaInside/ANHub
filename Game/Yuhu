@@ -609,35 +609,95 @@ local function FireAccessory(accName)
     end
 end
 
+-- [FUNGSI HELPER GRADIENT]
+local function GetGameGradient(rarityName)
+    local rf = game:GetService("ReplicatedFirst")
+    local success, gradientObj = pcall(function()
+        return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName)
+    end)
+    if success and gradientObj then return gradientObj.Color end
+    local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
+    return fallback and fallback.Color or nil
+end
 -- [MODIFIKASI BARU: UPDATE RefreshEnemyData]
 local function RefreshEnemyData()
     local uiList = {}
+    
+    -- Pastikan Config dan Zone valid
     if EnemiesConfig and CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
         local added = {}
+        
         for key, data in pairs(EnemiesConfig) do
             if data.Zone == CurrentZoneName then
                 local displayName = data.Display or key
+                
+                -- Hindari duplikasi musuh
                 if not added[displayName] then
                     added[displayName] = true
+                    
                     local rewardImages = {}
+                    
+                    -- [NEW LOGIC] Generate Card Data untuk Library UI
                     if data.ChanceReward then
-                        for rewardKey, _ in pairs(data.ChanceReward) do
-                            local img = GetRewardAssetId(rewardKey)
-                            if img then table.insert(rewardImages, img) end
+                        for rewardKey, chanceVal in pairs(data.ChanceReward) do
+                            -- 1. Identifikasi Tipe Item (Weapons / Materials)
+                            local parts = string.split(rewardKey, ".")
+                            local category = parts[1] -- Contoh: "Weapons"
+                            local itemId = parts[2]   -- Contoh: "WildKatana"
+                            
+                            local itemData = nil
+                            
+                            -- 2. Ambil Data Detail dari Module
+                            if category == "Materials" and MaterialsModule[itemId] then
+                                itemData = MaterialsModule[itemId]
+                            elseif category == "Weapons" and WeaponsModule[itemId] then
+                                itemData = WeaponsModule[itemId]
+                            end
+                            
+                            -- 3. Susun Data Card (Hanya jika item ditemukan)
+                            if itemData then
+                                -- Format Image ID
+                                local imgId = itemData.Template
+                                if imgId then
+                                    if not tostring(imgId):find("rbxassetid://") then
+                                        imgId = "rbxassetid://" .. tostring(imgId)
+                                    else
+                                        imgId = tostring(imgId)
+                                    end
+                                    
+                                    local rarity = itemData.Rarity or "Common"
+                                    local itemName = itemData.Display or itemId
+                                    
+                                    -- Format Persentase (Rate)
+                                    local chanceStr = "Rate:"..tostring(chanceVal) .. "%"
+                                    
+                                    -- [STRUCTURE PENTING] Sesuai Library Dropdown Anda
+                                    table.insert(rewardImages, {
+                                        Image = imgId,                   -- Gambar Utama
+                                        Gradient = GetGameGradient(rarity), -- Warna Gradient (Color3)
+                                        Quantity = chanceStr,                -- Pojok Kanan Atas (Persentase Drop)
+                                        Title = itemName                 -- Bar Bawah (Nama Item)
+                                    })
+                                end
+                            end
                         end
                     end
-                    table.sort(rewardImages)
+                    
+                    -- Opsional: Urutkan reward berdasarkan persentase (Rate) atau Rarity jika diinginkan
+                    -- table.sort(rewardImages, function(a, b) return a.Rate < b.Rate end)
+
                     table.insert(uiList, {
                         Title = displayName .. " (" .. (data.Difficult or "Normal") .. ")",
                         Value = displayName,
                         Desc = "HP: " .. FormatNumber((data.MaxHealth or 0)),
                         HP = data.MaxHealth or 0,
-                        Images = rewardImages
+                        Images = rewardImages -- List ini sekarang berisi TABLE Card Data, bukan string ID lagi
                     })
                 end
             end
         end
     end
+    
     table.sort(uiList, function(a, b) return a.HP < b.HP end)
     CurrentZoneEnemiesCache = uiList
     return uiList
@@ -904,18 +964,6 @@ pcall(function()
         humanoid = LocalPlayer.Character:FindFirstChild("Humanoid");
     end;
 end);
-
-
--- [FUNGSI HELPER GRADIENT]
-local function GetGameGradient(rarityName)
-    local rf = game:GetService("ReplicatedFirst")
-    local success, gradientObj = pcall(function()
-        return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName)
-    end)
-    if success and gradientObj then return gradientObj.Color end
-    local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
-    return fallback and fallback.Color or nil
-end
 local function LogicAutoFarm()
     local currentTargetObj = nil
     
@@ -1641,199 +1689,11 @@ local AccToggle = FarmTab:Toggle({
 })
 FM_Add("Accessories", AccToggle)
 
--- =========================================================================
--- [GAMEMODES SECTION] (Imported from AnimeWeapons.lua)
--- =========================================================================
 
-local dungeonList, dungeonDB, raidList, raidDB = {}, {}, {}, {};
-local defenseList, defenseDB = {}, {};
--- [TAMBAHAN: PIRATE TOWER VARIABLES]
-local pirateTowerList = {}
-local pirateTowerInfo = { Title = "Pirate Tower", Value = "PirateTower" }
-
-local function LoadPirateTowerData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.PirateTower);
-    end);
-    if success and module then
-        -- MODIFIKASI: Menambahkan Info HP Base
-        local hpBase = module.HealthBase or 0
-        local floors = module.MAX_FLOOR or 100
-        
-        -- Format Deskripsi agar menampilkan HP
-        local desc = "Floors: " .. floors .. " | HP Base: " .. FormatNumber(hpBase);
-        
-        local rewardImages = {}
-        if module.ChanceReward then
-            for rewardKey, _ in pairs(module.ChanceReward) do
-                local img = GetRewardAssetId(rewardKey)
-                if img then table.insert(rewardImages, img) end
-            end
-        end
-        table.sort(rewardImages)
-
-        pirateTowerInfo = {
-            Title = module.Display or "Pirate Tower",
-            Value = "PirateTower",
-            Desc = desc, -- Deskripsi baru yang ada HP-nya
-            Images = rewardImages
-        }
-        -- Masukkan ke list untuk dropdown
-        table.insert(pirateTowerList, pirateTowerInfo);
-    end;
-end;
-
-LoadPirateTowerData();
--- [TAMBAHAN: SHADOW GATE VARIABLES]
-local shadowGateList = {}
-local shadowGateInfo = { Title = "Shadow Gate", Value = "ShadowGate" }
-
-local function LoadShadowGateData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.ShadowGate);
-    end);
-    if success and module then
-        -- MODIFIKASI: Menambahkan Info HP Base
-        local hpBase = module.HealthBase or 0
-        local waves = module.MAX_WAVE or 500
-        
-        -- Format Deskripsi agar menampilkan HP
-        local desc = "Waves: " .. waves .. " | HP Base: " .. FormatNumber(hpBase);
-        
-        local rewardImages = {}
-        if module.ChanceReward then
-            for rewardKey, _ in pairs(module.ChanceReward) do
-                local img = GetRewardAssetId(rewardKey)
-                if img then table.insert(rewardImages, img) end
-            end
-        end
-        table.sort(rewardImages)
-
-        shadowGateInfo = {
-            Title = module.Display or "Shadow Gate",
-            Value = "ShadowGate",
-            Desc = desc, -- Deskripsi baru yang ada HP-nya
-            Images = rewardImages
-        }
-        -- Masukkan ke list untuk dropdown
-        table.insert(shadowGateList, shadowGateInfo);
-    end;
-end;
-
-LoadShadowGateData();
-local function LoadDungeonData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Dungeon);
-    end);
-    if success and module and module.PHASES then
-        dungeonList, dungeonDB = {}, {};
-        for id, phase in ipairs(module.PHASES) do
-            local dName = phase.Name;
-            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
-            local desc = "Hp Base: " .. FormatNumber(hpCalc);
-            
-            local rewardImages = {}
-            if phase.ChanceReward then
-                for rewardKey, _ in pairs(phase.ChanceReward) do
-                     local img = GetRewardAssetId(rewardKey)
-                     if img then table.insert(rewardImages, img) end
-                end
-            end
-            table.sort(rewardImages)
-
-            table.insert(dungeonList, {
-                Title = dName,
-                Desc = desc,
-                Value = dName,
-                Images = rewardImages
-            });
-            dungeonDB[dName] = {
-                ID = id,
-                Time = phase.START_MINUTE,
-                BaseDesc = desc
-            };
-        end;
-    end;
-end;
-
-local function LoadRaidData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Raid);
-    end);
-    if success and module and module.PHASES then
-        raidList, raidDB = {}, {};
-        for id, phase in ipairs(module.PHASES) do
-            local rName = phase.Name;
-            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
-            local desc = "Hp Base: " .. FormatNumber(hpCalc);
-            
-            local rewardImages = {}
-            if phase.ChanceReward then
-                for rewardKey, _ in pairs(phase.ChanceReward) do
-                     local img = GetRewardAssetId(rewardKey)
-                     if img then table.insert(rewardImages, img) end
-                end
-            end
-            table.sort(rewardImages)
-
-            table.insert(raidList, {
-                Title = rName,
-                Desc = desc,
-                Value = rName,
-                Images = rewardImages
-            });
-            raidDB[rName] = {
-                ID = id,
-                Times = phase.START_TIMES,
-                BaseDesc = desc
-            };
-        end;
-    end;
-end;
-
-local function LoadDefenseData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Defense);
-    end);
-    if success and module and module.PHASES then
-        defenseList, defenseDB = {}, {};
-        for id, phase in ipairs(module.PHASES) do
-            local rName = phase.Name;
-            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
-            local desc = "Hp Base: " .. FormatNumber(hpCalc);
-
-            local rewardImages = {}
-            if phase.ChanceReward then
-                for rewardKey, _ in pairs(phase.ChanceReward) do
-                     local img = GetRewardAssetId(rewardKey)
-                     if img then table.insert(rewardImages, img) end
-                end
-            end
-            table.sort(rewardImages)
-
-            table.insert(defenseList, {
-                Title = rName,
-                Desc = desc,
-                Value = rName,
-                Images = rewardImages
-            });
-            defenseDB[rName] = {
-                ID = id,
-                Times = phase.START_TIMES,
-                BaseDesc = desc
-            };
-        end;
-    end;
-end;
-
-LoadDungeonData();
-LoadRaidData();
-LoadDefenseData();
 
 local function LogicGamemodes()
     local wasInGamemode = false;
     local currentTargetObj = nil;
-    local lastTeleportedUid = nil;
     local hasTeleportedToBossInRaid = false;
     
     local hrp = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
@@ -1849,7 +1709,7 @@ local function LogicGamemodes()
         local currentMap = GetCurrentMapStatus();
         local inLobbyZone = false;
         
-        -- Cek Lobby Dungeon
+        -- Cek Lobby Dungeon (Tempat spawn setelah match selesai)
         if Workspace:FindFirstChild("Zones") and Workspace.Zones:FindFirstChild("Dungeon") then
             if isPlayerInZone(Workspace.Zones.Dungeon) then
                 inLobbyZone = true;
@@ -1866,9 +1726,16 @@ local function LogicGamemodes()
         elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
         end
 
+        -- [LOGIKA PENYIMPANAN MAP TERAKHIR]
+        -- Kita simpan LastZone hanya jika kita SEDANG TIDAK di Gamemode/Lobby
+        -- Ini memastikan 'LastZone' selalu berisi map farming terakhir (misal: "Naruto")
+        if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") then
+            LastZone = currentMap
+        end
+
         if currentMap ~= "Unknown" then
             if isFightingZone then
-                -- [LOGIKA SAAT BERTARUNG]
+                -- [A. SEDANG BERTARUNG]
                 wasInGamemode = true;
 
                 -- Lock Target Logic
@@ -1906,7 +1773,7 @@ local function LogicGamemodes()
 
                     if #validEnemies > 0 then
                         if isRaid then
-                            -- RAID Logic
+                            -- RAID Logic (Boss First)
                             local bossFound = nil
                             for _, enemy in ipairs(validEnemies) do
                                 local config = rawget(enemy, "Config")
@@ -1920,7 +1787,7 @@ local function LogicGamemodes()
                                 currentTargetObj = bossFound
                                 if not hasTeleportedToBossInRaid then
                                     pcall(function()
-                                        hrp.CFrame = bossFound.Data.CFrame * CFrame.new(0, 5, 2)
+                                        hrp.CFrame = bossFound.Root.CFrame * CFrame.new(0, 5, 2)
                                     end)
                                     hasTeleportedToBossInRaid = true
                                 end
@@ -1932,7 +1799,7 @@ local function LogicGamemodes()
                             end
 
                         elseif isPriorityMode then
-                            -- Priority Logic (HP Terendah)
+                            -- OTHERS Logic (Lowest HP First)
                             table.sort(validEnemies, function(a, b)
                                 local hpA = (a.Data and a.Data.MaxHealth) or math.huge
                                 local hpB = (b.Data and b.Data.MaxHealth) or math.huge
@@ -1946,7 +1813,7 @@ local function LogicGamemodes()
                 -- Attack Execution
                 if currentTargetObj and currentTargetObj.Root then
                     pcall(function()
-                        local enemyCFrame = currentTargetObj.Data.CFrame
+                        local enemyCFrame = currentTargetObj.Root.CFrame
                         local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
                         hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
                         if hrp.AssemblyLinearVelocity.Magnitude > 0 then
@@ -1957,10 +1824,11 @@ local function LogicGamemodes()
                 task.wait()
 
             elseif inLobbyZone and wasInGamemode and (not isFightingZone) then
-                -- [LOGIKA KEMBALI KE LOBBY]
+                -- [B. SELESAI MATCH / KEMBALI KE LOBBY]
                 currentTargetObj = nil;
                 hasTeleportedToBossInRaid = false;
                 
+                -- Pengecekan LastZone sebelum teleport
                 if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
                     Notify("Mode Finished", "Returning to " .. LastZone, "map-pin");
                     if Reliable then
@@ -1969,34 +1837,27 @@ local function LogicGamemodes()
                     wasInGamemode = false;
                     task.wait(6);
                 else
+                    -- Jika LastZone tidak valid, reset status saja
                     wasInGamemode = false;
                 end;
             else
-                -- [LOGIKA AUTO JOIN / OPEN GAMEMODE]
+                -- [C. AUTO JOIN / SCANNING]
                 local t = os.date("*t");
                 local currentMinute = t.min;
                 local targetString, targetName = nil, "";
 
-                -- =============================================
-                -- 1. CEK KEY MODES (Pirate Tower & Shadow Gate)
-                -- =============================================
-                
+                -- 1. KEY MODES (Pirate & Shadow)
                 local function CheckAndSetKeyMode(modeName, keyName, configTable)
                     if not targetString and configTable and #configTable > 0 then
-                        
-                        -- [MODIFIKASI] Cek IsJoinable via MainController
-                        -- IsJoinable return: (boolean, timeLeft)
                         local isOpen = false
                         if MainController and MainController.IsJoinable then
                             isOpen = MainController.IsJoinable(modeName)
                         end
 
                         if isOpen then
-                            -- KASUS 1: Sesi Aktif (Timer masih jalan) -> Join Gratis
                             targetString = modeName
                             targetName = modeName .. " (Public/Open)"
                         else
-                            -- KASUS 2: Sesi Tutup -> Cek Key -> Buka Baru
                             local pData = getgenv().PlayerData
                             local keyCount = (pData and pData.Materials and pData.Materials[keyName]) or 0
                             
@@ -2013,15 +1874,10 @@ local function LogicGamemodes()
                     end
                 end
 
-                -- Cek Pirate Tower
                 CheckAndSetKeyMode("PirateTower", "PirateTowerModeKey", Config.TargetPirateTower)
-                
-                -- Cek Shadow Gate
                 CheckAndSetKeyMode("ShadowGate", "ShadowPortalModeKey", Config.TargetShadowGate)
 
-                -- =============================================
-                -- 2. CEK TIME MODES (Dungeon, Raid, Defense)
-                -- =============================================
+                -- 2. TIME MODES
                 if not targetString and Config.TargetDungeon then
                     for _, dName in pairs(Config.TargetDungeon) do
                         local data = dungeonDB[dName];
@@ -2065,21 +1921,15 @@ local function LogicGamemodes()
                     end;
                 end;
 
-                -- =============================================
                 -- 3. EKSEKUSI JOIN
-                -- =============================================
                 if targetString then
-                    if not string.find(currentMap, "Dungeon") and (not string.find(currentMap, "Raid")) and (not string.find(currentMap, "Defense")) and currentMap ~= "PirateTower" and currentMap ~= "ShadowGate" then
-                        LastZone = currentMap;
-                    end;
-                    
                     Notify("Auto Mode", "Joining " .. targetName, "swords");
                     
                     if Reliable then
                         pcall(function()
                             Reliable:FireServer("Join Gamemode", { targetString });
                         end);
-                    end;
+                    end
                     task.wait(5); 
                 end;
                 task.wait(1);
@@ -2089,6 +1939,197 @@ local function LogicGamemodes()
         end;
     end;
 end;
+
+-- [HELPER: GENERATE CARD REWARDS]
+local function GenerateCardRewards(chanceRewardData)
+    local rewardCards = {}
+    if not chanceRewardData then return rewardCards end
+
+    for rewardKey, chanceVal in pairs(chanceRewardData) do
+        local parts = string.split(rewardKey, ".")
+        local category = parts[1]
+        local itemId = parts[2]
+        
+        local itemData = nil
+        if category == "Materials" and MaterialsModule[itemId] then
+            itemData = MaterialsModule[itemId]
+        elseif category == "Weapons" and WeaponsModule[itemId] then
+            itemData = WeaponsModule[itemId]
+        end
+
+        if itemData then
+            local imgId = itemData.Template
+            if imgId then
+                if not tostring(imgId):find("rbxassetid://") then
+                    imgId = "rbxassetid://" .. tostring(imgId)
+                else
+                    imgId = tostring(imgId)
+                end
+                
+                local rarity = itemData.Rarity or "Common"
+                local itemName = itemData.Display or itemId
+                local chanceStr = "Rate:" .. tostring(chanceVal) .. "%"
+
+                table.insert(rewardCards, {
+                    Image = imgId,
+                    Gradient = GetGameGradient(rarity),
+                    Quantity = chanceStr,
+                    Title = itemName
+                })
+            end
+        end
+    end
+    return rewardCards
+end
+
+-- [1. PIRATE TOWER DATA]
+local pirateTowerList = {}
+local function LoadPirateTowerData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.PirateTower);
+    end);
+    if success and module then
+        local hpBase = module.HealthBase or 0
+        local floors = module.MAX_FLOOR or 100
+        local desc = "Floors: " .. floors .. " | HP Base: " .. FormatNumber(hpBase);
+        local rewardCards = GenerateCardRewards(module.ChanceReward)
+
+        pirateTowerList = {{
+            Title = module.Display or "Pirate Tower",
+            Value = "PirateTower",
+            Desc = desc,
+            Images = rewardCards
+        }}
+    end;
+end;
+LoadPirateTowerData();
+
+-- [2. SHADOW GATE DATA]
+local shadowGateList = {}
+local function LoadShadowGateData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.ShadowGate);
+    end);
+    if success and module then
+        local hpBase = module.HealthBase or 0
+        local waves = module.MAX_WAVE or 500
+        local desc = "Waves: " .. waves .. " | HP Base: " .. FormatNumber(hpBase);
+        local rewardCards = GenerateCardRewards(module.ChanceReward)
+
+        shadowGateList = {{
+            Title = module.Display or "Shadow Gate",
+            Value = "ShadowGate",
+            Desc = desc,
+            Images = rewardCards
+        }}
+    end;
+end;
+LoadShadowGateData();
+
+-- [3. DUNGEON DATA]
+local function LoadDungeonData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Dungeon);
+    end);
+    if success and module and module.PHASES then
+        dungeonList, dungeonDB = {}, {};
+        for id, phase in ipairs(module.PHASES) do
+            local dName = phase.Name;
+            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
+            
+            -- [OPTIMASI: Tampilkan Jadwal Statis, bukan Timer bergerak]
+            local scheduleInfo = "Min: " .. (phase.START_MINUTE or 0)
+            local desc = "HP: " .. FormatNumber(hpCalc) .. " | " .. scheduleInfo;
+            
+            local rewardCards = GenerateCardRewards(phase.ChanceReward)
+
+            table.insert(dungeonList, {
+                Title = dName,
+                Desc = desc,
+                Value = dName,
+                Images = rewardCards
+            });
+            dungeonDB[dName] = {
+                ID = id,
+                Time = phase.START_MINUTE,
+                BaseDesc = desc -- Tidak dipakai lagi untuk update loop
+            };
+        end;
+    end;
+end;
+LoadDungeonData();
+
+-- [4. RAID DATA]
+local function LoadRaidData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Raid);
+    end);
+    if success and module and module.PHASES then
+        raidList, raidDB = {}, {};
+        for id, phase in ipairs(module.PHASES) do
+            local rName = phase.Name;
+            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
+            
+            -- [OPTIMASI: Format Jadwal agar rapi]
+            local times = phase.START_TIMES or {}
+            table.sort(times)
+            local timeStr = table.concat(times, ", ")
+            local desc = "HP: " .. FormatNumber(hpCalc) .. " | Mins: " .. timeStr;
+            
+            local rewardCards = GenerateCardRewards(phase.ChanceReward)
+
+            table.insert(raidList, {
+                Title = rName,
+                Desc = desc,
+                Value = rName,
+                Images = rewardCards
+            });
+            raidDB[rName] = {
+                ID = id,
+                Times = phase.START_TIMES,
+                BaseDesc = desc
+            };
+        end;
+    end;
+end;
+LoadRaidData();
+
+-- [5. DEFENSE DATA]
+local function LoadDefenseData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Defense);
+    end);
+    if success and module and module.PHASES then
+        defenseList, defenseDB = {}, {};
+        for id, phase in ipairs(module.PHASES) do
+            local rName = phase.Name;
+            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
+            
+            local times = phase.START_TIMES or {}
+            table.sort(times)
+            local timeStr = table.concat(times, ", ")
+            local desc = "HP: " .. FormatNumber(hpCalc) .. " | Mins: " .. timeStr;
+
+            local rewardCards = GenerateCardRewards(phase.ChanceReward)
+
+            table.insert(defenseList, {
+                Title = rName,
+                Desc = desc,
+                Value = rName,
+                Images = rewardCards
+            });
+            defenseDB[rName] = {
+                ID = id,
+                Times = phase.START_TIMES,
+                BaseDesc = desc
+            };
+        end;
+    end;
+end;
+LoadDefenseData();
+
+-- [UI ELEMENTS: DROPDOWNS]
+-- Hapus semua Loop Update Waktu (task.spawn while)
 
 local DgnDrop = FM_Add("GameModes", FarmTab:Dropdown({
     Title = "Select Dungeon",
@@ -2107,45 +2148,7 @@ local DgnDrop = FM_Add("GameModes", FarmTab:Dropdown({
     end
 }));
 
-task.spawn(function()
-    while not Window.Destroyed do
-        local t = os.date("*t");
-        local currentTotalSeconds = t.min * 60 + t.sec;
-        local newList = {};
-
-        for _, item in ipairs(dungeonList) do
-            local dName = item.Value;
-            local data = dungeonDB[dName];
-            if data then
-                local startMin = data.Time;
-                local startTotalSeconds = startMin * 60;
-                local diff = startTotalSeconds - currentTotalSeconds;
-                if diff < 0 then
-                    diff = diff + 3600;
-                end;
-                local m = math.floor(diff / 60);
-                local s = diff % 60;
-                local timeStr = string.format("%02d:%02d", m, s);
-
-                table.insert(newList, {
-                    Title = item.Title,
-                    Value = item.Value,
-                    Desc = data.BaseDesc .. " | Starts in: " .. timeStr,
-                    Images = item.Images
-                });
-            else
-                table.insert(newList, item);
-            end;
-        end;
-
-        if DgnDrop and DgnDrop.Refresh then
-            pcall(function()
-                DgnDrop:Refresh(newList);
-            end);
-        end;
-        task.wait(1);
-    end;
-end);
+-- [NOTE: Loop Update Dungeon DIHAPUS demi performa]
 
 local RaidDrop = FM_Add("GameModes", FarmTab:Dropdown({
     Title = "Select Raid",
@@ -2181,10 +2184,9 @@ local DefenseDrop = FM_Add("GameModes", FarmTab:Dropdown({
     end
 }));
 
--- [TAMBAHAN UI: PIRATE TOWER DROPDOWN]
 local PirateTowerDrop = FM_Add("GameModes", FarmTab:Dropdown({
     Title = "Select Pirate Tower",
-    Multi = true, -- Multi true agar konsisten dengan format array, meski pilihannya cuma 1
+    Multi = true,
     AllowNone = true,
     Flag = "PirateTower_Cfg",
     Values = pirateTowerList,
@@ -2198,7 +2200,7 @@ local PirateTowerDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetPirateTower = t;
     end
 }));
--- [TAMBAHAN UI: SHADOW GATE DROPDOWN]
+
 local ShadowGateDrop = FM_Add("GameModes", FarmTab:Dropdown({
     Title = "Select Shadow Gate",
     Multi = true, 
@@ -2215,83 +2217,8 @@ local ShadowGateDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetShadowGate = t;
     end
 }));
-task.spawn(function()
-    local function GetNextTimeDiff(times, currentMin, currentSec)
-        if not times or #times == 0 then return 0 end
-        table.sort(times)
 
-        for _, t in ipairs(times) do
-            if t > currentMin then
-                return (t - currentMin) * 60 - currentSec
-            end
-        end
-
-        local firstTime = times[1]
-        return (60 - currentMin + firstTime) * 60 - currentSec
-    end
-
-    while not Window.Destroyed do
-        local t = os.date("*t")
-        local currentMin = t.min
-        local currentSec = t.sec
-
-        local newRaidList = {}
-        for _, item in ipairs(raidList) do
-            local rName = item.Value
-            local data = raidDB[rName]
-            if data and data.Times then
-                local diff = GetNextTimeDiff(data.Times, currentMin, currentSec)
-                if diff < 0 then diff = 0 end
-
-                local m = math.floor(diff / 60)
-                local s = diff % 60
-                local timeStr = string.format("%02d:%02d", m, s)
-
-                table.insert(newRaidList, {
-                    Title = item.Title,
-                    Value = item.Value,
-                    Desc = data.BaseDesc .. " | Starts in: " .. timeStr,
-                    Images = item.Images
-                })
-            else
-                table.insert(newRaidList, item)
-            end
-        end
-
-        if RaidDrop and RaidDrop.Refresh then
-            pcall(function() RaidDrop:Refresh(newRaidList) end)
-        end
-
-        local newDefenseList = {}
-        for _, item in ipairs(defenseList) do
-            local dName = item.Value
-            local data = defenseDB[dName]
-            if data and data.Times then
-                local diff = GetNextTimeDiff(data.Times, currentMin, currentSec)
-                if diff < 0 then diff = 0 end
-
-                local m = math.floor(diff / 60)
-                local s = diff % 60
-                local timeStr = string.format("%02d:%02d", m, s)
-
-                table.insert(newDefenseList, {
-                    Title = item.Title,
-                    Value = item.Value,
-                    Desc = data.BaseDesc .. " | Starts in: " .. timeStr,
-                    Images = item.Images
-                })
-            else
-                table.insert(newDefenseList, item)
-            end
-        end
-
-        if DefenseDrop and DefenseDrop.Refresh then
-            pcall(function() DefenseDrop:Refresh(newDefenseList) end)
-        end
-
-        task.wait(1)
-    end
-end)
+-- [NOTE: Loop Update Raid & Defense DIHAPUS demi performa]
 
 local ModeToggle = FM_Add("GameModes", FarmTab:Toggle({
     Title = "Auto Join & Kill",
