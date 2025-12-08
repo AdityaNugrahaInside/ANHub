@@ -715,7 +715,7 @@ end)
 local function Notify(title, content, icon)
     if l then l:Notify({ Title = title, Content = content, Icon = icon, Duration = 3 }) end
 end
-
+local GameIconURL = "rbxthumb://type=GameIcon&id=" .. game.GameId .. "&w=150&h=150"
 local BaseProfile = {
     Banner = "rbxassetid://124762019485618", Avatar = "rbxassetid://84366761557806", Status = true,
     Badges = {
@@ -1304,6 +1304,7 @@ local FarmTab = Window:Tab({
     Title = "Main Feature",
     Icon = "swords",
         Profile = MakeProfile({
+        	Avatar = GameIconURL,
             Title = "Main Feature",
             Desc = "Anime Weapons"
         }),
