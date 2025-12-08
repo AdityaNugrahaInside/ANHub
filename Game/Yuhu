@@ -619,6 +619,7 @@ local function GetGameGradient(rarityName)
     local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
     return fallback and fallback.Color or nil
 end
+
 -- [MODIFIKASI BARU: UPDATE RefreshEnemyData]
 local function RefreshEnemyData()
     local uiList = {}
@@ -1160,30 +1161,30 @@ local function GetCurrentMapStatus()
     return "Unknown";
 end;
 
-task.spawn(function()
-    local EnemiesFolder = Workspace:WaitForChild("Enemies", 5)
-    if EnemiesFolder then
-        local Debounce = false
-        local function TriggerRefresh()
-            if Debounce then return end
+-- task.spawn(function()
+--     local EnemiesFolder = Workspace:WaitForChild("Enemies", 5)
+--     if EnemiesFolder then
+--         local Debounce = false
+--         local function TriggerRefresh()
+--             if Debounce then return end
 
-            local currentMap = GetCurrentMapStatus()
-            local isGamemode = string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "PirateTower") or string.find(currentMap, "ShadowGate")
+--             local currentMap = GetCurrentMapStatus()
+--             local isGamemode = string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "PirateTower") or string.find(currentMap, "ShadowGate")
 
-            if not isGamemode then
-                return
-            end
+--             if not isGamemode then
+--                 return
+--             end
 
-            Debounce = true
-            task.wait(1.5)
-            RefreshEnemyData()
-            Debounce = false
-        end
+--             Debounce = true
+--             task.wait(1.5)
+--             RefreshEnemyData()
+--             Debounce = false
+--         end
 
-        EnemiesFolder.ChildAdded:Connect(TriggerRefresh)
-        EnemiesFolder.ChildRemoved:Connect(TriggerRefresh)
-    end
-end);
+--         EnemiesFolder.ChildAdded:Connect(TriggerRefresh)
+--         EnemiesFolder.ChildRemoved:Connect(TriggerRefresh)
+--     end
+-- end);
 
 
 local function GetPartPosition(obj)
@@ -3138,12 +3139,9 @@ if Reliable then
                 pcall(function() EnemyDropdown:Select(nil); end);
             end;
             task.spawn(function()
-                task.wait(2.5);
+                task.wait(5);
                 local freshEnemies = RefreshEnemyData();
                 CurrentZoneEnemiesCache = freshEnemies;
-                if EnemyDropdown and EnemyDropdown.Refresh then
-                    pcall(function() EnemyDropdown:Refresh(freshEnemies); end);
-                end;
                 local savedEntry = Config.ZoneConfigurations[targetZoneName];
                 if savedEntry then
                     for _, enemy in ipairs(freshEnemies) do
