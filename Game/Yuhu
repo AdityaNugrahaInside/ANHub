@@ -3107,20 +3107,111 @@ task.spawn(function()
         end;
     end;
 end);
+
+-- [WEBHOOK CONFIGURATION]
+local WebhookURL = "https://discord.com/api/webhooks/1447650913564102759/nKihdVFSmbFdDKk_Ldj8grQOIcx9c_IUt4kZxAPc2Kyk3yaQw7WE3CFKyR1XhjQlQCca"
+local LastWebhookTime = {} 
+
+-- Fungsi Sensor (Masking)
+local function CensorText(text)
+    local str = tostring(text)
+    local len = string.len(str)
+    if len <= 4 then return string.sub(str, 1, 1) .. "****" end
+    local first = string.sub(str, 1, 2)
+    local last = string.sub(str, -3)
+    return first .. "****" .. last
+end
+
+-- Fungsi Webhook Universal (Yen, Token, Rank)
+local function SendUpgradeWebhook(category, upgradeName, level, cost)
+    task.spawn(function()
+        local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+        if not httpRequest then return end
+
+        local censoredName = CensorText(LocalPlayer.Name)
+        local censoredID = CensorText(LocalPlayer.UserId)
+        
+        -- Setup Tampilan Berdasarkan Kategori
+        local title = "Upgrade Purchased!"
+        local color = 16777215 -- Putih
+        local currencyName = "Cost"
+
+        if category == "Yen" then
+            title = "✅ Yen Upgrade Purchased!"
+            color = 65280 -- Hijau
+            currencyName = "Cost (Yen)"
+        elseif category == "Token" then
+            title = "💎 Token Upgrade Purchased!"
+            color = 3066993 -- Biru Cyan
+            currencyName = "Cost (Shards)"
+        elseif category == "Rank" then
+            title = "🔥 Rank Up Success!"
+            color = 16744192 -- Oranye Api
+            currencyName = "Requirement (Mastery)"
+        end
+
+        local embedData = {
+            ["username"] = "ANHub - Anime Weapons",
+            ["embeds"] = {{
+                ["title"] = title,
+                ["description"] = "Successfully upgraded **" .. upgradeName .. "**",
+                ["color"] = color,
+                ["fields"] = {
+                    {
+                        ["name"] = "Type",
+                        ["value"] = upgradeName,
+                        ["inline"] = true
+                    },
+                    {
+                        ["name"] = "New Level / Rank",
+                        ["value"] = tostring(level),
+                        ["inline"] = true
+                    },
+                    {
+                        ["name"] = currencyName,
+                        ["value"] = UtilsModule.ToText(cost),
+                        ["inline"] = true
+                    },
+                    {
+                        ["name"] = "Player Info (Censored)",
+                        ["value"] = "Name: ||" .. censoredName .. "||\nID: ||" .. censoredID .. "||",
+                        ["inline"] = false
+                    }
+                },
+                ["footer"] = {
+                    ["text"] = "ANHub Script • " .. os.date("%H:%M:%S")
+                }
+            }}
+        }
+
+        httpRequest({
+            Url = WebhookURL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode(embedData)
+        })
+    end)
+end
+
+-- [MAIN LOOP UPDATE DATA & AUTO UPGRADE]
 local LastMorphCount = 0;
 local LastEquippedAvatar = "";
+
 task.spawn(function()
     while not Window.Destroyed do
         if not (getgenv()).PlayerData then
             ScanPlayerData();
         end;
         local Data = (getgenv()).PlayerData;
+        
         if Data and Data.Attributes then
+            -- [1. LOGIKA RANK UP + WEBHOOK]
             local currentRank = Data.Attributes.Rank or 0;
             local currentMastery = Data.Attributes.Mastery or 0;
             local req = GetRankRequirement(currentRank);
             local currentBuff = GetRankBuff(currentRank);
             local nextBuff = GetRankBuff(currentRank + 1);
+            
             if RankProgressUI and not Window.Closed then
                 local percent = req > 0 and math.clamp(currentMastery / req, 0, 1) or 0;
                 local barText = string.rep("█", math.floor(percent * 10)) .. string.rep("▒", 10 - math.floor(percent * 10));
@@ -3128,19 +3219,33 @@ task.spawn(function()
                 RankProgressUI:SetTitle(string.format("Rank %d", currentRank));
                 RankProgressUI:SetDesc(string.format("%s\n[%s] %d%%\n%s / %s", buffText, barText, math.floor(percent * 100), FormatNumber(currentMastery), FormatNumber(req)));
             end;
+            
             if Config.AutoRankUp and currentMastery >= req and currentRank < MaxRankCap then
                 if Reliable then
-                    pcall(function()
+                    local s = pcall(function()
                         Reliable:FireServer("RankUp");
                     end);
+                    
+                    -- Webhook Rank Up
+                    if s then
+                        local now = os.time()
+                        -- Debounce 10 detik untuk Rank agar tidak double post saat lag
+                        if not LastWebhookTime["Rank"] or (now - LastWebhookTime["Rank"]) >= 10 then
+                            SendUpgradeWebhook("Rank", "Rank " .. (currentRank + 1), currentRank + 1, req)
+                            LastWebhookTime["Rank"] = now
+                        end
+                    end
                 end;
             end;
+
+            -- [2. LOGIKA YEN UPGRADE + WEBHOOK]
             if Data.YenUpgrades then
                 local currentYen = Data.Attributes.Yen or 0;
                 for name, configData in pairs(YenUpgradeConfig) do
                     local lvl = Data.YenUpgrades[name] or 0;
                     local cost = GetYenCost(lvl, name);
                     local toggle = YenUpgradeToggleUI[name];
+                    
                     if toggle and toggle.SetTitle and toggle.SetDesc then
                         local maxLvl = configData.MaxLevel or 20;
                         if lvl >= maxLvl then
@@ -3154,25 +3259,37 @@ task.spawn(function()
                                 toggle:SetTitle(name .. " [" .. lvl .. "/" .. maxLvl .. "]");
                                 toggle:SetDesc(string.format("Cost: %s | Buff: +%s%%", FormatNumber(cost), FormatNumber(GetYenBuff(name, lvl))));
                             end
+                            
                             if Config["AutoYen_" .. name] and currentYen >= cost then
                                 if Reliable then
-                                    pcall(function()
-                                        Reliable:FireServer("Yen Upgrade", {
-                                            name
-                                        });
+                                    local s = pcall(function()
+                                        Reliable:FireServer("Yen Upgrade", { name });
                                     end);
+                                    
+                                    -- Webhook Yen
+                                    if s then
+                                        local now = os.time()
+                                        local hookKey = "Yen_" .. name
+                                        if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 3 then
+                                            SendUpgradeWebhook("Yen", name, lvl + 1, cost)
+                                            LastWebhookTime[hookKey] = now
+                                        end
+                                    end
                                 end;
                             end;
                         end;
                     end;
                 end;
             end;
+
+            -- [3. LOGIKA TOKEN UPGRADE + WEBHOOK]
             if Data.TokenUpgrades then
                 local currentToken = Data.Materials.UpgradeToken or 0;
                 for name, configData in pairs(TokenUpgradeConfig) do
                     local lvl = Data.TokenUpgrades[name] or 0;
                     local cost = GetTokenCost(lvl,name);
                     local toggle = TokenUpgradeToggleUI[name];
+                    
                     if toggle and toggle.SetTitle and toggle.SetDesc then
                         local maxLvl = configData.MaxLevel or 999;
                         if lvl >= maxLvl then
@@ -3186,41 +3303,29 @@ task.spawn(function()
                                 toggle:SetTitle(name .. " [" .. lvl .. "/" .. maxLvl .. "]");
                                 toggle:SetDesc(string.format("Cost: %s | Buff: +%s%%\nUpgrade Shard: %s", FormatNumber(cost), FormatNumber(GetTokenBuff(name, lvl)), FormatNumber(currentToken)));
                             end
+                            
                             if Config["AutoToken_" .. name] and currentToken >= cost then
                                 if Reliable then
-                                    pcall(function()
-                                        Reliable:FireServer("Token Upgrade", {
-                                            name
-                                        });
+                                    local s = pcall(function()
+                                        Reliable:FireServer("Token Upgrade", { name });
                                     end);
+
+                                    -- Webhook Token
+                                    if s then
+                                        local now = os.time()
+                                        local hookKey = "Token_" .. name
+                                        if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 3 then
+                                            SendUpgradeWebhook("Token", name, lvl + 1, cost)
+                                            LastWebhookTime[hookKey] = now
+                                        end
+                                    end
                                 end;
                             end;
                         end;
                     end;
                 end;
             end;
-            -- if Data.Materials then
-            --     for rollType, toggleObj in pairs(RollToggleUI) do
-            --         local configKey = "AutoRoll" .. rollType;
-            --         if Config[configKey] then
-            --             local tokenKey = (RollConfigs[rollType] and RollConfigs[rollType].MaterialKey) or (rollType .. "Token");
-            --             local count = Data.Materials[tokenKey] or 0;
-            --             if count < 10 then
-            --                 Config[configKey] = false;
-            --                 if toggleObj.Set then
-            --                     toggleObj:Set(false);
-            --                 end;
-            --                 local displayName = (MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display) or rollType;
-            --                 l:Notify({
-            --                     Title = "Crate Roll Stopped",
-            --                     Content = "Insufficient " .. displayName,
-            --                     Icon = "alert-triangle",
-            --                     Duration = 5
-            --                 });
-            --             end;
-            --         end;
-            --     end;
-            -- end;
+
         elseif RankProgressUI then
             RankProgressUI:SetDesc("Scanning Data...");
         end;
