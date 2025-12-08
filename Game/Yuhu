@@ -1394,6 +1394,18 @@ local FM_Category = FarmTab:Category({
     },
     Callback = FM_OnChange
 })
+
+if FM_Category.ElementFrame then 
+    FM_Category.ElementFrame.Parent = FarmTab.UIElements.ContainerFrameCanvas 
+    FM_Category.ElementFrame.Position = UDim2.new(0,0,0, FarmTab.UIElements.ContainerFrame.Position.Y.Offset)
+    
+    local catSize = FM_Category.ElementFrame.Size.Y.Offset
+    FarmTab.UIElements.ContainerFrame.Position = UDim2.new(0,0,0, FarmTab.UIElements.ContainerFrame.Position.Y.Offset + catSize)
+    FarmTab.UIElements.ContainerFrame.Size = UDim2.new(1, 0, 1, FarmTab.UIElements.ContainerFrame.Size.Y.Offset - catSize)
+    
+    local pad = FarmTab.UIElements.ContainerFrame:FindFirstChildOfClass("UIPadding")
+    if pad then pad.PaddingTop = UDim.new(0, 5) end
+end
 FarmTab:Space({Columns=1})
 
 -- [MODIFIKASI: DROPDOWN UNTUK ENEMIES DENGAN IMAGES]
@@ -1432,28 +1444,61 @@ local FarmToggle = FarmTab:Toggle({
 });
 FM_Add("Zone Farming", FarmToggle);
 
--- [ACCESSORIES UI]
+-- [ACCESSORIES UI WITH GRADIENT]
+
+-- Pastikan fungsi GetGameGradient sudah ada di atas script (dari kode sebelumnya)
+-- Jika belum, copy fungsi GetGameGradient dari jawaban sebelumnya ke bagian paling atas script.
+
 local function UpdateAccDropdown(dropdown, val, defaultTitle)
     local selectedId = type(val) == "table" and val.Value or val
+    
     if selectedId then
         local info = AccessoriesConfig[selectedId]
         if info then
             dropdown:SetTitle(info.Display)
+            
             local icon = "rbxassetid://84366761557806"
             if info.Template then
                 icon = "rbxassetid://" .. tostring(info.Template)
             end
+            
+            -- Set Icon Kecil
             dropdown:SetIcon(icon, 30)
-            dropdown:SetDesc(info.Rarity or "Accessory")
+            
+            -- [LOGIKA GRADIENT BARU]
+            local rarity = info.Rarity or "Common"
+            local gradient = GetGameGradient(rarity) -- Mengambil warna gradient dari game
+            dropdown:SetValueImage(icon)
+
+            if dropdown.SetMainImage then
+                dropdown:SetMainImage({
+                    Image = icon,
+                    Gradient = gradient,
+                    Quantity = rarity, -- Menampilkan teks Rarity
+                    Title = info.Display
+                }, 50)
+            end
+            
+            dropdown:SetDesc(rarity or "Accessory")
         else
+            -- Jika item tidak ditemukan di config
             dropdown:SetTitle(selectedId)
-            dropdown:SetIcon("rbxassetid://84366761557806", 30)
+            dropdown:SetValueImage("rbxassetid://84366761557806")
             dropdown:SetDesc("Unknown")
+            
+            if dropdown.SetMainImage then
+                 dropdown:SetMainImage("rbxassetid://84366761557806", 50)
+            end
         end
     else
+        -- Jika tidak ada yang dipilih (None)
         dropdown:SetTitle(defaultTitle or "Select Gear")
         dropdown:SetDesc("None Selected")
-        dropdown:SetIcon("rbxassetid://84366761557806", 20)
+        dropdown:SetValueImage("rbxassetid://84366761557806")
+        
+        if dropdown.SetMainImage then
+             dropdown:SetMainImage("rbxassetid://84366761557806", 50)
+        end
     end
 end
 
@@ -2749,7 +2794,7 @@ local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                                         if isGachaUpgrade then
                                             Reliable:FireServer("Crate Upgrade", { name })
                                         else
-                                            Reliable:FireServer("Chance Upgrade", name, true)
+                                            Reliable:FireServer("Chance Upgrade", {name})
                                         end
                                     end)
                                 end
