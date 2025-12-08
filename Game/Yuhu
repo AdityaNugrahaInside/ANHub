@@ -908,6 +908,18 @@ pcall(function()
         humanoid = LocalPlayer.Character:FindFirstChild("Humanoid");
     end;
 end);
+
+
+-- [FUNGSI HELPER GRADIENT]
+local function GetGameGradient(rarityName)
+    local rf = game:GetService("ReplicatedFirst")
+    local success, gradientObj = pcall(function()
+        return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName)
+    end)
+    if success and gradientObj then return gradientObj.Color end
+    local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
+    return fallback and fallback.Color or nil
+end
 local function LogicAutoFarm()
     local currentTargetObj = nil
     
@@ -1078,7 +1090,7 @@ task.spawn(function()
             if Debounce then return end
 
             local currentMap = GetCurrentMapStatus()
-            local isGamemode = string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense")
+            local isGamemode = string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "PirateTower") or string.find(currentMap, "ShadowGate")
 
             if not isGamemode then
                 return
@@ -1508,7 +1520,7 @@ local function LogicAccessories()
         local enemiesFolder = GetEnemiesFolder()
         local hasEnemies = enemiesFolder and #enemiesFolder:GetChildren() > 0
         local isFightingZone = false
-        if string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense")) then
+        if string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "PirateTower") or string.find(currentMap, "ShadowGate")) then
             isFightingZone = true
         end
         if currentMap == "Raid" then
@@ -1736,7 +1748,6 @@ LoadDefenseData();
 local function LogicGamemodes()
     local wasInGamemode = false;
     local currentTargetObj = nil;
-    local lastTeleportedUid = nil;
     local hasTeleportedToBossInRaid = false;
     
     local hrp = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
@@ -1752,7 +1763,7 @@ local function LogicGamemodes()
         local currentMap = GetCurrentMapStatus();
         local inLobbyZone = false;
         
-        -- Cek Lobby Dungeon
+        -- Cek Lobby Dungeon (Tempat spawn setelah match selesai)
         if Workspace:FindFirstChild("Zones") and Workspace.Zones:FindFirstChild("Dungeon") then
             if isPlayerInZone(Workspace.Zones.Dungeon) then
                 inLobbyZone = true;
@@ -1769,9 +1780,16 @@ local function LogicGamemodes()
         elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
         end
 
+        -- [LOGIKA PENYIMPANAN MAP TERAKHIR]
+        -- Kita simpan LastZone hanya jika kita SEDANG TIDAK di Gamemode/Lobby
+        -- Ini memastikan 'LastZone' selalu berisi map farming terakhir (misal: "Naruto")
+        if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") then
+            LastZone = currentMap
+        end
+
         if currentMap ~= "Unknown" then
             if isFightingZone then
-                -- [LOGIKA SAAT BERTARUNG]
+                -- [A. SEDANG BERTARUNG]
                 wasInGamemode = true;
 
                 -- Lock Target Logic
@@ -1809,7 +1827,7 @@ local function LogicGamemodes()
 
                     if #validEnemies > 0 then
                         if isRaid then
-                            -- RAID Logic
+                            -- RAID Logic (Boss First)
                             local bossFound = nil
                             for _, enemy in ipairs(validEnemies) do
                                 local config = rawget(enemy, "Config")
@@ -1835,7 +1853,7 @@ local function LogicGamemodes()
                             end
 
                         elseif isPriorityMode then
-                            -- Priority Logic (HP Terendah)
+                            -- OTHERS Logic (Lowest HP First)
                             table.sort(validEnemies, function(a, b)
                                 local hpA = (a.Data and a.Data.MaxHealth) or math.huge
                                 local hpB = (b.Data and b.Data.MaxHealth) or math.huge
@@ -1849,7 +1867,7 @@ local function LogicGamemodes()
                 -- Attack Execution
                 if currentTargetObj and currentTargetObj.Root then
                     pcall(function()
-                        local enemyCFrame = currentTargetObj.Data.CFrame
+                        local enemyCFrame = currentTargetObj.Root.CFrame
                         local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
                         hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
                         if hrp.AssemblyLinearVelocity.Magnitude > 0 then
@@ -1860,10 +1878,11 @@ local function LogicGamemodes()
                 task.wait()
 
             elseif inLobbyZone and wasInGamemode and (not isFightingZone) then
-                -- [LOGIKA KEMBALI KE LOBBY]
+                -- [B. SELESAI MATCH / KEMBALI KE LOBBY]
                 currentTargetObj = nil;
                 hasTeleportedToBossInRaid = false;
                 
+                -- Pengecekan LastZone sebelum teleport
                 if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
                     Notify("Mode Finished", "Returning to " .. LastZone, "map-pin");
                     if Reliable then
@@ -1872,34 +1891,27 @@ local function LogicGamemodes()
                     wasInGamemode = false;
                     task.wait(6);
                 else
+                    -- Jika LastZone tidak valid, reset status saja
                     wasInGamemode = false;
                 end;
             else
-                -- [LOGIKA AUTO JOIN / OPEN GAMEMODE]
+                -- [C. AUTO JOIN / SCANNING]
                 local t = os.date("*t");
                 local currentMinute = t.min;
                 local targetString, targetName = nil, "";
 
-                -- =============================================
-                -- 1. CEK KEY MODES (Pirate Tower & Shadow Gate)
-                -- =============================================
-                
+                -- 1. KEY MODES (Pirate & Shadow)
                 local function CheckAndSetKeyMode(modeName, keyName, configTable)
                     if not targetString and configTable and #configTable > 0 then
-                        
-                        -- [MODIFIKASI] Cek IsJoinable via MainController
-                        -- IsJoinable return: (boolean, timeLeft)
                         local isOpen = false
                         if MainController and MainController.IsJoinable then
                             isOpen = MainController.IsJoinable(modeName)
                         end
 
                         if isOpen then
-                            -- KASUS 1: Sesi Aktif (Timer masih jalan) -> Join Gratis
                             targetString = modeName
                             targetName = modeName .. " (Public/Open)"
                         else
-                            -- KASUS 2: Sesi Tutup -> Cek Key -> Buka Baru
                             local pData = getgenv().PlayerData
                             local keyCount = (pData and pData.Materials and pData.Materials[keyName]) or 0
                             
@@ -1916,15 +1928,10 @@ local function LogicGamemodes()
                     end
                 end
 
-                -- Cek Pirate Tower
                 CheckAndSetKeyMode("PirateTower", "PirateTowerModeKey", Config.TargetPirateTower)
-                
-                -- Cek Shadow Gate
                 CheckAndSetKeyMode("ShadowGate", "ShadowPortalModeKey", Config.TargetShadowGate)
 
-                -- =============================================
-                -- 2. CEK TIME MODES (Dungeon, Raid, Defense)
-                -- =============================================
+                -- 2. TIME MODES
                 if not targetString and Config.TargetDungeon then
                     for _, dName in pairs(Config.TargetDungeon) do
                         local data = dungeonDB[dName];
@@ -1968,21 +1975,15 @@ local function LogicGamemodes()
                     end;
                 end;
 
-                -- =============================================
                 -- 3. EKSEKUSI JOIN
-                -- =============================================
                 if targetString then
-                    if not string.find(currentMap, "Dungeon") and (not string.find(currentMap, "Raid")) and (not string.find(currentMap, "Defense")) and currentMap ~= "PirateTower" and currentMap ~= "ShadowGate" then
-                        LastZone = currentMap;
-                    end;
-                    
                     Notify("Auto Mode", "Joining " .. targetName, "swords");
                     
                     if Reliable then
                         pcall(function()
                             Reliable:FireServer("Join Gamemode", { targetString });
                         end);
-                    end;
+                    end
                     task.wait(5); 
                 end;
                 task.wait(1);
@@ -2216,6 +2217,19 @@ local GeneralTab = Window:Tab({
     Icon = "settings"
 });
 
+-- [PASTE BAGIAN INI DI ATAS LOGIKA EXCHANGE]
+-- 1. Fungsi Helper untuk mengambil Gradient dari ReplicatedFirst
+local function GetGameGradient(rarityName)
+    local rf = game:GetService("ReplicatedFirst")
+    local success, gradientObj = pcall(function()
+        return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName)
+    end)
+    if success and gradientObj then return gradientObj.Color end
+    local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
+    return fallback and fallback.Color or nil
+end
+
+-- [BAGIAN UI EXCHANGE]
 local GeneralManagerSection = FarmTab
 local ExchangeList = {}
 for k, v in pairs(MaterialsModule) do
@@ -2230,8 +2244,6 @@ local SelectedExIcon = nil
 local PrevMaterialsDigest = nil
 local ExchangeAmount = 1
 local ExchangeIsBuying = false
-
--- moved earlier
 
 local function GetMaterialsDigest()
     local pData = (getgenv()).PlayerData
@@ -2275,10 +2287,26 @@ local MatPreview = PreviewGroup:Dropdown({
     Callback = function(val)
         SelectedExToken = type(val) == "table" and val.Value or val
         SelectedExIcon = type(val) == "table" and val.Icon or nil
+        
+        -- Update visual instan saat dropdown dipilih
         local info = SelectedExToken and MaterialsModule[SelectedExToken] or nil
         if info and info.Template then
+            local rarity = info.Rarity or "Common"
+            local gradient = GetGameGradient(rarity)
+
             MatPreview:SetTitle(info.Display)
+            -- Set Icon Kecil di Header Dropdown
             MatPreview:SetIcon(SelectedExIcon or GetIcon(info.Template), 30)
+            
+            -- Set Main Image Besar dengan Gradient
+            if MatPreview.SetMainImage then
+                MatPreview:SetMainImage({
+                    Image = SelectedExIcon or GetIcon(info.Template),
+                    Gradient = gradient,
+                    Quantity = rarity -- Menampilkan teks rarity (opsional)
+                }, 50)
+            end
+
             local pData = (getgenv()).PlayerData
             local matCount = pData and pData.Materials and pData.Materials[SelectedExToken] or 0
             MatPreview:SetDesc(string.format("(%s/%s)", FormatNumber(ExchangeAmount), FormatNumber(matCount)))
@@ -2293,7 +2321,6 @@ local TradePreview = PreviewGroup:Paragraph({
     Image = GetIcon(TradeTokenInfo.Template),
     ImageSize = 40
 })
-
 
 local ExchangePercent = 1
 local ExSlider = GeneralManagerSection:Slider({
@@ -2344,6 +2371,7 @@ local ExchangeButton = GeneralManagerSection:Button({
 })
 FM_Add("Exchange", ExchangeButton)
 
+-- [UPDATE LOOP EXCHANGE AGAR TERUS MENG-UPDATE GRADIENT]
 task.spawn(function()
     while not Window.Destroyed do
         local pData = (getgenv()).PlayerData
@@ -2371,13 +2399,24 @@ task.spawn(function()
         if SelectedExToken then
             local info = MaterialsModule[SelectedExToken]
             if info and info.Template then
+                -- [LOGIKA GRADIENT DI SINI]
+                local rarity = info.Rarity or "Common"
+                local gradient = GetGameGradient(rarity)
+
                 MatPreview:SetTitle(info.Display)
-                MatPreview:SetIcon(SelectedExIcon or GetIcon(info.Template), 30)
+                
+                -- Update Main Image dengan Gradient Table
+                MatPreview:SetMainImage({
+                    Image = SelectedExIcon or GetIcon(info.Template),
+                    Gradient = gradient,
+                    Quantity = rarity -- Opsional: Text di atas gambar
+                }, 50)
+                MatPreview:SetValueImage(SelectedExIcon or GetIcon(info.Template))
 
                 if ExchangeIsBuying then
-                     MatPreview:SetDesc(string.format("Current: %s | +%s", FormatNumber(matCount), FormatNumber(outputAmount)))
+                      MatPreview:SetDesc(string.format("Current: %s | +%s", FormatNumber(matCount), FormatNumber(outputAmount)))
                 else
-                     MatPreview:SetDesc(string.format("Current: %s | -%s", FormatNumber(matCount), FormatNumber(inputAmount)))
+                      MatPreview:SetDesc(string.format("Current: %s | -%s", FormatNumber(matCount), FormatNumber(inputAmount)))
                 end
             end
 
@@ -2389,9 +2428,10 @@ task.spawn(function()
         else
             MatPreview:SetTitle("Select Token")
             MatPreview:SetDesc("None Selected")
-            MatPreview:SetIcon("rbxassetid://84366761557806", 20)
+            MatPreview:SetMainImage("rbxassetid://84366761557806", 50)
             TradePreview:SetDesc("Waiting...")
         end
+        -- TradePreview:SetMainImage(SelectedExIcon or GetIcon(TradeTokenInfo.Template), 50)
         task.wait(0.5)
     end
 end)
@@ -2420,17 +2460,6 @@ for _, rollType in ipairs(AllRollTypes) do
     RollToggleUI[rollType] = myToggle;
     _rollCount = _rollCount + 1;
 end;
-
--- [FUNGSI HELPER GRADIENT]
-local function GetGameGradient(rarityName)
-    local rf = game:GetService("ReplicatedFirst")
-    local success, gradientObj = pcall(function()
-        return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName)
-    end)
-    if success and gradientObj then return gradientObj.Color end
-    local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
-    return fallback and fallback.Color or nil
-end
 
 -- [VARIABLE CACHE UNTUK MENGURANGI LAG]
 local RollStateCache = {} 
