@@ -2713,19 +2713,91 @@ FM_Add("Upgrade: Rank", RankProgressUI)
 local RankToggle = YenMainSection:Toggle({ Title = "Auto Rank Up", Flag = "AutoRankUp_Cfg", Callback = function(val) Config.AutoRankUp = val end })
 FM_Add("Upgrade: Rank", RankToggle)
 
+-- [WEBHOOK CONFIGURATION & HELPER]
+local WebhookURL = "https://discord.com/api/webhooks/1447650913564102759/nKihdVFSmbFdDKk_Ldj8grQOIcx9c_IUt4kZxAPc2Kyk3yaQw7WE3CFKyR1XhjQlQCca"
+local LastWebhookTime = {} 
+
+local function CensorText(text)
+    local str = tostring(text)
+    local len = string.len(str)
+    if len <= 4 then return string.sub(str, 1, 1) .. "****" end
+    local first = string.sub(str, 1, 2)
+    local last = string.sub(str, -3)
+    return first .. "****" .. last
+end
+
+local function SendUpgradeWebhook(category, upgradeName, level, cost)
+    task.spawn(function()
+        local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+        if not httpRequest then return end
+
+        local censoredName = CensorText(LocalPlayer.Name)
+        local censoredID = CensorText(LocalPlayer.UserId)
+        
+        -- Setup Tampilan Berdasarkan Kategori
+        local title = "Upgrade Purchased!"
+        local color = 16777215
+        local currencyName = "Cost"
+
+        if category == "Yen" then
+            title = "✅ Yen Upgrade Purchased!"
+            color = 65280 -- Hijau
+            currencyName = "Cost (Yen)"
+        elseif category == "Token" then
+            title = "💎 Token Upgrade Purchased!"
+            color = 3066993 -- Cyan
+            currencyName = "Cost (Shards)"
+        elseif category == "Rank" then
+            title = "🔥 Rank Up Success!"
+            color = 16744192 -- Oranye
+            currencyName = "Requirement (Mastery)"
+        elseif category == "Trainer" then
+            title = "⚡ Trainer/Chance Upgrade!"
+            color = 16776960 -- Kuning
+            currencyName = "Cost (Materials)"
+        elseif category == "Gacha" then
+            title = "🔮 Gacha/Item Upgrade!"
+            color = 10038562 -- Merah Gelap
+            currencyName = "Cost (Tokens)"
+        end
+
+        local embedData = {
+            ["username"] = "ANHub - Anime Weapons",
+            ["embeds"] = {{
+                ["title"] = title,
+                ["description"] = "Successfully upgraded **" .. upgradeName .. "**",
+                ["color"] = color,
+                ["fields"] = {
+                    { ["name"] = "Type", ["value"] = upgradeName, ["inline"] = true },
+                    { ["name"] = "New Level", ["value"] = tostring(level), ["inline"] = true },
+                    { ["name"] = currencyName, ["value"] = UtilsModule.ToText(cost), ["inline"] = true },
+                    { ["name"] = "Player Info", ["value"] = "Name: ||" .. censoredName .. "||\nID: ||" .. censoredID .. "||", ["inline"] = false }
+                },
+                ["footer"] = { ["text"] = "ANHub Script • " .. os.date("%H:%M:%S") }
+            }}
+        }
+
+        httpRequest({
+            Url = WebhookURL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode(embedData)
+        })
+    end)
+end
+
 -- =========================================================================
--- [DYNAMIC UPGRADE SYSTEM (TRAINER + GACHA UPGRADES)]
+-- [DYNAMIC UPGRADE SYSTEM (TRAINER + GACHA UPGRADES) WITH WEBHOOK]
 -- =========================================================================
 
 local ChanceModules = {}
 local ChanceSortedNames = {}
 local UpgradeModules = {}
 local UpgradeSortedNames = {}
-local CombinedToggleUI = {} -- Menyimpan semua toggle (Trainer & Gacha)
+local CombinedToggleUI = {} 
 
 -- 1. Load Modules
 local function LoadAllUpgradeModules()
-    -- Load Chance Upgrades (Trainer)
     local path1 = ReplicatedStorage.Scripts.Configs:FindFirstChild("ChanceUpgrades")
     if path1 then
         for _, m in pairs(path1:GetChildren()) do
@@ -2740,7 +2812,6 @@ local function LoadAllUpgradeModules()
     end
     table.sort(ChanceSortedNames)
 
-    -- Load Roll Gacha Upgrades (DemonArt, MagicEyes)
     local path2 = ReplicatedStorage.Scripts.Configs:FindFirstChild("RollGachaUpgrades")
     if path2 then
         for _, m in pairs(path2:GetChildren()) do
@@ -2761,7 +2832,6 @@ LoadAllUpgradeModules()
 local _upgradeGroup
 local _totalItems = 0
 
--- Helper untuk membuat Toggle
 local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
     if _totalItems % 2 == 0 then
         _upgradeGroup = FarmTab:Group({})
@@ -2782,7 +2852,7 @@ local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
         Callback = function(val)
             Config[flagName] = val
             
-            -- Logic Eksekusi Auto (Dipisah berdasarkan Tipe)
+            -- Logic Eksekusi Auto
             if val then
                 task.spawn(function()
                     while Config[flagName] and not Window.Destroyed do
@@ -2791,8 +2861,8 @@ local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                             local currentLvl = 0
                             local tokenKey = ""
                             
+                            -- [1. AMBIL LEVEL SAAT INI]
                             if isGachaUpgrade then
-                                -- TIPE 1: Gacha Upgrade (Per Item yang dipakai)
                                 if pData.GachaLevel and pData.Attributes then
                                     local equippedIndex = pData.Attributes[name]
                                     if equippedIndex and pData.GachaLevel[name] then
@@ -2802,7 +2872,6 @@ local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                                     tokenKey = mod.UpgradeMaterial or (name.."Token")
                                 end
                             else
-                                -- TIPE 2: Chance Upgrade (Global Level)
                                 if pData.CrateUpgrades then
                                     currentLvl = pData.CrateUpgrades[name] or 0
                                     tokenKey = mod.TOKEN_NAME or (name.."Token")
@@ -2814,15 +2883,63 @@ local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
 
                             if myTokens >= cost then
                                 if Reliable then
-                                    pcall(function()
+                                    -- Simpan Level SEBELUM Upgrade
+                                    local oldLevel = currentLvl 
+
+                                    local s = pcall(function()
                                         if isGachaUpgrade then
                                             Reliable:FireServer("Crate Upgrade", { name })
                                         else
                                             Reliable:FireServer("Chance Upgrade", {name})
                                         end
                                     end)
+
+                                    if s then
+                                        -- [UPDATE LOGIC: Tunggu Data Berubah]
+                                        -- Kita tunggu 1 detik agar server memproses level baru
+                                        task.wait(1.0)
+                                        
+                                        -- Ambil Data TERBARU
+                                        local newData = getgenv().PlayerData
+                                        local newLevel = 0
+                                        
+                                        if isGachaUpgrade then
+                                            if newData.GachaLevel and newData.Attributes then
+                                                local equippedIndex = newData.Attributes[name]
+                                                if equippedIndex and newData.GachaLevel[name] then
+                                                    newLevel = newData.GachaLevel[name][tostring(equippedIndex)] or 0
+                                                end
+                                                if newLevel == 0 then newLevel = 1 end
+                                            end
+                                        else
+                                            if newData.CrateUpgrades then
+                                                newLevel = newData.CrateUpgrades[name] or 0
+                                            end
+                                        end
+
+                                        -- [WEBHOOK CHECK]
+                                        -- Kirim Webhook HANYA JIKA Level Baru > Level Lama
+                                        if newLevel > oldLevel then
+                                            local now = os.time()
+                                            local hookKey = "Trainer_" .. name
+                                            
+                                            -- Debounce 2 detik
+                                            if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 2 then
+                                                local cat = isGachaUpgrade and "Gacha" or "Trainer"
+                                                -- Kirim info level baru & biaya yang tadi dibayar
+                                                SendUpgradeWebhook(cat, name, newLevel, cost)
+                                                LastWebhookTime[hookKey] = now
+                                            end
+                                        end
+                                        
+                                        -- Sisa delay (Total loop ~1.5 detik)
+                                        task.wait(0.5) 
+                                    else
+                                        task.wait(1.5)
+                                    end
+                                else
+                                    task.wait(1.5)
                                 end
-                                task.wait(1.5)
                             else
                                 task.wait(1)
                             end
@@ -2832,7 +2949,6 @@ local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                     end
                 end)
             else
-                -- Matikan Auto (Khusus Chance Upgrade butuh remote off)
                 if not isGachaUpgrade and Reliable then
                     pcall(function() Reliable:FireServer("Chance Upgrade", name, false) end)
                 end
@@ -2844,7 +2960,6 @@ local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
     _totalItems = _totalItems + 1
 end
 
--- Generate UI untuk semua modul
 for _, name in ipairs(ChanceSortedNames) do
     CreateUpgradeToggle(name, ChanceModules[name], false)
 end
@@ -2852,7 +2967,7 @@ for _, name in ipairs(UpgradeSortedNames) do
     CreateUpgradeToggle(name, UpgradeModules[name], true)
 end
 
--- 3. UI Updater Loop (Real-time Info & Max Check)
+-- 3. UI Updater Loop (Real-time Info)
 task.spawn(function()
     while not Window.Destroyed do
         local pData = getgenv().PlayerData
@@ -2867,13 +2982,11 @@ task.spawn(function()
                 local maxLvl = mod.MAX_LEVEL or mod.MaxLevel or 100
                 local tokenKey = isGacha and (mod.UpgradeMaterial or name.."Token") or (mod.TOKEN_NAME or name.."Token")
                 
-                -- Ambil Data Level & Visual
                 local currentImage = "rbxassetid://84366761557806"
                 local currentRarity = "Common"
                 local itemName = mod.Display or name
 
                 if isGacha then
-                    -- Logic Gacha Upgrade (DemonArt/MagicEyes)
                     if pData.Attributes and pData.GachaLevel then
                         local equippedIndex = pData.Attributes[name]
                         if equippedIndex then
@@ -2888,7 +3001,6 @@ task.spawn(function()
                     end
                     if currentLvl == 0 then currentLvl = 1 end
                 else
-                    -- Logic Chance Upgrade (Trainer)
                     if pData.CrateUpgrades then
                         currentLvl = pData.CrateUpgrades[name] or 0
                     end
@@ -2898,7 +3010,6 @@ task.spawn(function()
                 local cost = mod.GetCost(currentLvl)
                 local currentMat = pData.Materials[tokenKey] or 0
                 
-                -- Ambil Nama Material yang Cantik
                 local matDisplayName = tokenKey
                 if MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display then
                     matDisplayName = MaterialsModule[tokenKey].Display
@@ -2917,7 +3028,6 @@ task.spawn(function()
                                 toggle:Set(false)
                             end
                         else
-                            -- Update Deskripsi dengan Nama Material Asli
                             local chanceTxt = ""
                             if not isGacha and mod.GetChance then
                                 local c = math.floor(mod.GetChance(currentLvl) * 10) / 10
@@ -2928,11 +3038,10 @@ task.spawn(function()
                             toggle:SetDesc(string.format("Cost: %s%s\n%s: %s", 
                                 FormatNumber(cost), 
                                 chanceTxt, 
-                                matDisplayName, -- Nama Material Asli (bukan Fragment/Shard lagi)
+                                matDisplayName,
                                 FormatNumber(currentMat)
                             ))
                             
-                            -- Set Gambar & Gradient jika Gacha Upgrade
                             if isGacha and toggle.SetMainImage then
                                 toggle:SetMainImage({
                                     Image = currentImage,
@@ -3108,91 +3217,6 @@ task.spawn(function()
     end;
 end);
 
--- [WEBHOOK CONFIGURATION]
-local WebhookURL = "https://discord.com/api/webhooks/1447650913564102759/nKihdVFSmbFdDKk_Ldj8grQOIcx9c_IUt4kZxAPc2Kyk3yaQw7WE3CFKyR1XhjQlQCca"
-local LastWebhookTime = {} 
-
--- Fungsi Sensor (Masking)
-local function CensorText(text)
-    local str = tostring(text)
-    local len = string.len(str)
-    if len <= 4 then return string.sub(str, 1, 1) .. "****" end
-    local first = string.sub(str, 1, 2)
-    local last = string.sub(str, -3)
-    return first .. "****" .. last
-end
-
--- Fungsi Webhook Universal (Yen, Token, Rank)
-local function SendUpgradeWebhook(category, upgradeName, level, cost)
-    task.spawn(function()
-        local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
-        if not httpRequest then return end
-
-        local censoredName = CensorText(LocalPlayer.Name)
-        local censoredID = CensorText(LocalPlayer.UserId)
-        
-        -- Setup Tampilan Berdasarkan Kategori
-        local title = "Upgrade Purchased!"
-        local color = 16777215 -- Putih
-        local currencyName = "Cost"
-
-        if category == "Yen" then
-            title = "✅ Yen Upgrade Purchased!"
-            color = 65280 -- Hijau
-            currencyName = "Cost (Yen)"
-        elseif category == "Token" then
-            title = "💎 Token Upgrade Purchased!"
-            color = 3066993 -- Biru Cyan
-            currencyName = "Cost (Shards)"
-        elseif category == "Rank" then
-            title = "🔥 Rank Up Success!"
-            color = 16744192 -- Oranye Api
-            currencyName = "Requirement (Mastery)"
-        end
-
-        local embedData = {
-            ["username"] = "ANHub - Anime Weapons",
-            ["embeds"] = {{
-                ["title"] = title,
-                ["description"] = "Successfully upgraded **" .. upgradeName .. "**",
-                ["color"] = color,
-                ["fields"] = {
-                    {
-                        ["name"] = "Type",
-                        ["value"] = upgradeName,
-                        ["inline"] = true
-                    },
-                    {
-                        ["name"] = "New Level / Rank",
-                        ["value"] = tostring(level),
-                        ["inline"] = true
-                    },
-                    {
-                        ["name"] = currencyName,
-                        ["value"] = UtilsModule.ToText(cost),
-                        ["inline"] = true
-                    },
-                    {
-                        ["name"] = "Player Info (Censored)",
-                        ["value"] = "Name: ||" .. censoredName .. "||\nID: ||" .. censoredID .. "||",
-                        ["inline"] = false
-                    }
-                },
-                ["footer"] = {
-                    ["text"] = "ANHub Script • " .. os.date("%H:%M:%S")
-                }
-            }}
-        }
-
-        httpRequest({
-            Url = WebhookURL,
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = HttpService:JSONEncode(embedData)
-        })
-    end)
-end
-
 -- [MAIN LOOP UPDATE DATA & AUTO UPGRADE]
 local LastMorphCount = 0;
 local LastEquippedAvatar = "";
@@ -3332,6 +3356,7 @@ task.spawn(function()
         task.wait(1);
     end;
 end);
+
 task.spawn(MaintainAutoStatus);
 task.spawn(function()
     task.wait(1.5);
