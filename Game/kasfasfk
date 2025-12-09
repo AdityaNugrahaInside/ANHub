@@ -1173,6 +1173,7 @@ local function GamemodeController(configKey)
 
             if currWave >= targetLimit and currWave > 0 then
                 Notify(configKey, "Target Reached ("..currWave..")! Leaving...", "check")
+                FireGamemode(ModeInternalName, "Leave")
                 
                 local waitTime = 0
                 repeat 
