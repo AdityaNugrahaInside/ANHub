@@ -1117,28 +1117,36 @@ local function GamemodeKiller(stopCheckFunc)
 end
 
 -- ============================================================================
---  HELPER BARU: CEK JADWAL TRIAL (5 MENIT SEBELUM)
+--  HELPER BARU: CEK JADWAL TRIAL (5 MENIT SEBELUM s/d 1 MENIT SESUDAH)
 -- ============================================================================
 local function IsTrialApproaching()
-    -- Cek dulu apakah user mengaktifkan Auto Trial. Kalau mati, tidak perlu prioritas.
+    -- Cek dulu apakah user mengaktifkan Auto Trial.
     if not GamemodeVars.Trial or not GamemodeVars.Trial.Active then return false end
     
     local t = os.date("*t")
-    local m = t.min
+    local currentMin = t.min
     
     if not trialList then return false end
 
     for _, trial in pairs(trialList) do
-        local t1 = trial.time             -- Waktu 1 (misal 15)
-        local t2 = (trial.time + 30) % 60 -- Waktu 2 (misal 45)
+        -- Trial biasanya punya 2 jadwal per jam (Contoh: Menit 15 dan 45)
+        local timesToCheck = {
+            trial.time,                -- Waktu Utama (misal: 15)
+            (trial.time + 30) % 60     -- Waktu Kedua (misal: 45)
+        }
 
-        -- Hitung selisih menit menuju jadwal (Handle juga pergantian jam)
-        local diff1 = (t1 - m) % 60
-        local diff2 = (t2 - m) % 60
+        for _, targetTime in ipairs(timesToCheck) do
+            -- Hitung selisih waktu (Delta)
+            -- (Current - Target) % 60 akan menangani putaran jam otomatis
+            local delta = (currentMin - targetTime) % 60
 
-        -- Jika waktu menuju start tinggal 1 sampai 5 menit
-        if (diff1 > 0 and diff1 <= 5) or (diff2 > 0 and diff2 <= 5) then
-            return true
+            -- LOGIKA FILTER:
+            -- delta >= 55 : Artinya currentMin ada di range 5 menit SEBELUM target (contoh: Target 15, Current 10-14 -> Delta 55-59)
+            -- delta <= 1  : Artinya currentMin ada di range 1 menit SETELAH target (contoh: Target 15, Current 15-16 -> Delta 0-1)
+            
+            if delta >= 55 or delta <= 1 then
+                return true -- Blokir Gamemode lain
+            end
         end
     end
     return false
@@ -1165,7 +1173,6 @@ local function GamemodeController(configKey)
 
             if currWave >= targetLimit and currWave > 0 then
                 Notify(configKey, "Target Reached ("..currWave..")! Leaving...", "check")
-                FireGamemode(ModeInternalName, "Leave")
                 
                 local waitTime = 0
                 repeat 
