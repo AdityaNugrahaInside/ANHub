@@ -103,10 +103,6 @@ local Config = {
     AutoChance_Wise = false,
     AutoChance_Leve = false,
     AutoChance_Sung = false,
-    -- [ACCESSORIES CONFIG]
-    AutoEquipAccessories = false,
-    AccessoryInMode = nil,
-    AccessoryOutMode = nil,
     SelectedEnemy = nil,
     ZoneConfigurations = {},
     -- [GAMEMODES CONFIG]
@@ -115,7 +111,9 @@ local Config = {
     TargetRaids = {},
     TargetDefenses = {},
     TargetWave = 500,
-    TeleportBackMap = "None"
+    TeleportBackMap = "None",
+    AutoEquipVaultMode = nil,
+    AutoEquipVaultFarm = nil
 };
 local hrp, humanoid;
 local LastZone = nil;
@@ -227,7 +225,7 @@ local function ScanPlayerData()
         return;
     end;
     (getgenv()).PlayerData = MainController.Data
-    -- setclipboard(JSONPretty(getgenv().PlayerData,1))
+    setclipboard(JSONPretty(getgenv().PlayerData,1))
 end;
 
 task.spawn(ScanPlayerData);
@@ -279,8 +277,6 @@ local function HookTimerVariable()
         end
     end
 end
-
-task.spawn(HookTimerVariable)
 
 task.spawn(HookTimerVariable)
 
@@ -570,43 +566,6 @@ local function GetRewardAssetId(rewardKey)
         end
     end
     return nil
-end
-
--- [HELPER: GET OWNED ACCESSORIES LIST (WITH ICON)]
-local function GetOwnedAccessories()
-    local list = {}
-    local pData = getgenv().PlayerData
-    if pData and pData.Accessories then
-        for id, owned in pairs(pData.Accessories) do
-            if owned == true then
-                local info = AccessoriesConfig[id]
-                local displayName = info and info.Display or id
-                
-                -- [FEATURE: FETCH IMAGE FROM TEMPLATE]
-                local imageId = "rbxassetid://84366761557806" -- Default placeholder
-                if info and info.Template then
-                    imageId = "rbxassetid://" .. tostring(info.Template)
-                end
-                
-                table.insert(list, {
-                    Title = displayName,
-                    Value = id, -- Internal Name
-                    Icon = imageId, -- FIX: Gunakan Key 'Icon' agar gambar muncul (sama kayak Select Token)
-                    Desc = info and info.Rarity or "Accessory"
-                })
-            end
-        end
-    end
-    table.sort(list, function(a,b) return a.Title < b.Title end)
-    return list
-end
-
-local function FireAccessory(accName)
-    if Reliable then
-        pcall(function()
-            Reliable:FireServer("Accessory Equip", {accName})
-        end)
-    end
 end
 
 -- [FUNGSI HELPER GRADIENT]
@@ -1092,7 +1051,7 @@ local function LogicAutoFarm()
 end
 local function MaintainAutoStatus()
     while not Window.Destroyed do
-        if Config.AutoFarm or Config.AutoEquipAccessories or Config.AutoGamemode then
+        if Config.AutoFarm or Config.AutoGamemode then
             local Data = (getgenv()).PlayerData;
             if Data and Data.Settings and Reliable then
                 if Data.Settings.AutoClick == false then
@@ -1124,68 +1083,43 @@ local function isPlayerInZone(zone)
     return false;
 end;
 local function GetCurrentMapStatus()
-    -- [METODE 1] Cek Data Controller (Paling Akurat & Sinkron)
-    -- Kita baca langsung data Attributes.Zone dari game controller
-    if MainController and MainController.Data and MainController.Data.Attributes then
-        local internalZone = MainController.Data.Attributes.Zone
-        if internalZone and internalZone ~= "" then
-            return internalZone
+    -- [1] Cek Data Controller
+    local attr = MainController and MainController.Data and MainController.Data.Attributes
+    if attr and attr.Zone and attr.Zone ~= "" then return attr.Zone end
+
+    -- [2] Cek Folder Gamemode (Loop list agar code lebih pendek)
+    for _, mode in ipairs({"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate"}) do
+        if Workspace:FindFirstChild(mode) then return mode end
+    end
+
+    -- [3] Cek Zone Regions & [4] Deteksi Darurat
+    local zonesFolder = Workspace:FindFirstChild("Zones")
+    
+    if zonesFolder then
+        for _, zone in ipairs(zonesFolder:GetChildren()) do
+            if isPlayerInZone(zone) then return zone.Name end
+        end
+    elseif Workspace:FindFirstChild("Enemies") then
+        -- Masuk sini hanya jika folder "Zones" TIDAK ada, tapi "Enemies" ada
+        return "Dungeon:Active"
+    end
+
+    return "Unknown"
+end
+local function CheckIsFightingZone()
+	local mapName = GetCurrentMapStatus()
+    -- List kata kunci mode bertarung
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate"}
+
+    -- Loop cek satu per satu
+    for _, keyword in ipairs(fightingKeywords) do
+        if string.find(keyword,mapName) then
+            return true
         end
     end
 
-    -- [METODE 2] Cek Folder Gamemode Spesifik (Fallback)
-    -- Jika data belum load, kita cek apakah folder mapnya ada di Workspace
-    if Workspace:FindFirstChild("Dungeon") then return "Dungeon" end
-    if Workspace:FindFirstChild("Raid") then return "Raid" end
-    if Workspace:FindFirstChild("Defense") then return "Defense" end
-    
-    -- Cek Mode Baru
-    if Workspace:FindFirstChild("PirateTower") then return "PirateTower" end
-    if Workspace:FindFirstChild("ShadowGate") then return "ShadowGate" end
-
-    -- [METODE 3] Cek Zone Regions (Untuk Farming Biasa)
-    local zones = Workspace:FindFirstChild("Zones");
-    if zones then
-        for _, zone in pairs(zones:GetChildren()) do
-            if isPlayerInZone(zone) then
-                return zone.Name;
-            end;
-        end;
-    end;
-
-    -- [METODE 4] Deteksi Darurat (Ada musuh tapi tidak terdeteksi zona)
-    if Workspace:FindFirstChild("Enemies") and (not zones) then
-        return "Dungeon:Active";
-    end;
-
-    return "Unknown";
-end;
-
--- task.spawn(function()
---     local EnemiesFolder = Workspace:WaitForChild("Enemies", 5)
---     if EnemiesFolder then
---         local Debounce = false
---         local function TriggerRefresh()
---             if Debounce then return end
-
---             local currentMap = GetCurrentMapStatus()
---             local isGamemode = string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "PirateTower") or string.find(currentMap, "ShadowGate")
-
---             if not isGamemode then
---                 return
---             end
-
---             Debounce = true
---             task.wait(1.5)
---             RefreshEnemyData()
---             Debounce = false
---         end
-
---         EnemiesFolder.ChildAdded:Connect(TriggerRefresh)
---         EnemiesFolder.ChildRemoved:Connect(TriggerRefresh)
---     end
--- end);
-
+    return false
+end
 
 local function GetPartPosition(obj)
     if typeof(obj) == "Instance" then
@@ -1403,13 +1337,14 @@ local FM_Categories = {}
 local FM_CategoryDescriptions = {
     ["Zone Farming"] = "Auto farm enemies per zone and specific targets",
     ["GameModes"] = "Auto Join & Farm Dungeons/Raids by Time",
-    ["Accessories"] = "Select & auto equip accessories for battle/lobby",
+    ["Vault"] = "Auto Equipped Best Vault for battle/lobby",
     ["Exchange"] = "Exchange materials, preview tokens and calculate amounts",
     ["Crate Roll"] = "Auto roll various gachas and monitor material stock",
     ["Upgrade: Yen"] = "Upgrade Yen buff along with cost and effects",
     ["Upgrade: Token"] = "Upgrade Token buff with shards",
     ["Upgrade: Rank"] = "Rank progress, requirements, and bonuses",
-    ["Upgrade: Trainer"] = "Trainer settings and enhancement"
+    ["Upgrade: Trainer"] = "Trainer settings and enhancement",
+    ["Crafts"] = "Auto craft/upgrade items and equipment"
 }
 local function FM_GetElementFrame(elem)
     local f = rawget(elem, "ElementFrame") or (elem.UIElements and elem.UIElements.Main) or rawget(elem, "GroupFrame")
@@ -1464,13 +1399,14 @@ local FM_Category = FarmTab:Category({
     Options = {
         {Title="Zone Farming", Icon="swords"},
         {Title="GameModes", Icon="skull"},
-        {Title="Accessories", Icon="package"},
+        {Title="Vault", Icon="zap"},
         {Title="Exchange", Icon=GetIcon(TradeTokenInfo.Template)},
         {Title="Crate Roll", Icon="package"},
         {Title="Upgrade: Yen", Icon=GetYenIcon()},
         {Title="Upgrade: Token", Icon="rbxassetid://124644932563791"},
         {Title="Upgrade: Rank", Icon=GetDynamicRankIcon()},
-        {Title="Upgrade: Trainer", Icon=GetTrainerIcon()}
+        {Title="Upgrade: Trainer", Icon=GetTrainerIcon()},
+        {Title="Crafts", Icon="rbxassetid://132575095676543"}
     },
     Callback = FM_OnChange
 })
@@ -1532,166 +1468,6 @@ local MeteorToggle = FarmTab:Toggle({
     end
 })
 FM_Add("Zone Farming", MeteorToggle)
-
--- [ACCESSORIES UI WITH GRADIENT]
-
--- Pastikan fungsi GetGameGradient sudah ada di atas script (dari kode sebelumnya)
--- Jika belum, copy fungsi GetGameGradient dari jawaban sebelumnya ke bagian paling atas script.
-
-local function UpdateAccDropdown(dropdown, val, defaultTitle)
-    local selectedId = type(val) == "table" and val.Value or val
-    
-    if selectedId then
-        local info = AccessoriesConfig[selectedId]
-        if info then
-            dropdown:SetTitle(info.Display)
-            
-            local icon = "rbxassetid://84366761557806"
-            if info.Template then
-                icon = "rbxassetid://" .. tostring(info.Template)
-            end
-            
-            -- Set Icon Kecil
-            dropdown:SetIcon(icon, 30)
-            
-            -- [LOGIKA GRADIENT BARU]
-            local rarity = info.Rarity or "Common"
-            local gradient = GetGameGradient(rarity) -- Mengambil warna gradient dari game
-            dropdown:SetValueImage(icon)
-
-            if dropdown.SetMainImage then
-                dropdown:SetMainImage({
-                    Image = icon,
-                    Gradient = gradient,
-                    Quantity = rarity, -- Menampilkan teks Rarity
-                    Title = info.Display
-                }, 50)
-            end
-            
-            dropdown:SetDesc(rarity or "Accessory")
-        else
-            -- Jika item tidak ditemukan di config
-            dropdown:SetTitle(selectedId)
-            dropdown:SetValueImage("rbxassetid://84366761557806")
-            dropdown:SetDesc("Unknown")
-            
-            if dropdown.SetMainImage then
-                 dropdown:SetMainImage("rbxassetid://84366761557806", 50)
-            end
-        end
-    else
-        -- Jika tidak ada yang dipilih (None)
-        dropdown:SetTitle(defaultTitle or "Select Gear")
-        dropdown:SetDesc("None Selected")
-        dropdown:SetValueImage("rbxassetid://84366761557806")
-        
-        if dropdown.SetMainImage then
-             dropdown:SetMainImage("rbxassetid://84366761557806", 50)
-        end
-    end
-end
-
-local AccInMode
-AccInMode = FarmTab:Dropdown({
-    Title = "Select Battle Gear",
-    Desc = "None Selected",
-    Multi = false,
-    Values = GetOwnedAccessories(),
-    Image = "rbxassetid://84366761557806",
-    ImageSize = 20,
-    Flag = "AccInMode_Cfg",
-    Callback = function(val)
-        local v = type(val) == "table" and val.Value or val
-        Config.AccessoryInMode = v
-        UpdateAccDropdown(AccInMode, v, "Select Battle Gear")
-    end
-})
-FM_Add("Accessories", AccInMode)
-
-if Config.AccessoryInMode then
-    UpdateAccDropdown(AccInMode, Config.AccessoryInMode, "Select Battle Gear")
-end
-
-local AccOutMode
-AccOutMode = FarmTab:Dropdown({
-    Title = "Select Lobby Gear",
-    Desc = "None Selected",
-    Multi = false,
-    Values = GetOwnedAccessories(),
-    Image = "rbxassetid://84366761557806",
-    ImageSize = 20,
-    Flag = "AccOutMode_Cfg",
-    Callback = function(val)
-        local v = type(val) == "table" and val.Value or val
-        Config.AccessoryOutMode = v
-        UpdateAccDropdown(AccOutMode, v, "Select Lobby Gear")
-    end
-})
-FM_Add("Accessories", AccOutMode)
-
-if Config.AccessoryOutMode then
-    UpdateAccDropdown(AccOutMode, Config.AccessoryOutMode, "Select Lobby Gear")
-end
-
-local RefreshAccBtn = FarmTab:Button({
-    Title = "Refresh Accessories",
-    Icon = "refresh-cw",
-    Callback = function()
-        local list = GetOwnedAccessories()
-        AccInMode:Refresh(list)
-        AccOutMode:Refresh(list)
-        
-        if Config.AccessoryInMode then UpdateAccDropdown(AccInMode, Config.AccessoryInMode, "Select Battle Gear") end
-        if Config.AccessoryOutMode then UpdateAccDropdown(AccOutMode, Config.AccessoryOutMode, "Select Lobby Gear") end
-    end
-})
-FM_Add("Accessories", RefreshAccBtn)
-
-local function LogicAccessories()
-    local LastAccessoryState = "None"
-    while Config.AutoEquipAccessories and not Window.Destroyed do
-        local currentMap = GetCurrentMapStatus()
-        local enemiesFolder = GetEnemiesFolder()
-        local hasEnemies = enemiesFolder and #enemiesFolder:GetChildren() > 0
-        local isFightingZone = false
-        if string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "PirateTower") or string.find(currentMap, "ShadowGate")) then
-            isFightingZone = true
-        end
-        if currentMap == "Raid" then
-            isFightingZone = true
-        elseif currentMap == "Defense" then
-            isFightingZone = hasEnemies
-        end
-
-        if isFightingZone then
-            if LastAccessoryState ~= "InMode" and Config.AccessoryInMode then
-                FireAccessory(Config.AccessoryInMode)
-                LastAccessoryState = "InMode"
-            end
-        else
-            if LastAccessoryState ~= "OutMode" and Config.AccessoryOutMode then
-                FireAccessory(Config.AccessoryOutMode)
-                LastAccessoryState = "OutMode"
-            end
-        end
-        task.wait(0.5)
-    end
-end
-
-local AccToggle = FarmTab:Toggle({
-    Title = "Auto Equip Accessories",
-    Flag = "AutoEquipAcc_Cfg",
-    Callback = function(val)
-        Config.AutoEquipAccessories = val
-        if val then
-            task.spawn(LogicAccessories)
-        end;
-    end
-})
-FM_Add("Accessories", AccToggle)
-
-
-
 local function LogicGamemodes()
     local wasInGamemode = false;
     local currentTargetObj = nil;
@@ -1711,6 +1487,7 @@ local function LogicGamemodes()
         local inLobbyZone = false;
         
         -- Cek Lobby Dungeon (Tempat spawn setelah match selesai)
+        -- HANYA BERLAKU UNTUK DUNGEON/RAID, Mode lain spawn di map biasa
         if Workspace:FindFirstChild("Zones") and Workspace.Zones:FindFirstChild("Dungeon") then
             if isPlayerInZone(Workspace.Zones.Dungeon) then
                 inLobbyZone = true;
@@ -1720,18 +1497,19 @@ local function LogicGamemodes()
         -- Deteksi Mode Bertarung
         local EnemiesFolder = Workspace:FindFirstChild("Enemies")
         local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
-        local isFightingZone = string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate");
+        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
         
         if currentMap == "Raid" then isFightingZone = true 
         elseif currentMap == "Defense" then isFightingZone = hasEnemies
         elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
         end
 
-        -- [LOGIKA PENYIMPANAN MAP TERAKHIR]
+        -- [PERBAIKAN 1: LOGIKA PENYIMPANAN MAP TERAKHIR]
         -- Kita simpan LastZone hanya jika kita SEDANG TIDAK di Gamemode/Lobby
-        -- Ini memastikan 'LastZone' selalu berisi map farming terakhir (misal: "Naruto")
-        if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") then
-            LastZone = currentMap
+        -- DAN kita tidak sedang dalam status 'pulang' (wasInGamemode == false)
+        -- Ini mencegah script menganggap "OnePiece2" atau "Paradis" sebagai LastZone saat baru selesai mode.
+        if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") and not wasInGamemode then
+            LastZone = getgenv().PlayerData.Attributes.LastZone
         end
 
         if currentMap ~= "Unknown" then
@@ -1824,8 +1602,12 @@ local function LogicGamemodes()
                 end
                 task.wait()
 
-            elseif inLobbyZone and wasInGamemode and (not isFightingZone) then
-                -- [B. SELESAI MATCH / KEMBALI KE LOBBY]
+            -- [PERBAIKAN 2: SELESAI MATCH / KEMBALI KE LOBBY]
+            -- Kita HAPUS syarat 'inLobbyZone' disini.
+            -- Karena PirateTower/Defense baliknya ke map biasa (bukan Lobby khusus).
+            -- Asalkan 'wasInGamemode' true dan kita sudah TIDAK di fighting zone, berarti waktunya pulang.
+            elseif wasInGamemode and (not isFightingZone) then
+                
                 currentTargetObj = nil;
                 hasTeleportedToBossInRaid = false;
                 
@@ -1835,12 +1617,13 @@ local function LogicGamemodes()
                     if Reliable then
                         pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end);
                     end;
-                    wasInGamemode = false;
-                    task.wait(6);
+                    wasInGamemode = false; -- Reset status
+                    task.wait(6); -- Tunggu teleport selesai
                 else
-                    -- Jika LastZone tidak valid, reset status saja
+                    -- Jika LastZone tidak valid, reset status saja tanpa teleport
                     wasInGamemode = false;
                 end;
+
             else
                 -- [C. AUTO JOIN / SCANNING]
                 local t = os.date("*t");
@@ -1940,7 +1723,6 @@ local function LogicGamemodes()
         end;
     end;
 end;
-
 -- [HELPER: GENERATE CARD REWARDS]
 local function GenerateCardRewards(chanceRewardData)
     local rewardCards = {}
@@ -2253,9 +2035,11 @@ local function GetGameGradient(rarityName)
     return fallback and fallback.Color or nil
 end
 
--- [BAGIAN UI EXCHANGE]
+-- [BAGIAN UI EXCHANGE - FIXED LOGIC]
 local GeneralManagerSection = FarmTab
 local ExchangeList = {}
+
+-- Membangun list item yang bisa ditukar (Exchangeable)
 for k, v in pairs(MaterialsModule) do
     if v.Exchangeable and k ~= "TradeToken" then
         table.insert(ExchangeList, {Title = v.Display, Value = k})
@@ -2266,8 +2050,19 @@ table.sort(ExchangeList, function(a,b) return a.Title < b.Title end)
 local SelectedExToken = nil
 local SelectedExIcon = nil
 local PrevMaterialsDigest = nil
-local ExchangeAmount = 1
-local ExchangeIsBuying = false
+local ExchangePercent = 1 -- Default 100%
+local ExchangeIsBuying = false -- Default Selling (False)
+
+-- Fungsi Helper untuk mengambil Ratio Harga
+local function GetExchangeRatio(tokenKey)
+	local val = 0.1
+    if not tokenKey or not MaterialsModule[tokenKey] then return 1 end
+    -- Mengambil ExchangeRatio dari module, default ke 10 jika tidak ada (sesuai logika game umumnya)
+    if MaterialsModule[tokenKey].ExchangeRatio then
+    	val = MaterialsModule[tokenKey].ExchangeRatio
+    end
+    return val
+end
 
 local function GetMaterialsDigest()
     local pData = (getgenv()).PlayerData
@@ -2287,8 +2082,12 @@ local function BuildExchangeValues()
     for _, item in ipairs(ExchangeList) do
         local key = item.Value
         local info = MaterialsModule[key]
-        local count = (pData and pData.Materials and pData.Materials[key]) or 0
-        local img = info and info.Template and GetIcon(info.Template) or ""
+        -- Mengambil gambar icon
+        local img = "rbxassetid://84366761557806"
+        if info and info.Template then
+            img = GetIcon(info.Template)
+        end
+        
         table.insert(mats, {
             Title = item.Title,
             Icon = img,
@@ -2301,6 +2100,7 @@ end
 local PreviewGroup = GeneralManagerSection:Group()
 FM_Add("Exchange", PreviewGroup)
 
+-- [DROPDOWN PILIH TOKEN]
 local MatPreview = PreviewGroup:Dropdown({
     Title = "Select Token",
     Desc = "None Selected",
@@ -2312,76 +2112,82 @@ local MatPreview = PreviewGroup:Dropdown({
         SelectedExToken = type(val) == "table" and val.Value or val
         SelectedExIcon = type(val) == "table" and val.Icon or nil
         
-        -- Update visual instan saat dropdown dipilih
+        -- Update Tampilan Dropdown Instan
         local info = SelectedExToken and MaterialsModule[SelectedExToken] or nil
-        if info and info.Template then
+        if info then
             local rarity = info.Rarity or "Common"
             local gradient = GetGameGradient(rarity)
+            local icon = SelectedExIcon or (info.Template and GetIcon(info.Template)) or "rbxassetid://84366761557806"
 
             MatPreview:SetTitle(info.Display)
-            -- Set Icon Kecil di Header Dropdown
-            MatPreview:SetIcon(SelectedExIcon or GetIcon(info.Template), 30)
+            MatPreview:SetIcon(icon, 30)
             
-            -- Set Main Image Besar dengan Gradient
             if MatPreview.SetMainImage then
                 MatPreview:SetMainImage({
-                    Image = SelectedExIcon or GetIcon(info.Template),
+                    Image = icon,
                     Gradient = gradient,
-                    Quantity = rarity -- Menampilkan teks rarity (opsional)
+                    Quantity = rarity,
+                    Title = info.Display
                 }, 50)
             end
-
-            local pData = (getgenv()).PlayerData
-            local matCount = pData and pData.Materials and pData.Materials[SelectedExToken] or 0
-            MatPreview:SetDesc(string.format("(%s/%s)", FormatNumber(ExchangeAmount), FormatNumber(matCount)))
         end
     end
 })
 MatPreview:Refresh(BuildExchangeValues())
 
+-- [PREVIEW TRADE TOKEN]
 local TradePreview = PreviewGroup:Paragraph({
-    Title = TradeTokenInfo.Display,
+    Title = TradeTokenInfo.Display or "Trade Token",
     Desc = "Waiting...",
-    Image = GetIcon(TradeTokenInfo.Template),
+    Image = TradeTokenInfo.Template and GetIcon(TradeTokenInfo.Template) or "rbxassetid://128675466010249", -- Default Trade Token ID
     ImageSize = 40
 })
 
-local ExchangePercent = 1
+-- [SLIDER PERSENTASE]
 local ExSlider = GeneralManagerSection:Slider({
     Title = "Amount %",
     Min = 0,
     Max = 100,
     Default = 100,
     Callback = function(v)
-        ExchangePercent = v / 100
+        ExchangePercent = v / 100 -- Mengubah 100 menjadi 1.0 (float)
     end
 })
 FM_Add("Exchange", ExSlider)
 
+-- [TOGGLE SWAP MODE (BELI/JUAL)]
 local ExSwap = GeneralManagerSection:Toggle({
     Title = "Swap Direction (Buy Mode)",
-    Desc = "OFF: Material -> Trade Token | ON: Trade Token -> Material",
+    Desc = "OFF: Sell Item -> Get Tokens | ON: Pay Tokens -> Get Item",
     Callback = function(v)
         ExchangeIsBuying = v
     end
 })
 FM_Add("Exchange", ExSwap)
 
+-- [TOMBOL EKSEKUSI]
 local ExchangeButton = GeneralManagerSection:Button({
-    Title = "Exchange",
+    Title = "Exchange / Convert",
     Icon = "check",
     Callback = function()
         if not SelectedExToken then
-            l:Notify({Title="Error", Content="Select a token first!", Icon="alert-triangle"})
+            Notify("Error", "Select a token first!", "alert-triangle")
             return
         end
 
+        -- [LOGIKA REMOTE EVENT SESUAI DECOMPILE]
+        -- Decompile: shared.Reply.To("Convert Tokens", var6_upvw, var8_upvw, var9_upvw)
+        -- Arg 1: Action Name
+        -- Arg 2: Token Key (String)
+        -- Arg 3: Is Buying/Swap (Boolean)
+        -- Arg 4: Amount Slider (0.0 - 1.0)
+        
         local args = {
             "Convert Tokens",
             {
-                SelectedExToken,
-                ExchangeIsBuying,
-                ExchangePercent
+                SelectedExToken,    -- var6_upvw
+                ExchangeIsBuying,   -- var8_upvw
+                ExchangePercent     -- var9_upvw (Slider value)
             }
         }
 
@@ -2389,73 +2195,78 @@ local ExchangeButton = GeneralManagerSection:Button({
             pcall(function()
                 Reliable:FireServer(unpack(args))
             end)
-            l:Notify({Title="Exchange", Content="Request Sent!", Icon="send"})
+            Notify("Exchange", "Request Sent!", "send")
         end
     end
 })
 FM_Add("Exchange", ExchangeButton)
 
--- [UPDATE LOOP EXCHANGE AGAR TERUS MENG-UPDATE GRADIENT]
+-- [LOOP UPDATE VISUAL UI (REAL-TIME CALCULATION)]
 task.spawn(function()
     while not Window.Destroyed do
         local pData = (getgenv()).PlayerData
+        
+        -- Refresh List jika inventory berubah (misal item baru didapat)
         local digest = GetMaterialsDigest()
         if digest ~= PrevMaterialsDigest then
             MatPreview:Refresh(BuildExchangeValues())
             PrevMaterialsDigest = digest
         end
 
-        local tradeCount = (pData and pData.Materials and pData.Materials["TradeToken"]) or 0
-        local matCount = (SelectedExToken and pData and pData.Materials and pData.Materials[SelectedExToken]) or 0
+        -- [LOGIKA KALKULASI JUMLAH]
+        local tradeTokenCount = (pData and pData.Materials and pData.Materials["TradeToken"]) or 0
+        local materialCount = (SelectedExToken and pData and pData.Materials and pData.Materials[SelectedExToken]) or 0
+        local ratio = GetExchangeRatio(SelectedExToken)
 
-        local inputAmount = 0
-        local outputAmount = 0
-
-        if ExchangeIsBuying then
-            inputAmount = math.floor(tradeCount * ExchangePercent)
-            outputAmount = inputAmount
-        else
-            local rawInput = math.floor(matCount * ExchangePercent)
-            outputAmount = math.floor(rawInput / 10)
-            inputAmount = rawInput
-        end
+        local inputDisplay = 0
+        local outputDisplay = 0
 
         if SelectedExToken then
+            if ExchangeIsBuying then
+                -- MODE BELI (Buy): Trade Token -> Material
+                -- Rumus: Max Bisa Beli = TradeToken / Ratio
+                local maxCanBuy = math.floor(tradeTokenCount / ratio)
+                outputDisplay = math.floor(maxCanBuy * ExchangePercent) -- Berapa Material yang didapat
+                inputDisplay = outputDisplay * ratio -- Berapa Trade Token yang dibayar
+                
+                -- Update Teks UI
+                MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", FormatNumber(materialCount), FormatNumber(outputDisplay)))
+                TradePreview:SetDesc(string.format("Stock: %s | -%s (Pay)", FormatNumber(tradeTokenCount), FormatNumber(inputDisplay)))
+            else
+                -- MODE JUAL (Sell): Material -> Trade Token
+                -- Rumus: Input = Material * Persen
+                inputDisplay = math.floor(materialCount * ExchangePercent) -- Berapa Material yang dijual
+                outputDisplay = inputDisplay * ratio -- Berapa Trade Token yang didapat
+                
+                -- Update Teks UI
+                MatPreview:SetDesc(string.format("Stock: %s | -%s (Sell)", FormatNumber(materialCount), FormatNumber(inputDisplay)))
+                TradePreview:SetDesc(string.format("Stock: %s | +%s (Get)", FormatNumber(tradeTokenCount), FormatNumber(outputDisplay)))
+            end
+            
+            -- [UPDATE VISUAL GAMBAR GRADIENT SECARA REALTIME]
             local info = MaterialsModule[SelectedExToken]
-            if info and info.Template then
-                -- [LOGIKA GRADIENT DI SINI]
+            if info then
                 local rarity = info.Rarity or "Common"
                 local gradient = GetGameGradient(rarity)
-
-                MatPreview:SetTitle(info.Display)
+                local icon = SelectedExIcon or (info.Template and GetIcon(info.Template))
                 
-                -- Update Main Image dengan Gradient Table
-                MatPreview:SetMainImage({
-                    Image = SelectedExIcon or GetIcon(info.Template),
-                    Gradient = gradient,
-                    Quantity = rarity -- Opsional: Text di atas gambar
-                }, 50)
-                MatPreview:SetValueImage(SelectedExIcon or GetIcon(info.Template))
-
-                if ExchangeIsBuying then
-                      MatPreview:SetDesc(string.format("Current: %s | +%s", FormatNumber(matCount), FormatNumber(outputAmount)))
-                else
-                      MatPreview:SetDesc(string.format("Current: %s | -%s", FormatNumber(matCount), FormatNumber(inputAmount)))
+                if MatPreview.SetMainImage and icon then
+                    MatPreview:SetMainImage({
+                        Image = icon,
+                        Gradient = gradient,
+                        Quantity = rarity,
+                        Title = info.Display
+                    }, 50)
                 end
             end
-
-            if ExchangeIsBuying then
-                TradePreview:SetDesc(string.format("Current: %s | -%s", FormatNumber(tradeCount), FormatNumber(inputAmount)))
-            else
-                TradePreview:SetDesc(string.format("Current: %s | +%s", FormatNumber(tradeCount), FormatNumber(outputAmount)))
-            end
+            
         else
+            -- Jika belum ada yang dipilih
             MatPreview:SetTitle("Select Token")
             MatPreview:SetDesc("None Selected")
-            MatPreview:SetMainImage("rbxassetid://84366761557806", 50)
             TradePreview:SetDesc("Waiting...")
         end
-        -- TradePreview:SetMainImage(SelectedExIcon or GetIcon(TradeTokenInfo.Template), 50)
+        
         task.wait(0.5)
     end
 end)
@@ -2702,7 +2513,7 @@ local function SendUpgradeWebhook(category, upgradeName, level, cost)
         local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
         if not httpRequest then return end
 
-        local censoredName = CensorText(LocalPlayer.Name)
+        local censoredName = CensorText(LocalPlayer.DisplayName)
         local censoredID = CensorText(LocalPlayer.UserId)
         
         -- Setup Tampilan Berdasarkan Kategori
@@ -2756,6 +2567,259 @@ local function SendUpgradeWebhook(category, upgradeName, level, cost)
         })
     end)
 end
+
+-- [SECTION: CRAFTS SYSTEM - DYNAMIC LOAD]
+local CraftsConfig = {}
+
+-- 1. Load Data Langsung dari Module Game
+local function LoadCraftsModule()
+    local success, module = pcall(function()
+        return require(game:GetService("ReplicatedStorage").Scripts.Configs.Crafts)
+    end)
+    
+    if success and type(module) == "table" then
+        CraftsConfig = module
+    else
+        -- Fallback kosong agar script tidak error total jika path berubah
+        warn("Failed to load Crafts Module!")
+        CraftsConfig = {} 
+    end
+end
+LoadCraftsModule()
+
+-- Helper untuk ambil level craft pemain
+local function GetPlayerCraftLevel(craftId)
+    local pData = (getgenv()).PlayerData
+    if pData and pData.Crafts and pData.Crafts[craftId] then
+        return pData.Crafts[craftId]
+    end
+    return 0 -- Belum punya = level 0
+end
+
+-- Helper cek material cukup atau tidak
+local function CanAffordCraft(craftId, nextLevel)
+    local data = CraftsConfig[craftId]
+    if not data then return false end
+    
+    -- Level Cost array indexnya level target
+    local costData = data.Costs[nextLevel] 
+    if not costData then return false end -- Max level atau error
+
+    local pData = (getgenv()).PlayerData
+    if not pData or not pData.Materials then return false end
+
+    for matName, amountNeeded in pairs(costData) do
+        local myAmount = pData.Materials[matName] or 0
+        if myAmount < amountNeeded then
+            return false
+        end
+    end
+    return true
+end
+-- [UI BUILDER]
+-- Kode ini mencakup Dropdown Auto Equip & List Toggle Upgrade dengan Info Bonus & Material
+
+-- 1. DROPDOWN AUTO EQUIP
+local CraftListForEquip = {}
+for id, data in pairs(CraftsConfig) do
+    table.insert(CraftListForEquip, {
+        Title = data.Display,
+        Value = id,
+        Image = "rbxassetid://"..tostring(data.Template)
+    })
+end
+table.sort(CraftListForEquip, function(a,b) return a.Title < b.Title end)
+
+-- Buat Dropdown langsung di FarmTab
+local AutoEquipCraftDropdown = FarmTab:Dropdown({
+    Title = "Auto Equip Craft",
+    Desc = "Force equip selected craft",
+    Multi = false,
+    AllowNone = true,
+    Values = CraftListForEquip,
+    Flag = "AutoEquipCraft_Cfg",
+    Callback = function(val)
+        Config.AutoEquipCraft = type(val) == "table" and val.Value or val
+    end
+})
+-- Daftarkan Dropdown ke Kategori Crafts
+FM_Add("Crafts", AutoEquipCraftDropdown)
+
+-- Logic Auto Equip Craft
+task.spawn(function()
+    while not Window.Destroyed do
+        if Config.AutoEquipCraft and Config.AutoEquipCraft ~= "" then
+            local pData = (getgenv()).PlayerData
+            if pData and pData.EquippedCrafts then
+                -- Cek apakah craft target SUDAH ter-equip?
+                if not pData.EquippedCrafts[Config.AutoEquipCraft] then
+                    -- Cek apakah kita punya craft tersebut (Level > 0)
+                    local lvl = GetPlayerCraftLevel(Config.AutoEquipCraft)
+                    if lvl > 0 then
+                        if Reliable then
+                            pcall(function()
+                                Reliable:FireServer("Equip Craft", Config.AutoEquipCraft)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(2) -- Cek setiap 2 detik agar tidak spam
+    end
+end)
+
+-- 2. TOGGLES AUTO CRAFT/UPGRADE (List ke bawah)
+local CraftToggles = {}
+
+-- Helper Function: Format Bonus Table menjadi String Rapi
+-- Contoh Output: "Drop: +4%, Yen: +5%"
+local function FormatBonusString(bonusTable)
+    if not bonusTable then return "None" end
+    local parts = {}
+    -- Urutkan key agar tampilan konsisten (opsional)
+    for stat, val in pairs(bonusTable) do
+        table.insert(parts, string.format("%s: +%s%%", stat, tostring(val)))
+    end
+    if #parts == 0 then return "None" end
+    return table.concat(parts, ", ")
+end
+
+-- Sort ID (String "1", "2") menjadi angka agar urutan UI rapi
+local SortedCraftIDs = {}
+for k,v in pairs(CraftsConfig) do table.insert(SortedCraftIDs, k) end
+table.sort(SortedCraftIDs, function(a,b) 
+    return tonumber(a) < tonumber(b) 
+end)
+
+for _, id in ipairs(SortedCraftIDs) do
+    local data = CraftsConfig[id]
+    
+    -- Buat Toggle langsung di FarmTab
+    local toggle = FarmTab:Toggle({
+        Title = data.Display,
+        Desc = "Scanning data...",
+        Image = "rbxassetid://"..tostring(data.Template),
+        ImageSize = 30,
+        Flag = "AutoCraft_"..id,
+        Callback = function(val)
+            Config["AutoCraft_"..id] = val
+        end
+    })
+    
+    -- Daftarkan setiap toggle ke Kategori Crafts
+    FM_Add("Crafts", toggle)
+    
+    -- Simpan referensi toggle & data untuk update loop visual
+    CraftToggles[id] = {
+        UI = toggle,
+        Data = data
+    }
+end
+
+-- Logic Loop: Update Visual UI & Eksekusi Auto Craft
+task.spawn(function()
+    while not Window.Destroyed do
+        local pData = (getgenv()).PlayerData
+        if pData and pData.Materials then
+            
+            for id, info in pairs(CraftToggles) do
+                local data = info.Data
+                local toggle = info.UI
+                
+                local currentLvl = GetPlayerCraftLevel(id)
+                local maxLvl = data.MaxLevel
+                local nextLvl = currentLvl + 1
+                
+                -- [UPDATE VISUAL UI]
+                pcall(function()
+                    if not Window.Closed then
+                        -- Ambil Data Bonus untuk Level Sekarang & Selanjutnya
+                        local curBonus = (data.Bonuses and data.Bonuses[currentLvl]) or nil
+                        local nextBonus = (data.Bonuses and data.Bonuses[nextLvl]) or nil
+                        
+                        local curBonusStr = FormatBonusString(curBonus)
+                        local nextBonusStr = FormatBonusString(nextBonus)
+
+                        if currentLvl >= maxLvl then
+                            -- TAMPILAN MAX LEVEL
+                            toggle:SetTitle(data.Display .. " [MAX]")
+                            
+                            -- Hanya tampilkan Bonus Akhir
+                            local descText = string.format("<b>Max Level Reached</b>\n\nActive Bonus:\n%s", curBonusStr)
+                            toggle:SetDesc(descText)
+                            
+                            if toggle.SetMainImage then
+                                toggle:SetMainImage({
+                                    Image = "rbxassetid://"..tostring(data.Template),
+                                    Quantity = "MAX",
+                                    Title = data.Display,
+                                    Gradient = GetGameGradient(data.Rarity)
+                                }, 50)
+                            end
+                        else
+                            -- TAMPILAN BELUM MAX (Cost + Bonus Info)
+                            local costStr = "None"
+                            local costData = data.Costs[nextLvl]
+                            
+                            if costData then
+                                local parts = {}
+                                for matName, reqAmt in pairs(costData) do
+                                    local myAmt = pData.Materials[matName] or 0
+                                    
+                                    -- Ambil Nama Display Material
+                                    local realName = matName
+                                    if MaterialsModule[matName] and MaterialsModule[matName].Display then
+                                        realName = MaterialsModule[matName].Display
+                                    end
+
+                                    local line = string.format("%s: %s / %s", realName, FormatNumber(myAmt), FormatNumber(reqAmt))
+                                    table.insert(parts, line)
+                                end
+                                costStr = table.concat(parts, "\n")
+                            end
+                            
+                            -- Gabungkan Info Cost dan Bonus
+                            local finalDesc = string.format(
+                                "%s\n\nCurrent [Lv %d]: %s\nNext [Lv %d]: %s", 
+                                costStr, 
+                                currentLvl, curBonusStr, 
+                                nextLvl, nextBonusStr
+                            )
+                            
+                            toggle:SetTitle(string.format("%s [Lv %d -> %d]", data.Display, currentLvl, nextLvl))
+                            toggle:SetDesc(finalDesc)
+                        end
+                    end
+                end)
+                
+                -- [EKSEKUSI AUTO UPGRADE]
+                if Config["AutoCraft_"..id] then
+                    if currentLvl < maxLvl then
+                        if CanAffordCraft(id, nextLvl) then
+                            if Reliable then
+                                local s = pcall(function()
+                                    Reliable:FireServer("Upgrade Craft", id)
+                                end)
+                                
+                                if s then
+                                    local now = os.time()
+                                    local hookKey = "Craft_"..id
+                                    if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 3 then
+                                        SendUpgradeWebhook("Trainer", "Craft: "..data.Display, nextLvl, 0)
+                                        LastWebhookTime[hookKey] = now
+                                    end
+                                    task.wait(1)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
 
 -- =========================================================================
 -- [DYNAMIC UPGRADE SYSTEM (TRAINER + GACHA UPGRADES) WITH WEBHOOK]
@@ -3029,7 +3093,336 @@ task.spawn(function()
         task.wait(1)
     end
 end)
+-- ============================================================================
+-- [SHARED HELPERS - DIBUTUHKAN OLEH VAULT & INVENTORY]
+-- ============================================================================
+local ConfigsFolder = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Configs")
+local ConfigCache = {}
 
+-- Warna & Rarity
+local BonusColors = {
+    ["Mastery"] = "#d667ff", ["Damage"] = "#ff2b2b", ["Power"] = "#ff2b2b",
+    ["Yen"] = "#f1c40f",["Critical"] = "#f1c40f", ["Coins"] = "#f1c40f", ["Luck"] = "#00ff41", 
+    ["Exp"] = "#3498db", ["Player Exp"] = "#3498db"
+}
+local RarityColors = {
+    ["Common"]="#b0b0b0", ["Uncommon"]="#4cd137", ["Rare"]="#00a8ff", 
+    ["Epic"]="#9c88ff", ["Legend"]="#fbc531", ["Mythic"]="#e84118", ["Secret"]="#273c75"
+}
+local RarityOrder = {
+    ["Secret"]=7, ["Mythic"]=6, ["Legend"]=5, ["Legendary"]=5,
+    ["Epic"]=4, ["Rare"]=3, ["Uncommon"]=2, ["Common"]=1
+}
+
+local function GetGameConfig(categoryName)
+    if ConfigCache[categoryName] then return ConfigCache[categoryName] end
+    local module = nil
+    local paths = {
+        ConfigsFolder:FindFirstChild("GamemodePowers"),
+        ConfigsFolder:FindFirstChild("RollGachas"),
+        ConfigsFolder:FindFirstChild("RollGachaUpgrades")
+    }
+    for _, folder in ipairs(paths) do
+        if folder then
+            module = folder:FindFirstChild(categoryName)
+            if module then break end
+        end
+    end
+    if module then
+        local s, d = pcall(require, module)
+        if s then ConfigCache[categoryName] = d return d end
+    end
+    return nil
+end
+
+local function GetInvGradient(rarityName)
+    local rf = game:GetService("ReplicatedFirst")
+    local s, g = pcall(function() return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName) end)
+    if s and g then return g.Color end
+    return ColorSequence.new(Color3.fromRGB(150, 150, 150))
+end
+
+local function GetRarityHex(rarity) return RarityColors[rarity] or "#ffffff" end
+local function GetRarityVal(r) return RarityOrder[r] or 0 end
+
+local function GenerateBonusText(itemData)
+    local textLines = ""
+    if itemData.Bonus then
+        for bType, bVal in pairs(itemData.Bonus) do
+            local color = BonusColors[bType] or "#ffffff"
+            local valStr = tostring(bVal)
+            if tonumber(bVal) and tonumber(bVal) < 1 and tonumber(bVal) > 0 then
+                 valStr = math.floor(bVal*100).."%"
+            elseif tonumber(bVal) then
+                 valStr = bVal.."%"
+            end
+            textLines = textLines .. string.format('<font color="%s"><b>%s</b></font>   <font color="#ffffff">%s</font>\n', color, bType, valStr)
+        end
+        return textLines
+    end
+    if itemData.Multiplier then
+        local bType = itemData.Multiplier.Type or "Unknown"
+        local bAmount = itemData.Multiplier.Amount or 0
+        local color = BonusColors[bType] or "#ffffff"
+        local valStr = math.floor(bAmount * 100) .. "%"
+        return string.format('<font color="%s"><b>%s</b></font>   <font color="#ffffff">%s</font>', color, bType, valStr)
+    end
+    return '<font color="#aaaaaa">No Bonus</font>'
+end
+
+-- ============================================================================
+-- [PART 1: MAIN FEATURE - VAULT (EQUIPPED ITEMS)]
+-- ============================================================================
+-- [TAMBAHKAN INI DI BAWAH VaultGroup]
+local VaultModes = {"Mastery", "Damage", "Yen", "Luck"}
+
+-- [DROPDOWN 1: GAMEMODE (SUDAH ADA)]
+FM_Add("Vault", FarmTab:Dropdown({
+    Title = "Auto Equip Best (GameMode)",
+    Desc = "Auto equip best stat inside GameModes",
+    Values = VaultModes,
+    Multi = false,
+    AllowNone = true,
+    Flag = "AutoEquipVault_Cfg",
+    Callback = function(val)
+        Config.AutoEquipVaultMode = val
+    end
+}))
+
+-- [DROPDOWN 2: FARM (BARU)]
+FM_Add("Vault", FarmTab:Dropdown({
+    Title = "Auto Equip Best (Farm)",
+    Desc = "Auto equip once when outside GameModes",
+    Values = VaultModes,
+    Multi = false,
+    AllowNone = true,
+    Flag = "AutoEquipVaultFarm_Cfg",
+    Callback = function(val)
+        Config.AutoEquipVaultFarm = val
+    end
+}))
+
+-- [LOGIC COMBINED: AUTO EQUIP VAULT (FARM & GAMEMODE)]
+task.spawn(function()
+    local LastVaultState = "None"   -- Status terakhir: "GameMode" atau "Farm"
+    local LastGameModeMap = ""      -- Untuk mendeteksi map baru di dalam GameMode
+    
+    while not Window.Destroyed do
+        -- Cek apakah salah satu fitur aktif
+        if Config.AutoEquipVaultMode or Config.AutoEquipVaultFarm then
+            
+            -- [1. DETEKSI APAKAH DI FIGHTING ZONE?]
+            local currentMap = GetCurrentMapStatus()
+            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
+
+            -- [2. EKSEKUSI LOGIC]
+            if isFightingZone then
+                -- >>> KONDISI: SEDANG DI GAMEMODE <<<
+                if Config.AutoEquipVaultMode then
+                    -- Trigger Jika:
+                    -- A. Baru masuk status GameMode (dari Farm)
+                    -- ATAU
+                    -- B. Pindah instance GameMode baru (Dungeon 1 -> Dungeon 2)
+                    
+                    if LastVaultState ~= "GameMode" or LastGameModeMap ~= currentMap then
+                        if Reliable then
+                            pcall(function()
+                                Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultMode })
+                            end)
+                            if Notify then Notify("Vault Auto", "Equip (GameMode): " .. tostring(Config.AutoEquipVaultMode), "zap") end
+                        end
+                        
+                        -- Update Status
+                        LastVaultState = "GameMode"
+                        LastGameModeMap = currentMap
+                    end
+                end
+            else
+                -- >>> KONDISI: SEDANG DI FARM (LUAR GAMEMODE) <<<
+                if Config.AutoEquipVaultFarm then
+                    -- Trigger Jika:
+                    -- HANYA jika status sebelumnya BUKAN Farm (misal baru login atau baru keluar Dungeon)
+                    -- Sesuai request: Tidak akan spam meski pindah-pindah map biasa.
+                    
+                    if LastVaultState ~= "Farm" then
+                        if Reliable then
+                            pcall(function()
+                                Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultFarm })
+                            end)
+                            if Notify then Notify("Vault Auto", "Equip (Farm): " .. tostring(Config.AutoEquipVaultFarm), "leaf") end
+                        end
+                        
+                        -- Update Status
+                        LastVaultState = "Farm"
+                        -- Kita tidak update LastGameModeMap disini agar saat masuk dungeon lagi terdeteksi perubahan
+                    end
+                end
+            end
+        end
+        
+        task.wait(1) -- Cek setiap 1 detik
+    end
+end)
+
+
+local VaultGroup = FarmTab:Group({})
+FM_Add("Vault", VaultGroup)
+local VaultParagraph = FarmTab:Paragraph({
+    Title = "Equipped Powers",
+    Desc = "Loading...",
+    ImageSize = UDim2.fromOffset(70, 70),
+    Images = {} 
+})
+-- Pindahkan Paragraph ke dalam Group Vault agar bisa di-hide/show oleh sistem kategori
+VaultParagraph.ParagraphFrame.UIElements.Main.Parent = VaultGroup.GroupFrame
+
+local function RefreshVaultUI()
+    local pData = (getgenv()).PlayerData
+    if not pData or not pData.Attributes then return end
+    
+    local ImageList = {}
+    local Count = 0
+
+    -- 1. Scan Power/Vault
+    if pData.Vault then
+        for catName, _ in pairs(pData.Vault) do
+            local equippedID = pData.Attributes[catName]
+            if equippedID then
+                local config = GetGameConfig(catName)
+                local itemData = config and config.List and config.List[tonumber(equippedID)]
+                
+                if itemData then
+                    Count = Count + 1
+                    local rarity = itemData.Rarity or "Common"
+                    local img = "rbxassetid://84366761557806"
+                    if itemData.Template then img = "rbxassetid://" .. tostring(itemData.Template) end
+                    
+                    local bonusText = GenerateBonusText(itemData)
+                    local rarityHex = GetRarityHex(rarity)
+                    
+                    local function OnClick()
+                        Window:Dialog({
+                            Title = itemData.Display or catName,
+                            Icon = img,
+                            Content = string.format('<font size="18" color="%s"><b>%s</b></font>\n\n%s', rarityHex, rarity, bonusText),
+                            Buttons = {{Title="Close", Variant="Secondary"}}
+                        })
+                    end
+
+                    table.insert(ImageList, {
+                        Title = itemData.Display,
+                        Quantity = catName,
+                        Image = img,
+                        Gradient = GetInvGradient(rarity),
+                        _Sort = GetRarityVal(rarity),
+                        Callback = OnClick
+                    })
+                end
+            end
+        end
+    end
+
+    -- 2. Scan Accessory (Yang Dipakai Saja)
+    if pData.Attributes.Accessory and pData.Attributes.Accessory ~= "None" then
+        local accID = pData.Attributes.Accessory
+        local info = AccessoriesConfig[accID]
+        if info then
+            Count = Count + 1
+            local rarity = info.Rarity or "Common"
+            local img = "rbxassetid://84366761557806"
+            if info.Template then img = "rbxassetid://" .. tostring(info.Template) end
+            
+            local bonusText = GenerateBonusText(info)
+            local rarityHex = GetRarityHex(rarity)
+
+            local function OnClick()
+                 Window:Dialog({
+                    Title = info.Display,
+                    Icon = img,
+                    Content = string.format('<font size="18" color="%s"><b>%s</b></font>\n\n%s', rarityHex, rarity, bonusText),
+                    Buttons = {{Title="Close", Variant="Secondary"}}
+                })
+            end
+
+            table.insert(ImageList, {
+                Title = info.Display,
+                Quantity = "Accessory",
+                Image = img,
+                Gradient = GetInvGradient(rarity),
+                _Sort = GetRarityVal(rarity) + 100, -- Prioritas tampil paling kiri
+                Callback = OnClick
+            })
+        end
+    end
+
+    table.sort(ImageList, function(a,b) return a._Sort > b._Sort end)
+
+    -- Re-create Paragraph untuk update gambar
+    VaultParagraph.ParagraphFrame:Destroy()
+    VaultParagraph = FarmTab:Paragraph({
+        Title = "Equipped Vault List",
+        Desc = "Click Image for details.",
+        ImageSize = UDim2.fromOffset(70, 70),
+        Images = ImageList
+    })
+    VaultParagraph.ParagraphFrame.UIElements.Main.Parent = VaultGroup.GroupFrame
+end
+
+-- [LOGIKA BARU: OPTIMIZED AUTO REFRESH - HANYA MONITOR BAGIAN VAULT]
+task.spawn(function()
+    local LastVaultHash = ""
+    local WasVisible = false -- Status visibilitas sebelumnya
+
+    -- Fungsi Helper: Hanya mengambil data Attributes yang berhubungan dengan Vault/Accessory
+    local function GetVaultSnapshot(pData)
+        if not pData or not pData.Attributes or not pData.Vault then return "" end
+        
+        local snapshot = {}
+        
+        -- 1. Ambil data equip dari setiap kategori Vault yang ada
+        for catName, _ in pairs(pData.Vault) do
+            -- Kita hanya peduli value Attributes yang kuncinya sama dengan nama Category Vault
+            if pData.Attributes[catName] then
+                snapshot[catName] = pData.Attributes[catName]
+            end
+        end
+
+        -- 2. Ambil data Accessory
+        if pData.Attributes.Accessory then
+            snapshot["Accessory"] = pData.Attributes.Accessory
+        end
+
+        -- Encode table kecil ini menjadi string untuk perbandingan
+        return HttpService:JSONEncode(snapshot)
+    end
+
+    while not Window.Destroyed do
+        local pData = (getgenv()).PlayerData
+        
+        if pData and pData.Attributes and pData.Vault then
+            -- 1. Cek apakah Tab Vault sedang terlihat
+            local IsVisible = VaultGroup and VaultGroup.GroupFrame and VaultGroup.GroupFrame.Visible
+            
+            -- 2. Buat Snapshot KHUSUS bagian Vault & Accessory saja
+            local CurrentVaultHash = GetVaultSnapshot(pData)
+            local DataChanged = (CurrentVaultHash ~= LastVaultHash)
+
+            if DataChanged then
+                LastVaultHash = CurrentVaultHash -- Update hash agar sinkron
+            end
+
+            -- 3. Eksekusi Refresh:
+            -- A. Jika Data VAULT Berubah DAN Tab sedang dibuka (Realtime update)
+            -- B. ATAU Jika Tab baru saja dibuka (IsVisible true, tapi sebelumnya false) agar data tidak basi
+            if (DataChanged and IsVisible) or (IsVisible and not WasVisible) then
+                RefreshVaultUI()
+            end
+
+            WasVisible = IsVisible
+        end
+        task.wait(0.5)
+    end
+end)
 local SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
