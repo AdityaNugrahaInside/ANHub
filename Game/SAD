@@ -3056,7 +3056,7 @@ task.spawn(function()
 end)
 
 -- ============================================================================
--- [INVENTORY TAB SYSTEM - WITH POPUP BONUS]
+-- [INVENTORY TAB SYSTEM - WITH POPUP & COLORED STATS]
 -- ============================================================================
 
 local InventoryTab = Window:Tab({
@@ -3072,29 +3072,30 @@ local InvSection = InventoryTab:Section({
 local InvParagraph = nil
 
 -- [CONFIG CONFIGURATIONS]
+-- Definisi warna sesuai permintaan kamu
 local BonusColors = {
     ["Mastery"] = "#9b59b6", -- Ungu
     ["Damage"]  = "#ff2b2b", -- Merah
+    ["Power"]   = "#ff2b2b", -- Merah (Power sama dengan Damage)
     ["Yen"]     = "#f1c40f", -- Kuning
-    ["Coins"]   = "#f1c40f", -- Kuning (Coins)
+    ["Coins"]   = "#f1c40f", -- Kuning
     ["Luck"]    = "#00ff41", -- Hijau
-    ["Power"]   = "#ff2b2b", -- Merah (Power dianggap Damage)
     ["Exp"]     = "#3498db"  -- Biru (Default)
 }
 
 local RarityColors = {
-    ["Common"] = "#b0b0b0",
-    ["Uncommon"] = "#4cd137",
-    ["Rare"] = "#00a8ff",
-    ["Epic"] = "#9c88ff",
+    ["Common"]    = "#b0b0b0",
+    ["Uncommon"]  = "#4cd137",
+    ["Rare"]      = "#00a8ff",
+    ["Epic"]      = "#9c88ff",
     ["Legendary"] = "#fbc531",
-    ["Mythic"] = "#e84118",
-    ["Secret"] = "#273c75" -- Warna Gelap/Khusus
+    ["Mythic"]    = "#e84118",
+    ["Secret"]    = "#273c75"
 }
 
--- [FUNGSI HELPER BARU]
+-- [FUNGSI HELPER]
 local function GetBonusInfo(configData)
-    -- Biasanya data bonus ada di config.Multiplier
+    -- Membaca data multiplier dari config game
     if configData and configData.Multiplier then
         local bType = configData.Multiplier.Type or "Unknown"
         local bAmount = configData.Multiplier.Amount or 0
@@ -3133,31 +3134,35 @@ local function RefreshInventory(category)
                 if itemData then
                     ItemCount = ItemCount + 1
                     local rarity = itemData.Rarity or "Common"
+                    
+                    -- Setup Gambar
                     local img = "rbxassetid://84366761557806"
                     if itemData.Template then img = "rbxassetid://" .. tostring(itemData.Template) end
                     
-                    -- [LOGIKA BONUS]
+                    -- [LOGIKA BONUS & WARNA]
                     local bonusType, bonusVal = GetBonusInfo(config)
                     
-                    -- Siapkan Callback Klik
+                    -- Siapkan Fungsi Klik untuk Kartu
                     local function OnCardClick()
-                        -- Format RichText untuk Popup
+                        -- Ambil warna hex
                         local typeColor = BonusColors[bonusType] or "#ffffff"
                         local rarityColor = GetRarityHex(rarity)
-
-                        -- Membuat String Content Popup yang Rapi
+                        
+                        -- Susun teks Popup menggunakan RichText HTML
+                        -- Baris 1: Rarity (Warna Warni)
+                        -- Baris 2: [BonusType] (Warna Warni) ... [Nilai] (Putih)
                         local contentText = string.format(
-                            '<font size="16" color="%s"><b>%s</b></font>\n\n' .. 
+                            '<font size="18" color="%s"><b>%s</b></font>\n\n' ..
                             '<font color="%s"><b>%s</b></font>       <font size="14"><b>%s</b></font>',
-                            rarityColor, rarity, -- Baris 1: Rarity (Warna Warni)
-                            typeColor, bonusType, -- Baris 2 Kiri: Tipe Bonus (Warna Warni)
-                            bonusVal              -- Baris 2 Kanan: Nilai Bonus (Putih)
+                            rarityColor, rarity,
+                            typeColor, bonusType, 
+                            bonusVal
                         )
 
-                        -- Munculkan Dialog/Popup
+                        -- Munculkan Dialog
                         Window:Dialog({
                             Title = itemData.Display or catName,
-                            Icon = img, -- Tampilkan gambar item di header dialog
+                            Icon = img, -- Gambar item di judul popup
                             Content = contentText,
                             Buttons = {
                                 {
@@ -3165,12 +3170,9 @@ local function RefreshInventory(category)
                                     Icon = "x",
                                     Variant = "Secondary",
                                     Callback = function()
-                                        -- Logika Unequip (Kirim Remote)
+                                        -- Tambahkan logika unequip remote di sini jika sudah tahu
                                         if Reliable then
-                                            -- Remote argument mungkin butuh penyesuaian tergantung game
-                                            -- Biasanya: "Equip", Category, nil/0 untuk unequip
-                                            -- Contoh dummy:
-                                            -- Reliable:FireServer("Equip", {catName, 0})
+                                            -- Contoh: Reliable:FireServer("Equip", {catName, nil})
                                             Notify("System", "Unequip request sent!", "check")
                                         end
                                     end
@@ -3190,13 +3192,13 @@ local function RefreshInventory(category)
                         Image = img,
                         Gradient = GetInvGradient(rarity),
                         _Sort = GetRarityVal(rarity),
-                        Callback = OnCardClick -- Masukkan fungsi klik ke kartu
+                        Callback = OnCardClick -- Daftarkan fungsi klik
                     })
                 end
             end
         end
 
-    -- === KATEGORI: MATERIALS (Tidak perlu klik detail, info sudah cukup) ===
+    -- === KATEGORI: MATERIALS ===
     elseif category == "Materials" and pData.Materials then
         for id, amount in pairs(pData.Materials) do
             if amount > 0 then
@@ -3212,8 +3214,7 @@ local function RefreshInventory(category)
                         Quantity = UtilsModule.ToText(amount).."x",
                         Image = img,
                         Gradient = GetInvGradient(rarity),
-                        _Sort = GetRarityVal(rarity),
-                        -- Materials biasanya tidak butuh popup detail, tapi bisa ditambah jika mau
+                        _Sort = GetRarityVal(rarity)
                     })
                 end
             end
@@ -3231,7 +3232,7 @@ local function RefreshInventory(category)
                     if info.Template then img = "rbxassetid://" .. tostring(info.Template) end
                     local isEquipped = (pData.Attributes and pData.Attributes.Accessory == id)
                     
-                    -- Popup untuk Accessories (Opsional)
+                    -- Popup sederhana untuk aksesoris
                     local function OnAccClick()
                          Window:Dialog({
                             Title = info.Display,
@@ -3275,7 +3276,7 @@ end
 -- [CATEGORY SELECTOR]
 InvSection:Category({
     Title = "Select Category",
-    Default = "Equipped Vault", -- Default buka Vault biar langsung kelihatan hasilnya
+    Default = "Equipped Vault", 
     Options = {
         {Title = "Equipped Vault", Icon = "zap"},
         {Title = "Materials", Icon = "box"},
