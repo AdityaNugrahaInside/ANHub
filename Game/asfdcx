@@ -3056,7 +3056,7 @@ task.spawn(function()
 end)
 
 -- ============================================================================
--- [INVENTORY TAB SYSTEM]
+-- [INVENTORY TAB SYSTEM - WITH POPUP BONUS]
 -- ============================================================================
 
 local InventoryTab = Window:Tab({
@@ -3069,79 +3069,135 @@ local InvSection = InventoryTab:Section({
     TextSize = 18
 })
 
--- [CONFIG LOADER SYSTEM]
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ConfigsFolder = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Configs")
-local ConfigCache = {}
-
--- Fungsi Helper: Membaca Gradient Rarity dari Game
-local function GetInvGradient(rarityName)
-    local rf = game:GetService("ReplicatedFirst")
-    local success, gradientObj = pcall(function()
-        return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName)
-    end)
-    if success and gradientObj then return gradientObj.Color end
-    -- Fallback ke Common jika tidak ketemu
-    local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
-    return fallback and fallback.Color or ColorSequence.new(Color3.fromRGB(150, 150, 150))
-end
-
--- Fungsi Helper: Membaca Config Game (Support GamemodePowers)
-local function GetGameConfig(categoryName)
-    if ConfigCache[categoryName] then return ConfigCache[categoryName] end
-    
-    local module = nil
-    -- 1. Cek GamemodePowers (Prioritas untuk ShinobiRaid/ShadowGate)
-    local GM = ConfigsFolder:FindFirstChild("GamemodePowers")
-    if GM then module = GM:FindFirstChild(categoryName) end
-
-    -- 2. Cek RollGachas (Standard Powers)
-    if not module then
-        local RG = ConfigsFolder:FindFirstChild("RollGachas")
-        if RG then module = RG:FindFirstChild(categoryName) end
-    end
-
-    -- 3. Cek RollGachaUpgrades (Upgrades)
-    if not module then
-        local RU = ConfigsFolder:FindFirstChild("RollGachaUpgrades")
-        if RU then module = RU:FindFirstChild(categoryName) end
-    end
-
-    if module then
-        local success, data = pcall(require, module)
-        if success then
-            ConfigCache[categoryName] = data
-            return data
-        end
-    end
-    return nil
-end
-
--- [SORTING HELPER]
-local RarityOrder = {
-    ["Mythic"] = 6, ["Legend"] = 5, ["Epic"] = 4, 
-    ["Rare"] = 3, ["Uncommon"] = 2, ["Common"] = 1
-}
-local function GetRarityVal(r) return RarityOrder[r] or 0 end
-
--- [FUNGSI UTAMA REFRESH]
 local InvParagraph = nil
 
+-- [CONFIG CONFIGURATIONS]
+local BonusColors = {
+    ["Mastery"] = "#9b59b6", -- Ungu
+    ["Damage"]  = "#ff2b2b", -- Merah
+    ["Yen"]     = "#f1c40f", -- Kuning
+    ["Coins"]   = "#f1c40f", -- Kuning (Coins)
+    ["Luck"]    = "#00ff41", -- Hijau
+    ["Power"]   = "#ff2b2b", -- Merah (Power dianggap Damage)
+    ["Exp"]     = "#3498db"  -- Biru (Default)
+}
+
+local RarityColors = {
+    ["Common"] = "#b0b0b0",
+    ["Uncommon"] = "#4cd137",
+    ["Rare"] = "#00a8ff",
+    ["Epic"] = "#9c88ff",
+    ["Legendary"] = "#fbc531",
+    ["Mythic"] = "#e84118",
+    ["Secret"] = "#273c75" -- Warna Gelap/Khusus
+}
+
+-- [FUNGSI HELPER BARU]
+local function GetBonusInfo(configData)
+    -- Biasanya data bonus ada di config.Multiplier
+    if configData and configData.Multiplier then
+        local bType = configData.Multiplier.Type or "Unknown"
+        local bAmount = configData.Multiplier.Amount or 0
+        
+        -- Format persen (misal 0.75 jadi 75%)
+        local bText = math.floor(bAmount * 100) .. "%"
+        
+        return bType, bText
+    end
+    return nil, nil
+end
+
+local function GetRarityHex(rarity)
+    return RarityColors[rarity] or "#ffffff"
+end
+
+-- [FUNGSI UTAMA REFRESH]
 local function RefreshInventory(category)
-    -- Hapus tampilan lama
     if InvParagraph then InvParagraph:Destroy() InvParagraph = nil end
 
     local pData = (getgenv()).PlayerData
-    if not pData then 
-        ANUI:Notify({Title="Data Error", Content="PlayerData not found!", Icon="alert-triangle"})
-        return 
-    end
+    if not pData then return end
 
     local ImageList = {}
     local ItemCount = 0
 
-    -- === KATEGORI 1: MATERIALS ===
-    if category == "Materials" and pData.Materials then
+    -- === KATEGORI: EQUIPPED VAULT (POWER/PASSIVE) ===
+    if category == "Equipped Vault" and pData.Vault and pData.Attributes then
+        for catName, _ in pairs(pData.Vault) do
+            local equippedID = pData.Attributes[catName]
+            if equippedID then
+                -- Ambil Config dari Game
+                local config = GetGameConfig(catName)
+                local itemData = config and config.List and config.List[tonumber(equippedID)]
+                
+                if itemData then
+                    ItemCount = ItemCount + 1
+                    local rarity = itemData.Rarity or "Common"
+                    local img = "rbxassetid://84366761557806"
+                    if itemData.Template then img = "rbxassetid://" .. tostring(itemData.Template) end
+                    
+                    -- [LOGIKA BONUS]
+                    local bonusType, bonusVal = GetBonusInfo(config)
+                    
+                    -- Siapkan Callback Klik
+                    local function OnCardClick()
+                        -- Format RichText untuk Popup
+                        local typeColor = BonusColors[bonusType] or "#ffffff"
+                        local rarityColor = GetRarityHex(rarity)
+
+                        -- Membuat String Content Popup yang Rapi
+                        local contentText = string.format(
+                            '<font size="16" color="%s"><b>%s</b></font>\n\n' .. 
+                            '<font color="%s"><b>%s</b></font>       <font size="14"><b>%s</b></font>',
+                            rarityColor, rarity, -- Baris 1: Rarity (Warna Warni)
+                            typeColor, bonusType, -- Baris 2 Kiri: Tipe Bonus (Warna Warni)
+                            bonusVal              -- Baris 2 Kanan: Nilai Bonus (Putih)
+                        )
+
+                        -- Munculkan Dialog/Popup
+                        Window:Dialog({
+                            Title = itemData.Display or catName,
+                            Icon = img, -- Tampilkan gambar item di header dialog
+                            Content = contentText,
+                            Buttons = {
+                                {
+                                    Title = "Unequip",
+                                    Icon = "x",
+                                    Variant = "Secondary",
+                                    Callback = function()
+                                        -- Logika Unequip (Kirim Remote)
+                                        if Reliable then
+                                            -- Remote argument mungkin butuh penyesuaian tergantung game
+                                            -- Biasanya: "Equip", Category, nil/0 untuk unequip
+                                            -- Contoh dummy:
+                                            -- Reliable:FireServer("Equip", {catName, 0})
+                                            Notify("System", "Unequip request sent!", "check")
+                                        end
+                                    end
+                                },
+                                {
+                                    Title = "Close",
+                                    Variant = "Primary",
+                                    Callback = function() end -- Tutup dialog
+                                }
+                            }
+                        })
+                    end
+
+                    table.insert(ImageList, {
+                        Title = itemData.Display,
+                        Quantity = catName,
+                        Image = img,
+                        Gradient = GetInvGradient(rarity),
+                        _Sort = GetRarityVal(rarity),
+                        Callback = OnCardClick -- Masukkan fungsi klik ke kartu
+                    })
+                end
+            end
+        end
+
+    -- === KATEGORI: MATERIALS (Tidak perlu klik detail, info sudah cukup) ===
+    elseif category == "Materials" and pData.Materials then
         for id, amount in pairs(pData.Materials) do
             if amount > 0 then
                 local info = MaterialsModule[id]
@@ -3156,15 +3212,15 @@ local function RefreshInventory(category)
                         Quantity = UtilsModule.ToText(amount).."x",
                         Image = img,
                         Gradient = GetInvGradient(rarity),
-                        _Sort = GetRarityVal(rarity)
+                        _Sort = GetRarityVal(rarity),
+                        -- Materials biasanya tidak butuh popup detail, tapi bisa ditambah jika mau
                     })
                 end
             end
         end
-
-    -- === KATEGORI 2: ACCESSORIES ===
+    
+    -- === KATEGORI: ACCESSORIES ===
     elseif category == "Accessories" and pData.Accessories then
-        -- Pastikan AccessoriesConfig sudah diload di bagian atas script utama
         for id, owned in pairs(pData.Accessories) do
             if owned == true then
                 local info = AccessoriesConfig[id]
@@ -3173,62 +3229,43 @@ local function RefreshInventory(category)
                     local rarity = info.Rarity or "Common"
                     local img = "rbxassetid://84366761557806"
                     if info.Template then img = "rbxassetid://" .. tostring(info.Template) end
-
-                    -- Cek Equipped
                     local isEquipped = (pData.Attributes and pData.Attributes.Accessory == id)
                     
+                    -- Popup untuk Accessories (Opsional)
+                    local function OnAccClick()
+                         Window:Dialog({
+                            Title = info.Display,
+                            Content = "Rarity: " .. rarity .. "\nStatus: " .. (isEquipped and "Equipped" or "Owned"),
+                            Buttons = {{Title = "Close", Variant = "Primary"}}
+                        })
+                    end
+
                     table.insert(ImageList, {
                         Title = info.Display or id,
                         Quantity = isEquipped and "EQUIPPED" or nil,
                         Image = img,
                         Gradient = GetInvGradient(rarity),
-                        _Sort = GetRarityVal(rarity) + (isEquipped and 100 or 0)
-                    })
-                end
-            end
-        end
-
-    -- === KATEGORI 3: EQUIPPED VAULT (POWER/PASSIVE) ===
-    elseif category == "Equipped Vault" and pData.Vault and pData.Attributes then
-        for catName, _ in pairs(pData.Vault) do
-            local equippedID = pData.Attributes[catName]
-            if equippedID then
-                -- Ambil Config Game
-                local config = GetGameConfig(catName)
-                local itemData = config and config.List and config.List[tonumber(equippedID)]
-                
-                if itemData then
-                    ItemCount = ItemCount + 1
-                    local rarity = itemData.Rarity or "Common"
-                    local img = "rbxassetid://84366761557806"
-                    if itemData.Template then img = "rbxassetid://" .. tostring(itemData.Template) end
-                    
-                    table.insert(ImageList, {
-                        Title = itemData.Display or (catName.." #"..equippedID),
-                        Quantity = catName, -- Tampilkan nama kategori (misal: Race)
-                        Image = img,
-                        Gradient = GetInvGradient(rarity),
-                        _Sort = GetRarityVal(rarity)
+                        _Sort = GetRarityVal(rarity) + (isEquipped and 100 or 0),
+                        Callback = OnAccClick
                     })
                 end
             end
         end
     end
 
-    -- Sorting (Rarity Tertinggi di Kiri)
+    -- Render
     table.sort(ImageList, function(a,b) return a._Sort > b._Sort end)
-
-    -- Render ke UI
+    
     if #ImageList > 0 then
         InvParagraph = InvSection:Paragraph({
             Title = category .. " (" .. ItemCount .. ")",
-            ImageSize = UDim2.fromOffset(75, 75), -- Ukuran Kartu
+            ImageSize = UDim2.fromOffset(75, 75),
             Images = ImageList
         })
     else
         InvParagraph = InvSection:Paragraph({
             Title = "Empty",
-            Desc = "No items found in " .. category,
+            Desc = "No items found.",
             Image = "ghost", 
             Color = "Grey"
         })
@@ -3238,19 +3275,18 @@ end
 -- [CATEGORY SELECTOR]
 InvSection:Category({
     Title = "Select Category",
-    Default = "Materials",
+    Default = "Equipped Vault", -- Default buka Vault biar langsung kelihatan hasilnya
     Options = {
+        {Title = "Equipped Vault", Icon = "zap"},
         {Title = "Materials", Icon = "box"},
         {Title = "Accessories", Icon = "shirt"},
-        {Title = "Equipped Vault", Icon = "zap"},
     },
     Callback = function(val)
         RefreshInventory(val)
     end
 })
 
--- Load Default
-RefreshInventory("Materials")
+RefreshInventory("Equipped Vault")
 local SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
