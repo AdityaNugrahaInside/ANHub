@@ -1043,6 +1043,7 @@ local function GamemodeKiller(stopCheckFunc)
 
     -- [2] Loop Utama
     while not Window.Destroyed do
+        task.wait()
         if not stopCheckFunc() or isTransitioning then break end
 
         local foundTarget = false
