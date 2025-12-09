@@ -1116,7 +1116,37 @@ local function GamemodeKiller(stopCheckFunc)
     end
 end
 
--- [CONTROLLER UTAMA - FIX BLOCKING LOOP]
+-- ============================================================================
+--  HELPER BARU: CEK JADWAL TRIAL (5 MENIT SEBELUM)
+-- ============================================================================
+local function IsTrialApproaching()
+    -- Cek dulu apakah user mengaktifkan Auto Trial. Kalau mati, tidak perlu prioritas.
+    if not GamemodeVars.Trial or not GamemodeVars.Trial.Active then return false end
+    
+    local t = os.date("*t")
+    local m = t.min
+    
+    if not trialList then return false end
+
+    for _, trial in pairs(trialList) do
+        local t1 = trial.time             -- Waktu 1 (misal 15)
+        local t2 = (trial.time + 30) % 60 -- Waktu 2 (misal 45)
+
+        -- Hitung selisih menit menuju jadwal (Handle juga pergantian jam)
+        local diff1 = (t1 - m) % 60
+        local diff2 = (t2 - m) % 60
+
+        -- Jika waktu menuju start tinggal 1 sampai 5 menit
+        if (diff1 > 0 and diff1 <= 5) or (diff2 > 0 and diff2 <= 5) then
+            return true
+        end
+    end
+    return false
+end
+
+-- ============================================================================
+--  GAMEMODE CONTROLLER (UPDATED WITH PRIORITY FILTER)
+-- ============================================================================
 local function GamemodeController(configKey)
     local Config = GamemodeVars[configKey]
     if not Config then return end
@@ -1128,15 +1158,14 @@ local function GamemodeController(configKey)
 
         -- KONDISI 1: SEDANG DI DALAM GAMEMODE
         if currentMap == ModeInternalName then
-            -- Ambil data Wave
             local rawWave = GetCurrentWave(ModeInternalName)
             local currWave = tonumber(rawWave) or 0
             local targetWaveInput = GamemodeVars[configKey].TargetWave
             local targetLimit = tonumber(targetWaveInput) or 50
 
-            -- Cek Wave (Outer Check)
             if currWave >= targetLimit and currWave > 0 then
                 Notify(configKey, "Target Reached ("..currWave..")! Leaving...", "check")
+                FireGamemode(ModeInternalName, "Leave")
                 
                 local waitTime = 0
                 repeat 
@@ -1154,23 +1183,13 @@ local function GamemodeController(configKey)
                     savedPreviousMap = nil 
                 end
             else
-                -- [BAGIAN PENTING YANG DIPERBAIKI]
-                -- Kita menyuntikkan logika Cek Wave ke dalam GamemodeKiller.
-                -- Jadi, saat sedang sibuk kill musuh, dia tetap sadar kalau Wave sudah tercapai.
                 GamemodeKiller(function()
-                    -- 1. Cek Config & Map
                     local isActive = GamemodeVars[configKey].Active
                     local isStillInMap = (getgenv().PlayerData.Map == ModeInternalName)
-                    
-                    -- 2. Cek Wave DI DALAM LOOP KILL
                     local liveWave = tonumber(GetCurrentWave(ModeInternalName)) or 0
                     local liveTarget = tonumber(GamemodeVars[configKey].TargetWave) or 50
                     
-                    -- JIKA WAVE TERCAPAI -> RETURN FALSE (Supaya Loop Kill Berhenti & Lanjut ke perintah Leave di atas)
-                    if liveWave >= liveTarget and liveWave > 0 then
-                        return false 
-                    end
-
+                    if liveWave >= liveTarget and liveWave > 0 then return false end
                     return isActive and isStillInMap
                 end)
             end
@@ -1185,7 +1204,7 @@ local function GamemodeController(configKey)
                     local canJoin = false
                     local joinReason = ""
 
-                    -- LOGIKA JOIN (Sama seperti sebelumnya)
+                    -- [LOGIKA 1: TRIAL] (Tidak kena filter, karena dia prioritas utama)
                     if configKey == "Trial" then
                         local t = os.date("*t")
                         local m = t.min
@@ -1200,13 +1219,29 @@ local function GamemodeController(configKey)
                                 end
                             end
                         end
+                    
+                    -- [LOGIKA 2: RAID & ECLIPSE] (Kena Filter Prioritas Trial)
                     else
-                        local keyCount = 0
-                        if pData.Items and Config.KeyItem then keyCount = pData.Items[Config.KeyItem] or 0 end
-                        if keyCount > 0 then canJoin = true; joinReason = "Key Available ("..keyCount..")"
-                        elseif Config.BroadcastActive then canJoin = true; joinReason = "Event Started (Chat)" end
+                        -- >>> [FILTER BARU DITAMBAHKAN DI SINI] <<<
+                        if IsTrialApproaching() then
+                            -- Jika Trial akan mulai < 5 menit, batalkan niat join Raid/Eclipse
+                            canJoin = false
+                            -- Debug opsional (Uncomment kalau mau spam notif):
+                            -- Notify("Priority", "Waiting for Trial to start...", "clock")
+                        else
+                            -- Jika aman (tidak ada Trial dekat), baru cek Key/Chat
+                            local keyCount = 0
+                            if pData.Items and Config.KeyItem then keyCount = pData.Items[Config.KeyItem] or 0 end
+                            
+                            if keyCount > 0 then 
+                                canJoin = true; joinReason = "Key Available ("..keyCount..")"
+                            elseif Config.BroadcastActive then 
+                                canJoin = true; joinReason = "Event Started (Chat)" 
+                            end
+                        end
                     end
 
+                    -- Eksekusi Join
                     if canJoin then
                         if currentMap ~= ModeInternalName and currentMap ~= "Trial Lobby" and currentMap ~= "Loading" then
                             savedPreviousMap = currentMap
@@ -1222,6 +1257,7 @@ local function GamemodeController(configKey)
         task.wait(1)
     end
 end
+
 -- [UPDATED GACHA LOGIC WITH DYNAMIC CHECK & BALANCE PROTECTION]
 local function changePower(name, value)
     for _, power in pairs(powerList) do
