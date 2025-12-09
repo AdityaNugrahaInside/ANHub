@@ -3,33 +3,6 @@ repeat task.wait() until game:IsLoaded()
 -- [LOADING SCREEN]
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading2.lua"))()
 -- ============================================================================
---  [HOOK NO COOLDOWN] - TEMPEL KODE INI DI SINI (PALING ATAS)
--- ============================================================================
-task.spawn(function()
-    local success, err = pcall(function()
-        -- 1. Ambil Module Loop Game
-        local LoopModule = require(game:GetService("ReplicatedStorage").Libs.Utils.Scripts.Loop)
-        
-        -- 2. Buka Kunci Read-Only (Agar bisa diedit)
-        setreadonly(LoopModule, false)
-        
-        -- 3. Simpan Fungsi Asli
-        local OldConnect = LoopModule.Connect
-        
-        -- 4. Timpa Fungsi Connect dengan versi kita (Time = 0)
-        LoopModule.Connect = function(self, Object, Time, Func, Condition)
-            -- Kita paksa 'Time' jadi 0 agar LOOP berjalan INSTAN (No Delay)
-            return OldConnect(self, Object, 0, Func, Condition)
-        end
-        
-        -- 5. Kunci Kembali
-        setreadonly(LoopModule, true)
-        print("ANHub: Cooldown Hooked Successfully (0s Delay)")
-    end)
-    
-    if not success then warn("ANHub Hook Failed:", err) end
-end)
--- ============================================================================
 -- [SERVICES]
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -1029,88 +1002,95 @@ local function GetTargetCFrame(instance)
     return nil
 end
 
--- [LOGIKA UTAMA]
+-- [GAMEMODE KILLER - ANTI FLOAT / NAPAK TANAH FIX]
 local function GamemodeKiller(stopCheckFunc)
-    -- [1] Inisialisasi
+    -- Inisialisasi
     local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
     local serverFolder = GetTargetFolder(currentMap)
 
-    -- Jika folder tidak ditemukan, tunggu sebentar lalu keluar (atau return)
     if not serverFolder then 
         task.wait(1)
         return 
     end
 
-    -- [2] Loop Utama
     while not Window.Destroyed do
-        task.wait()
         if not stopCheckFunc() or isTransitioning then break end
 
-        local foundTarget = false
+        -- Optimasi: Cek jumlah anak folder sebelum loop
         local children = serverFolder:GetChildren()
+        
+        if #children == 0 then
+            task.wait(0.5) 
+        else
+            local foundTarget = false
 
-        for _, enemyObj in ipairs(children) do
-            -- Cek stop sebelum memproses musuh
-            if not stopCheckFunc() then break end
-
-            -- Validasi keberadaan objek
-            if not enemyObj or not enemyObj.Parent then continue end
-
-            -- Ambil Posisi Target
-            local targetCFrame = GetTargetCFrame(enemyObj)
-            if not targetCFrame then continue end -- Skip jika tidak punya posisi
-
-            -- Musuh ditemukan, mulai logika penyerangan
-            foundTarget = true
-
-            -- Hitung Offset Tinggi Badan Karakter Kita
-            local myHip = humanoid.HipHeight > 0 and humanoid.HipHeight or 2
-            local myHeightOffset = myHip + (hrp.Size.Y / 2)
-
-            -- [3] Loop Attack (Stay on Target)
-            while enemyObj and enemyObj.Parent and not Window.Destroyed do
-                -- Safety Checks
+            for _, enemyObj in ipairs(children) do
                 if not stopCheckFunc() then break end
-                if not hrp or not humanoid or humanoid.Health <= 0 then break end
 
-                -- Update Posisi Realtime (Jaga-jaga musuh bergerak)
-                targetCFrame = GetTargetCFrame(enemyObj)
-                if not targetCFrame then break end
+                if enemyObj and enemyObj.Parent then
+                    -- Ambil Target CFrame (Pusat Badan Musuh)
+                    local targetCFrame = GetTargetCFrame(enemyObj)
+                    
+                    if targetCFrame then 
+                        foundTarget = true
 
-                -- Kalkulasi Posisi Teleport
-                local tX, tY, tZ = targetCFrame.X, targetCFrame.Y, targetCFrame.Z
-                local standY = tY + myHeightOffset + HOVER_HEIGHT
-                local attackPos = Vector3.new(tX, standY, tZ + ATTACK_DISTANCE)
+                        -- [LOGIKA BARU: POSISI Y (TINGGI)]
+                        -- Hitung tinggi badan kita (Jarak dari tanah ke pusat badan kita)
+                        local myHip = humanoid.HipHeight
+                        if myHip < 1.5 then myHip = 2 end -- Default R6/R15 jika 0
+                        local myHeightFromGround = myHip + (hrp.Size.Y / 2)
 
-                -- Lakukan Teleport (LookAt Target)
-                hrp.CFrame = CFrame.new(attackPos, Vector3.new(tX, tY, tZ))
+                        -- Loop Attack
+                        while enemyObj and enemyObj.Parent and not Window.Destroyed do
+                            if not stopCheckFunc() then break end
+                            if not hrp or not humanoid or humanoid.Health <= 0 then break end
 
-                -- [4] Cek Status Kematian (Health Check via EnemiesData)
-                local isDead = false
-                if getgenv().EnemiesData then
-                    for _, eData in pairs(getgenv().EnemiesData) do
-                        -- Validasi HRP Musuh di Data
-                        if eData.HRP then
-                            local dist = (eData.HRP.Position - targetCFrame.Position).Magnitude
-                            if dist < DEAD_CHECK_RADIUS then
-                                if (eData.Health or 0) <= 0 then
-                                    isDead = true
-                                    break -- Musuh mati, keluar loop data
-                                end
+                            targetCFrame = GetTargetCFrame(enemyObj)
+                            if not targetCFrame then break end
+
+                            -- 1. Cari Lantai Musuh (Bukan Pusat Badan)
+                            local enemyFloorY = targetCFrame.Y -- Fallback default (dikurangi setengah tinggi badan rata-rata)
+
+                            -- Coba cari kaki musuh untuk akurasi 100%
+                            local leg = enemyObj:FindFirstChild("Left Leg") or enemyObj:FindFirstChild("Right Leg") or 
+                                        enemyObj:FindFirstChild("LeftFoot") or enemyObj:FindFirstChild("RightFoot") or
+                                        enemyObj:FindFirstChild("LeftLowerLeg") or enemyObj:FindFirstChild("RightLowerLeg")
+                            
+                            if leg then
+                                -- Posisi Kaki - Setengah Tinggi Kaki = Lantai Tanah Pas
+                                enemyFloorY = leg.Position.Y - (leg.Size.Y / 2)
                             end
+
+                            -- 2. Tentukan Posisi Berdiri Kita (Lantai Musuh + Tinggi Badan Kita)
+                            local finalY = enemyFloorY + myHeightFromGround
+
+                            -- 3. Posisi X/Z (Mundur ke belakang musuh)
+                            -- Mengambil posisi di belakang musuh sejauh ATTACK_DISTANCE
+                            local backPos = targetCFrame * CFrame.new(0, 0, ATTACK_DISTANCE)
+                            
+                            -- Gabungkan: X/Z Belakang, Y Sesuai Tanah
+                            local attackPos = Vector3.new(backPos.X, finalY, backPos.Z)
+
+                            -- 4. Teleport
+                            -- Posisi: attackPos
+                            -- Hadap: targetCFrame.Position (Agar karakter menghadap musuh)
+                            -- Kita kunci Y hadapnya agar kamera tidak mendongak/nunduk berlebihan
+                            local lookAtPos = Vector3.new(targetCFrame.X, finalY, targetCFrame.Z)
+                            hrp.CFrame = CFrame.new(attackPos, lookAtPos)
+
+                            -- Cek Mati
+                            local isDead = false
+                            if (enemyObj:GetAttribute("Health") or 0) <= 0 then
+                                isDead = true
+                                break 
+                            end
+
+                            if isDead then break end
+                            task.wait(0.5) 
                         end
                     end
                 end
-
-                -- Jika musuh terdeteksi mati (HP <= 0), cari target baru
-                if isDead then break end
-
-                task.wait() -- Tunggu 1 frame (Heartbeat)
-            end
-        end
-
-        -- Jika tidak ada target sama sekali di folder, istirahat sebentar agar tidak crash/lag
-        if not foundTarget then
+            end            
             task.wait(0.5)
         end
     end
@@ -1290,70 +1270,110 @@ task.spawn(function()
     end
 end)
 
--- World Upgrade Loop Logic (Updated with Coin Check & Max Level Check)
+-- ============================================================================
+--  [PERBAIKAN 2] OPTIMIZED WORLD UPGRADE LOOP (SMART UI UPDATE)
+-- ============================================================================
 task.spawn(function()
+    local lastWULogs = {} 
+    
+    -- Variable Cache untuk menyimpan teks terakhir (Agar tidak spam update UI)
+    local cachedDesc = { Power = "", Damage = "", Coins = "" }
+
     while not Window.Destroyed do
         local targetMap = wu_SelectedMap
         local pData = getgenv().PlayerData
 
-        -- 1. Tentukan Map Target
-        if targetMap == "Current Map" and pData then
-             targetMap = pData.Map
-        end
-
-        if targetMap and targetMap ~= "Current Map" and targetMap ~= "None" and pData then
-            -- 2. Ambil Config Auto Upgrade untuk Map ini
+        if targetMap and targetMap ~= "None" and pData then
             local mapConfig = GetWUConfig(targetMap)
-            
-            -- 3. Ambil Data Progress Pemain di Map ini
             local userUpgrades = (pData.WorldUpgrades and pData.WorldUpgrades[targetMap]) or {}
-            
-            -- 4. Ambil Database Harga untuk Map ini
             local dbUpgrades = GlobalWorldUpgradeDB[targetMap]
 
             if dbUpgrades then
                 local myCoins = pData.Coins or 0
 
-                -- Fungsi Helper Lokal untuk Eksekusi Upgrade
                 local function TryUpgrade(typeStr)
-                    if mapConfig[typeStr] then -- Jika Toggle ON
+                    if mapConfig[typeStr] then 
                         local typeData = dbUpgrades[typeStr]
                         if typeData and typeData.Levels then
-                            -- Cek Level Saat Ini
                             local currentLvl = userUpgrades[typeStr] or 0
                             local nextLvl = currentLvl + 1
-                            
-                            -- Cek Harga Level Selanjutnya
                             local nextLvlStr = tostring(nextLvl)
                             local priceStr = typeData.Levels[nextLvlStr]
                             
-                            if priceStr then -- Jika level selanjutnya ada (belum MAX)
+                            if priceStr then 
                                 local price = ParseAbbreviated(priceStr)
-                                
-                                -- [PENGECEKAN UTAMA] Cek Saldo vs Harga
                                 if myCoins >= price then
                                     ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "WorldUpgrades", "Upgrade", targetMap, typeStr, n = 5}, "\2"})
-                                    -- Kurangi koin bayangan agar loop tidak spam req saat koin pas-pasan sebelum data update
                                     myCoins = myCoins - price 
+                                    
+                                    local key = targetMap .. "_" .. typeStr
+                                    if lastWULogs[key] ~= nextLvl then
+                                        SendWorldUpgradeWebhook(targetMap, typeStr, nextLvl)
+                                        lastWULogs[key] = nextLvl
+                                    end
                                     task.wait(0.1) 
-                                else
-                                    -- Debug: print("Not enough coins for " .. typeStr .. " Lvl " .. nextLvl)
                                 end
-                            else
-                                -- Level Max, matikan toggle otomatis (Opsional, agar tidak cek terus)
-                                -- mapConfig[typeStr] = false 
                             end
                         end
                     end
                 end
 
-                -- Cek ketiga tipe upgrade
                 TryUpgrade("Power")
                 TryUpgrade("Damage")
                 TryUpgrade("Coins")
             end
+            
+            -- [OPTIMASI UI UPDATE] Hanya update jika teks BERUBAH
+            local mapUpgrades = userUpgrades or {}
+            local powLvl = mapUpgrades["Power"] or 0
+            local dmgLvl = mapUpgrades["Damage"] or 0
+            local coinLvl = mapUpgrades["Coins"] or 0
+            local MAX_LEVEL = 10
+            
+            -- Helper Update Toggle
+            local function UpdateToggleVisual(toggle, typeStr, lvl)
+                if not toggle then return end
+                
+                local newDesc = "+" .. (lvl * 5) .. "% (Lvl " .. lvl .. ")"
+                
+                -- Cek Cache: Jika teks sama dengan sebelumnya, JANGAN update UI
+                if cachedDesc[typeStr] ~= newDesc then
+                    toggle:SetDesc(newDesc)
+                    cachedDesc[typeStr] = newDesc -- Simpan cache baru
+                end
+
+                if lvl >= MAX_LEVEL then
+                    if toggle.Title ~= typeStr .. " [MAX]" then -- Cek title juga
+                        toggle:SetTitle(typeStr .. " [MAX]")
+                        if toggle.Value then toggle:Set(false) end
+                        if toggle.Lock then toggle:Lock(true) end
+                    end
+                else
+                    if toggle.Title ~= typeStr then
+                        toggle:SetTitle(typeStr)
+                        if toggle.Unlock then toggle:Unlock() elseif toggle.Lock then toggle:Lock(false) end
+                    end
+                end
+            end
+
+            UpdateToggleVisual(WUPowerToggle, "Power", powLvl)
+            UpdateToggleVisual(WUDamageToggle, "Damage", dmgLvl)
+            UpdateToggleVisual(WUCoinsToggle, "Coins", coinLvl)
+
+        else
+            -- Reset Cache jika map tidak dipilih
+            if WUPowerToggle and cachedDesc.Power ~= "Select Map first" then 
+                WUPowerToggle:SetDesc("Select Map first"); cachedDesc.Power = "Select Map first" 
+            end
+            if WUDamageToggle and cachedDesc.Damage ~= "Select Map first" then 
+                WUDamageToggle:SetDesc("Select Map first"); cachedDesc.Damage = "Select Map first" 
+            end
+            if WUCoinsToggle and cachedDesc.Coins ~= "Select Map first" then 
+                WUCoinsToggle:SetDesc("Select Map first"); cachedDesc.Coins = "Select Map first" 
+            end
         end
-        task.wait(0.5) -- Delay loop
+        
+        task.wait(0.5)
     end
 end)
 
@@ -2153,9 +2173,11 @@ task.spawn(function()
     end
 end)
 
--- [2. UI GENERATOR - 2 PER ITEM LAYOUT]
+-- [2. UI GENERATOR - 2 PER ITEM LAYOUT (FIXED TALENT POSITION)]
 local currentGachaGroup
 local GachaSwordDropdown -- Reference untuk update realtime
+local TalentPowerData = nil -- Simpan data Talent untuk dirender terpisah
+local GridCounter = 0 -- Counter visual untuk grid agar rapi
 
 for i, power in ipairs(powerList) do 
     -- KASUS 1: SWORD PASSIVE (CUSTOM GRID)
@@ -2197,35 +2219,23 @@ for i, power in ipairs(powerList) do
             Callback = function(v)
                 selectedGachaSwordSID = (type(v) == "table" and v.Value) or v
                 
-                -- [FIX] Jika 'v' hanya Value (dari Config), cari Object lengkapnya agar Gradient muncul
                 if type(v) ~= "table" then
                     local list = GetGachaSwordList()
                     for _, item in ipairs(list) do
-                        if item.Value == selectedGachaSwordSID then
-                            v = item
-                            break
-                        end
+                        if item.Value == selectedGachaSwordSID then v = item break end
                     end
                 end
 
-                -- [VISUAL UPDATE] Logika Icon + Gradient (Seperti Select Equipped Sword)
                 if type(v) == "table" and v.Icon and SwordDD then
-                    -- 1. Set Icon Kanan (Value)
                     if SwordDD.SetValueImage then SwordDD:SetValueImage(v.Icon) end
-
-                    -- 2. Set Icon Kiri (Main) dengan Gradient jika ada
                     if SwordDD.SetMainImage then
                         if v.Gradient then
-                            SwordDD:SetMainImage({
-                                Image = v.Icon,
-                                Gradient = v.Gradient
-                            }, 50)
+                            SwordDD:SetMainImage({Image = v.Icon, Gradient = v.Gradient}, 50)
                         else
                             SwordDD:SetMainImage(v.Icon)
                         end
                     end
                 else
-                    -- Reset ke Default jika tidak ada pilihan
                     if SwordDD.SetMainImage then SwordDD:SetMainImage("rbxassetid://84366761557806") end
                     if SwordDD.SetValueImage then SwordDD:SetValueImage("rbxassetid://84366761557806") end
                 end
@@ -2254,19 +2264,23 @@ for i, power in ipairs(powerList) do
             end
         })
 
-    -- KASUS 2: GACHA BIASA (Standard Grid)
+    -- KASUS 2: TALENTS (KITA SKIP DARI GRID, SIMPAN DATANYA)
+    elseif power.Name == "Talents" then
+        TalentPowerData = power
+        -- Kita tidak buat UI-nya di sini agar tidak masuk ke group grid biasa
+
+    -- KASUS 3: GACHA BIASA (Standard Grid)
     else
-        -- Buat Group Baru setiap 2 item
-        if (i - (powerList[1].Name == "Sword Passive" and 1 or 0)) % 2 == 1 then
+        GridCounter = GridCounter + 1
+        
+        -- Buat Group Baru setiap 2 item (Berdasarkan GridCounter, bukan index i)
+        if GridCounter % 2 == 1 then
             currentGachaGroup = MainTab:Group({})
             FM_Add("Gacha", currentGachaGroup)
         end
 
-        local titleStr = power.Name
-        if power.IsTalent then titleStr = "Auto " .. power.Name end
-
         local tgl = currentGachaGroup:Toggle({
-            Title = titleStr, 
+            Title = power.Name, 
             Flag = "Power_" .. power.Name,
             Image = power.Icon,
             ImageSize = 24,
@@ -2284,10 +2298,34 @@ for i, power in ipairs(powerList) do
     end
 end
 
--- Talent Target Dropdown
+-- ============================================================================
+--  TALENT GROUP (MANUAL RENDER: TOGGLE + DROPDOWN)
+-- ============================================================================
 local TalentGroup = MainTab:Group({Title = "Talent Settings"})
 FM_Add("Gacha", TalentGroup)
 
+-- 1. Render Toggle "Auto Talents" di sini (Menggunakan data yang disimpan tadi)
+if TalentPowerData then
+    local power = TalentPowerData
+    local tgl = TalentGroup:Toggle({
+        Title = "Auto " .. power.Name,
+        Flag = "Power_" .. power.Name,
+        Image = power.Icon,
+        ImageSize = 24,
+        Callback = function(v) changePower(power.Name, v) end
+    })
+    
+    if not IsMapUnlocked(power.Map) then
+        if tgl.Lock then 
+             tgl:Lock(true)
+             power.allow = false
+             tgl:SetDesc("LOCKED: " .. power.Map)
+        end
+    end
+    PowerToggles[power.Name] = tgl
+end
+
+-- 2. Render Dropdown Target (Akan muncul tepat di bawah Toggle)
 FM_Add("Gacha", TalentGroup:Dropdown({
     Title = "Talent Target",
     Desc = "Select stats to Lock automatically",
@@ -2305,13 +2343,16 @@ FM_Add("Gacha", TalentGroup:Dropdown({
 }))
 
 
--- [3. LOGIC LOOP GACHA - FIXED & DEBUGGED]
+-- [3. LOGIC LOOP GACHA - OPTIMIZED WITH CACHE]
 task.spawn(function()
+    -- Cache untuk mencegah spam update UI (Anti-Lag / Freeze)
+    local gachaDescCache = {} 
+
     while not Window.Destroyed do
         for _, power in pairs(powerList) do
             local pData = getgenv().PlayerData
             
-            -- [A] Update Visual Toggle (Icon & Description)
+            -- [A] Visual Update (Icon & Gradient pada Toggle)
             if pData and pData.Gacha and pData.Gacha[power.Name] then
                 local currentItemName = pData.Gacha[power.Name].Current
                 if currentItemName and PowerToggles[power.Name] then
@@ -2322,6 +2363,8 @@ task.spawn(function()
                       if sourceDB and sourceDB[currentItemName] then
                         local itemData = sourceDB[currentItemName]
                         local gradientObj = nil
+                        
+                        -- Coba ambil gradient rarity
                         if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
                             local rData = GlobalGradientDB:GetRarityColor(itemData.Rarity or "Common")
                             if rData then 
@@ -2331,6 +2374,8 @@ task.spawn(function()
                                 }
                             end
                         end
+
+                        -- Hanya update image, ini ringan tidak perlu cache ketat
                         if gradientObj then
                             PowerToggles[power.Name]:SetMainImage({
                                 Title = currentItemName, Image = itemData.Icon, Gradient = gradientObj
@@ -2340,7 +2385,7 @@ task.spawn(function()
                 end
             end
 
-            -- [B] Logic Auto Roll
+            -- [B] Persiapan Data Roll
             local balance = 0
             if pData and pData.Items then balance = pData.Items[power.Item] or 0 end
             local currentPrice = power.Price or 0
@@ -2353,7 +2398,7 @@ task.spawn(function()
                 currentPrice = currentPrice + lockedCount
             end
 
-            -- [REALTIME SWORD UPDATE] (Jalan terus meskipun Auto Roll OFF)
+            -- [C] Visual Update Dropdown Sword (Realtime check)
             if power.Name == "Sword Passive" and selectedGachaSwordSID then
                 local currentSwordData = pData.Swords and pData.Swords[selectedGachaSwordSID]
                 if currentSwordData and GachaSwordDropdown and GachaSwordDropdown.SetMainImage then
@@ -2381,6 +2426,7 @@ task.spawn(function()
                 end
             end
 
+            -- [D] Logika Eksekusi Auto Roll
             -- HANYA JALANKAN LOGIKA JIKA TOGGLE MENYALA (AUTO = TRUE)
             if power.auto == true then 
                 local canAfford = true
@@ -2411,15 +2457,11 @@ task.spawn(function()
                             if currentSwordData then
                                 local myPassive = currentSwordData.Passive or "None"
                                 
-                                -- DEBUG: Print ke Console (F9) untuk memastikan nama pasif sama persis
-                                -- print("Current Passive:", myPassive, "| Targets:", HttpService:JSONEncode(SwordPassiveTargets))
-                                
                                 -- CEK TARGET: Apakah Passive saat ini ada di dalam tabel target?
                                 if SwordPassiveTargets[myPassive] == true then
                                     stopRolling = true
                                     power.auto = false -- Matikan Loop Internal
                                     
-                                    -- Matikan Toggle UI
                                     if PowerToggles[power.Name] then 
                                         PowerToggles[power.Name]:Set(false) 
                                     end
@@ -2427,11 +2469,9 @@ task.spawn(function()
                                     Notify("Gacha", "STOP: Got " .. myPassive .. "!", "check")
                                 end
                             else
-                                -- Jika data pedang tiba-tiba hilang (unequip/error)
                                 stopRolling = true
                             end
                             
-                            -- Jika STOPROLLING masih false, baru kita roll
                             if not stopRolling then
                                 args = {{"General", "Gacha", "Roll", power.Name, selectedGachaSwordSID, SwordPassiveTargets, n = 6}, "\2"}
                                 ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer(args)
@@ -2464,25 +2504,32 @@ task.spawn(function()
                 end
             end
             
-            -- [C] Update Description UI (Info Harga & Status)
+            -- [E] Update Description UI (Info Harga & Status) - DENGAN CACHE
             if PowerToggles[power.Name] and IsMapUnlocked(power.Map) then
+                local newDescString = ""
+
                 if power.Name == "Sword Passive" then
                       local tCount = 0
                       for _ in pairs(SwordPassiveTargets) do tCount = tCount + 1 end
                       
-                      -- Ambil nama pasif saat ini untuk ditampilkan di deskripsi
                       local currentPassiveTxt = "None"
                       if selectedGachaSwordSID and pData.Swords and pData.Swords[selectedGachaSwordSID] then
                           currentPassiveTxt = pData.Swords[selectedGachaSwordSID].Passive or "None"
                       end
                       
-                      PowerToggles[power.Name]:SetDesc("Price: "..currentPrice.." | Targets: "..tCount.."\nCurrent: "..currentPassiveTxt)
+                      newDescString = "Price: "..currentPrice.." | Targets: "..tCount.."\nCurrent: "..currentPassiveTxt
                 elseif power.IsTalent then
                       local count = 0
                       for _ in pairs(FormattedTalentTargets) do count = count + 1 end
-                      PowerToggles[power.Name]:SetDesc("Price: "..currentPrice.." | Targets: "..count)
+                      newDescString = "Price: "..currentPrice.." | Targets: "..count
                 else
-                      PowerToggles[power.Name]:SetDesc("Cost: "..currentPrice.."\n"..power.Item..": "..FormatNumber(balance))
+                      newDescString = "Cost: "..currentPrice.."\n"..power.Item..": "..FormatNumber(balance)
+                end
+
+                -- [KUNCI OPTIMASI] Cek Cache dulu sebelum SetDesc
+                if gachaDescCache[power.Name] ~= newDescString then
+                    PowerToggles[power.Name]:SetDesc(newDescString)
+                    gachaDescCache[power.Name] = newDescString -- Simpan ke cache
                 end
             end
         end
@@ -3375,7 +3422,6 @@ SettingsTab:Button({Title = "Reduce Lag / FPS Boost", Icon = "monitor", Callback
 
 FM_OnChange("Farm")
 Window:SelectTab(MainTab.Index)
-
 -- ============================================================================
 --  INITIALIZATION
 -- ============================================================================
@@ -3391,7 +3437,6 @@ task.spawn(function()
             CM:CreateConfig(ConfigName)
         end
     end)
-    repeat task.wait(1) if not getgenv().PlayerData then ScanPlayerData() end until getgenv().PlayerData
     resetEnemiesList()
     pcall(function()
         local args = {{{"General", "Settings", "Update", "Auto Rejoin", false, n = 5}, "\2"}}
