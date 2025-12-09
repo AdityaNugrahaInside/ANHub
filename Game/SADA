@@ -1,0 +1,3335 @@
+repeat task.wait() until game:IsLoaded()
+
+-- [LOADING SCREEN]
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading2.lua"))()
+-- ============================================================================
+--  [HOOK NO COOLDOWN] - TEMPEL KODE INI DI SINI (PALING ATAS)
+-- ============================================================================
+task.spawn(function()
+    local success, err = pcall(function()
+        -- 1. Ambil Module Loop Game
+        local LoopModule = require(game:GetService("ReplicatedStorage").Libs.Utils.Scripts.Loop)
+        
+        -- 2. Buka Kunci Read-Only (Agar bisa diedit)
+        setreadonly(LoopModule, false)
+        
+        -- 3. Simpan Fungsi Asli
+        local OldConnect = LoopModule.Connect
+        
+        -- 4. Timpa Fungsi Connect dengan versi kita (Time = 0)
+        LoopModule.Connect = function(self, Object, Time, Func, Condition)
+            -- Kita paksa 'Time' jadi 0 agar LOOP berjalan INSTAN (No Delay)
+            return OldConnect(self, Object, 0, Func, Condition)
+        end
+        
+        -- 5. Kunci Kembali
+        setreadonly(LoopModule, true)
+        print("ANHub: Cooldown Hooked Successfully (0s Delay)")
+    end)
+    
+    if not success then warn("ANHub Hook Failed:", err) end
+end)
+-- ============================================================================
+-- [SERVICES]
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService('VirtualUser')
+local PlayerScripts = LocalPlayer:WaitForChild("PlayerScripts")
+
+-- [VARS & CHARACTER]
+local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local hrp = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
+
+LocalPlayer.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    hrp = newChar:WaitForChild("HumanoidRootPart")
+    humanoid = newChar:WaitForChild("Humanoid")
+end)
+
+-- Anti-AFK
+LocalPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new())
+end)
+
+-- [HOOK SYSTEM: DISABLE GACHA ANIMATION]
+task.spawn(function()
+    local success, err = pcall(function()
+        local GachaScriptPath = PlayerScripts:WaitForChild("Omni"):WaitForChild("Scripts"):WaitForChild("Interface"):WaitForChild("Scripts"):WaitForChild("Gacha")
+        local GachaModule = require(GachaScriptPath)
+        getgenv().OldDisplayRewards = getgenv().OldDisplayRewards or GachaModule.DisplayRewards
+
+        GachaModule.DisplayRewards = function(...)
+            return nil
+        end
+    end)
+    
+    if not success then
+        warn("Failed to Hook Gacha Animation: " .. tostring(err))
+    end
+end)
+
+-- [CONFIG PATHS]
+local FolderPath = "ANUI/AnimeAdvanced"
+local ConfigPath = FolderPath .. "/config"
+local SelectionsFile = FolderPath .. "/MapSelections.json"
+local ConfigName = "AN_AnimeAdvanced"
+
+if not isfolder("ANUI") then makefolder("ANUI") end
+if not isfolder(FolderPath) then makefolder(FolderPath) end
+if not isfolder(ConfigPath) then makefolder(ConfigPath) end
+
+-- [DATA SYSTEM: MAP SELECTION]
+local MapSelections = {}
+local isUpdatingUI = false 
+local isTransitioning = false 
+
+-- Load Data Map Selections
+if isfile(SelectionsFile) then
+    local success, result = pcall(function() return HttpService:JSONDecode(readfile(SelectionsFile)) end)
+    if success and type(result) == "table" then MapSelections = result end
+end
+
+local function SaveMapSelection(mapName, enemyValue)
+    if not mapName or isUpdatingUI or isTransitioning then return end
+    MapSelections[mapName] = enemyValue
+    writefile(SelectionsFile, HttpService:JSONEncode(MapSelections))
+end
+
+-- [HELPER: KEYS]
+local function GetOnlineKeys()
+    local keys = {"Keynya", "FreeKey"}
+    local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key"
+    local success, response = pcall(function() return game:HttpGet(url) end)
+    if success then
+        keys = {}
+        for line in response:gmatch("[^\r\n]+") do
+            local cleanKey = string.gsub(line, "^%s*(.-)%s*$", "%1")
+            if cleanKey ~= "" then table.insert(keys, cleanKey) end
+        end
+    end
+    return keys
+end
+
+-- [HELPER: DATA SCAN]
+local OmniRef = require(game:GetService("ReplicatedStorage").Omni)
+
+local function ScanPlayerData()
+    if OmniRef and OmniRef.Data then
+        getgenv().PlayerData = OmniRef.Data
+    end
+    if OmniRef and OmniRef.Enemies then
+        getgenv().EnemiesData = OmniRef.Enemies
+    end
+end
+
+
+-- [WEBHOOK CONFIG]
+local MyWebhookURL = "https://discord.com/api/webhooks/1446933055741628507/a1Xq1qieJSyuAC27ZDIQYeN_NQ-zyRgomRTtZ2lZMLs4eF0ICi4jwKF4uIgv1-r5eENY"
+
+-- Helper Webhook Global
+local function SendWebhook(title, description, color)
+    if not MyWebhookURL or MyWebhookURL == "" then return end
+    
+    local data = {
+        ["embeds"] = {{
+            ["title"] = title,
+            ["description"] = description,
+            ["color"] = color,
+            ["footer"] = {
+                ["text"] = "ANHub - Anime Advanced | " .. os.date("%X")
+            }
+        }}
+    }
+
+    local jsonData = game:GetService("HttpService"):JSONEncode(data)
+    local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+
+    if httpRequest then
+        task.spawn(function()
+            pcall(function()
+                httpRequest({
+                    Url = MyWebhookURL,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = jsonData
+                })
+            end)
+        end)
+    end
+end
+
+-- [UI LIBRARY]
+local l = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua"))()
+-- local l = require("d:/Roblox/A/WindUI/src/Init.lua")
+local Window = l:CreateWindow({
+    Title = "AN Hub - Anime Advanced",
+    Icon = "rbxassetid://84366761557806",
+    Author = "Aditya Nugraha",
+    Folder = "AnimeAdvanced",
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Dark",
+    Resizable = true,
+    SideBarWidth = 220,
+    HideSearchBar = true,
+    ToggleKey = Enum.KeyCode.RightControl,
+    KeySystem = {
+        Enabled = true,
+        Title = "ANHub Access",
+        Description = "Key expires every 24 Hours!",
+        Key = GetOnlineKeys(),
+        URL = "https://discord.gg/cy6uMRmeZ",
+        Note = "Join Discord for Key",
+        SaveKey = true
+    }
+})
+
+-- Sidebar Animation
+task.delay(1.0, function() Window:CollapseSidebar() end)
+task.delay(3.0, function() Window:ExpandSidebar() end)
+
+task.spawn(function()
+    while not Window.Destroyed do
+        ScanPlayerData()
+        task.wait(1)
+    end
+end)
+local function Notify(title, content, icon)
+    if l then l:Notify({ Title = title, Content = content, Icon = icon, Duration = 3 }) end
+end
+
+-- ============================================================================
+--  GAME LOGIC VARIABLES
+-- ============================================================================
+local attackRangePart 
+local distance = 10000
+local attackRange 
+
+-- Farm Vars
+local targetList = {}
+local nameList = {} 
+local isFarm1 = false
+
+-- Boss Vars
+local GlobalBossDB = {}
+local selectedBosses = {}
+local isAutoBoss = false 
+local isGlobalBossActive = false 
+local savedPreviousMap = nil
+
+-- Helper untuk Cek Map Unlocked
+local function IsMapUnlocked(mapName)
+    if not mapName or mapName == "Global" then return true end
+    local pData = getgenv().PlayerData
+    if pData and pData.Maps then
+        if pData.Maps[mapName] ~= nil then
+            return true
+        end
+    end
+    return false
+end
+
+-- ============================================================================
+--  GACHA SYSTEM (FIXED: SWORD PASSIVE 2-COLUMN GRID)
+-- ============================================================================
+
+-- [1. VARIABLES & DATA STORAGE]
+local GlobalGachaSources = {} 
+local powerList = {}        
+local PowerToggles = {}
+local selectedGachaSwordSID = nil
+local SwordPassiveTargets = {} 
+local TalentRankList = {'F', 'E', 'D', 'C', 'B', "A-", 'A'} 
+local FormattedTalentTargets = {}
+
+
+-- ============================================================================
+--  DATA LOADER & HELPERS
+-- ============================================================================
+local CharacterIcons = {}
+local GlobalItemDB = {}
+local GlobalAvatarDB = {}
+local GlobalSwordDB = {} 
+local GlobalRankDB = {}
+local GlobalMapDB = {} 
+local GlobalWorldUpgradeDB = {} 
+local GlobalUpgradeSystemsDB = {} -- [TAMBAHAN BARU]
+local GlobalGradientDB = {} -- [TAMBAHAN BARU]
+-- [TAMBAHAN] Global Variable untuk menyimpan Data Source Gacha
+local GlobalHeroesExpeditionDB = {}
+
+-- Masukkan ini ke dalam fungsi LoadGameData() yang sudah ada, atau taruh di bawahnya
+local function LoadGameData()
+    local successBoss, resultBoss = pcall(function() return require(ReplicatedStorage.Shared.Enemies["Global Bosses"]) end)
+    if successBoss and type(resultBoss) == "table" then
+        for bossName, data in pairs(resultBoss) do
+            if data.Map then GlobalBossDB[bossName] = data end 
+        end
+    end
+
+    local successExp, resultExp = pcall(function() return require(ReplicatedStorage.Shared.HeroesExpedition) end)
+    if successExp and type(resultExp) == "table" then 
+        GlobalHeroesExpeditionDB = resultExp
+    end
+
+    local successGradient, resultGradient = pcall(function() return require(ReplicatedStorage.Libs.Utils.Scripts.Colors) end)
+    if successGradient and type(resultGradient) == "table" then GlobalGradientDB = resultGradient end
+
+    local successRanks, resultRanks = pcall(function() return require(ReplicatedStorage.Shared.Ranks) end)
+    if successRanks and type(resultRanks) == "table" then GlobalRankDB = resultRanks end
+
+    local successMaps, resultMaps = pcall(function() return require(ReplicatedStorage.Shared.Maps) end)
+    if successMaps and type(resultMaps) == "table" then GlobalMapDB = resultMaps end
+
+    -- Load World Upgrades
+    local WUFolder = ReplicatedStorage.Shared:FindFirstChild("WorldUpgrades")
+    if WUFolder then
+        for _, module in pairs(WUFolder:GetChildren()) do
+            if module:IsA("ModuleScript") then
+                local s, r = pcall(function() return require(module) end)
+                if s and type(r) == "table" then
+                    GlobalWorldUpgradeDB[module.Name] = r
+                end
+            end
+        end
+    end
+
+    -- [TAMBAHAN BARU: Load Upgrade Systems (Trial, etc)]
+    local SysFolder = ReplicatedStorage.Shared:FindFirstChild("Upgrade") and ReplicatedStorage.Shared.Upgrade:FindFirstChild("Systems")
+    if SysFolder then
+        for _, module in pairs(SysFolder:GetChildren()) do
+            if module:IsA("ModuleScript") then
+                local s, r = pcall(function() return require(module) end)
+                if s and type(r) == "table" then
+                    GlobalUpgradeSystemsDB[r.Name] = r -- Key: "Trial Upgrades"
+                end
+            end
+        end
+    end
+
+    local s1, r1 = pcall(function() return require(ReplicatedStorage.Shared.CharacterIcons) end)
+    if s1 then CharacterIcons = r1 end
+    local s2, r2 = pcall(function() return require(ReplicatedStorage.Shared.Items) end)
+    if s2 then GlobalItemDB = r2 end
+    local s3, r3 = pcall(function() return require(ReplicatedStorage.Shared.Avatars) end)
+    if s3 then GlobalAvatarDB = r3 end
+    local s4, r4 = pcall(function() return require(ReplicatedStorage.Shared.Swords) end)
+    if s4 then GlobalSwordDB = r4 end
+end
+LoadGameData()
+-- Load Database Game
+local function LoadGachaSources()
+    local SourcesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Gacha"):WaitForChild("Sources")
+    if SourcesFolder then
+        for _, module in pairs(SourcesFolder:GetChildren()) do
+            if module:IsA("ModuleScript") then
+                local s, r = pcall(function() return require(module) end)
+                if s and type(r) == "table" then
+                    GlobalGachaSources[module.Name] = r
+                end
+            end
+        end
+    end
+end
+LoadGachaSources()
+
+-- Helper: Ambil List Pedang (UPDATED: Added Gradient Support)
+local function GetGachaSwordList()
+    local list = {}
+    local pData = getgenv().PlayerData
+    if pData and pData.SwordsEquipped and pData.Swords then
+        for sid, _ in pairs(pData.SwordsEquipped) do
+            local swordData = pData.Swords[sid]
+            if swordData then
+                local name = swordData.Name
+                local currentPassive = swordData.Passive or "None"
+                local rarity = swordData.Rarity or "Common"
+                
+                local iconId = "rbxassetid://84366761557806"
+                if GlobalSwordDB and GlobalSwordDB[name] then iconId = GlobalSwordDB[name].Icon end
+
+                -- [BARU] Generate Gradient berdasarkan Rarity untuk Card UI
+                local gradientObj = nil
+                if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                    local colors = GlobalGradientDB:GetRarityColor(rarity)
+                    if colors and colors.Base and colors.Wave then
+                         gradientObj = ColorSequence.new{
+                            ColorSequenceKeypoint.new(0, colors.Base),
+                            ColorSequenceKeypoint.new(1, colors.Wave)
+                        }
+                    end
+                end
+
+                table.insert(list, {
+                    Title = string.format("%s [%s]", name, currentPassive),
+                    Desc = "Rarity: " .. rarity,
+                    Value = sid, 
+                    Icon = iconId,
+                    Gradient = gradientObj -- Data Gradient ditambahkan ke list
+                })
+            end
+        end
+        table.sort(list, function(a,b) return a.Title < b.Title end)
+    end
+    return list
+end
+
+-- Helper: Ambil List Passive (Index)
+local function GetSwordPassiveIndexList()
+    local list = {}
+    local sourceDB = GlobalGachaSources["Sword Passives"] -- Plural 's'
+    
+    if sourceDB then
+        for name, data in pairs(sourceDB) do
+            local perksVal = data.Perks or 0
+            local statsDesc = string.format("Perks: x%s", tostring(perksVal))
+            
+            local gradientObj = nil
+            if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                local colors = GlobalGradientDB:GetRarityColor(data.Rarity or "Common")
+                if colors and colors.Base and colors.Wave then
+                     gradientObj = ColorSequence.new{
+                        ColorSequenceKeypoint.new(0, colors.Base),
+                        ColorSequenceKeypoint.new(1, colors.Wave)
+                    }
+                end
+            end
+            
+            table.insert(list, {
+                Title = name, Desc = statsDesc, Value = name,
+                Icon = data.Icon, Gradient = gradientObj,
+                Index = data.Index or 999
+            })
+        end
+        table.sort(list, function(a,b) return a.Index < b.Index end)
+    end
+    return list
+end
+
+-- Loader Daftar Gacha
+local function LoadDynamicGachaList()
+    table.clear(powerList) 
+    local MachinesFolder = game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Gacha"):WaitForChild("Machines")
+    if MachinesFolder then
+        for _, module in pairs(MachinesFolder:GetChildren()) do
+            if module:IsA("ModuleScript") then
+                local success, data = pcall(function() return require(module) end)
+                if success and type(data) == "table" and data.Item then
+                    local writableData = {}
+                    for k, v in pairs(data) do writableData[k] = v end
+                    
+                    writableData.auto = false
+                    writableData.allow = true
+                    writableData.Map = data.Map or "Global"
+                    writableData.IsTalent = (data.Name == "Talents")
+                    
+                    table.insert(powerList, writableData)
+                end
+            end
+        end
+    end
+    table.sort(powerList, function(a, b) return a.Name < b.Name end)
+end
+task.spawn(LoadDynamicGachaList)
+
+-- World Upgrades Vars
+local wu_SelectedMap = "Current Map"
+local WU_MapConfig = {} 
+local function GetWUConfig(mapName)
+    if not WU_MapConfig[mapName] then
+        WU_MapConfig[mapName] = {Power = false, Damage = false, Coins = false}
+    end
+    return WU_MapConfig[mapName]
+end
+
+-- Stronger
+local targetStar = "None"
+local isRankUp = false
+
+-- Range Checker
+task.spawn(function()
+    while not Window.Destroyed do
+        attackRangePart = workspace:FindFirstChild("Cache") and workspace.Cache:FindFirstChild("Area")
+        if attackRangePart then attackRange = attackRangePart.Size.X/2 end
+        task.wait(1)
+    end
+end)
+
+local function getPosition(obj)
+    if obj:IsA("Model") then return obj:GetPivot().Position
+    elseif obj:IsA("BasePart") then return obj.Position end
+    return nil
+end
+
+local function getDistance(obj1, obj2)
+    local pos1 = getPosition(obj1)
+    local pos2 = getPosition(obj2)
+    if pos1 and pos2 then return (pos1 - pos2).Magnitude end
+    return 999999
+end
+
+-- ============================================================================
+--  DATA LOADER & HELPERS (UPDATED)
+-- ============================================================================
+-- Load Module Internal Game
+local NumberUtils = require(game:GetService("ReplicatedStorage").Libs.Utils.Scripts.Number)
+
+-- Wrapper untuk mengubah String (contoh: "1.5K") menjadi Angka (1500)
+-- Menggunakan fungsi .Unformat dari game
+local function ParseAbbreviated(str)
+    if type(str) == "number" then return str end
+    if not str then return 0 end
+    -- Arg1 nil karena fungsi aslinya: function(arg1, arg2)
+    return NumberUtils.Unformat(nil, str) 
+end
+
+-- Wrapper untuk mengubah Angka (1500) menjadi String (contoh: "1.5K")
+-- Menggunakan fungsi .Format dari game
+local function FormatNumber(n)
+    if not n then return "0" end
+    -- Arg1 nil karena fungsi aslinya: function(arg1, arg2)
+    return NumberUtils.Format(nil, n)
+end
+
+-- ============================================================================
+--  ENEMY LIST & AUTO SELECT (FARMING)
+-- ============================================================================
+local UI = {} 
+local DifficultyRank = {["Very Easy"]=1, ["Easy"]=2, ["Medium"]=3, ["Hard"]=4, ["Insane"]=5, ["Boss"]=6, ["Godlike"]=7}
+
+local function resetEnemiesList()
+    isUpdatingUI = true
+    
+    -- Pastikan PlayerData terupdate
+    if not getgenv().PlayerData or not getgenv().PlayerData.Map then ScanPlayerData() end
+    local PlayerData = getgenv().PlayerData
+    if PlayerData and PlayerData.Map == nil then
+        ScanPlayerData()
+        PlayerData = getgenv().PlayerData
+    end
+
+    local currentNames = {}
+    local nameSet = {}
+    local CurrentMapName = PlayerData.Map or "Unknown"
+
+    if PlayerData and PlayerData.Map then
+        local success, AllEnemiesDB = pcall(function() return require(game:GetService("ReplicatedStorage").Shared.Enemies) end)
+
+        if success and AllEnemiesDB and AllEnemiesDB[CurrentMapName] then
+            local MapEnemies = AllEnemiesDB[CurrentMapName]
+            for enemyName, enemyData in pairs(MapEnemies) do
+                if type(enemyName) == "string" and enemyName ~= "" and not nameSet[enemyName] then
+                    nameSet[enemyName] = true
+                    local diff = enemyData.Difficult or "Unknown"
+                    local hp = enemyData.Health or "?"
+                    local rank = DifficultyRank[diff] or 99
+                    
+                    local iconAsset = CharacterIcons[enemyName] or nil
+                    local processedDrops = {}
+                    if enemyData.Drops then processedDrops = table.clone(enemyData.Drops) end
+                    local dropIcons = {}
+
+                    for _, drop in ipairs(processedDrops) do
+                        if drop.Item then
+                            local iconFound = nil
+                            local ResultItem = nil
+                            if drop.Type == "Avatar" then
+                                local avatarData = GlobalAvatarDB[drop.Item]
+                                ResultItem = avatarData
+                                if avatarData then iconFound = avatarData.Icon end
+                            elseif drop.Type == "Sword" then
+                                local swordData = GlobalSwordDB[drop.Item]
+                                ResultItem = swordData
+                                if swordData then iconFound = swordData.Icon end
+                            else
+                                local itemData = GlobalItemDB[drop.Item]
+                                ResultItem = itemData
+                                if itemData then iconFound = itemData.Icon end
+                            end
+                            if iconFound and ResultItem then
+                                local Colors
+                                local DropCount
+                                -- [FIX] GlobalGradientDB.GetRarityColor requires 2 arguments (self, rarity) to access upvalues correctly
+                                if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                                     Colors = GlobalGradientDB:GetRarityColor(ResultItem.Rarity)
+                                end
+                                
+                                if Colors and type(Colors) == "table" and Colors.Base and Colors.Wave then
+                                    if drop.Minimum == drop.Maximum then
+                                        DropCount = drop.Minimum .. "x"
+                                    else
+                                        DropCount = drop.Minimum .. "x-" .. FormatNumber(drop.Maximum) .. "x"
+                                    end
+                                    table.insert(dropIcons, {
+                                        Card = true,
+                                        Rate = drop.Chance .. "%",
+                                        Title = drop.Item,
+                                        Quantity = DropCount,
+                                        Image = iconFound,
+                                        Gradient = ColorSequence.new{
+                                            ColorSequenceKeypoint.new(0, Colors.Base),
+                                            ColorSequenceKeypoint.new(1, Colors.Wave)
+                                        }
+                                    })
+                                end
+                            end
+                        end
+                    end
+                    -- [TAMBAHAN BARU] Hitung Gradient Berdasarkan Difficulty
+                    local rarityMap = {
+                        [1] = "Common", [2] = "Uncommon", [3] = "Rare", 
+                        [4] = "Epic", [5] = "Legendary", [6] = "Mythical", [7] = "Scarlet"
+                    }
+                    -- Mapping Rank (1-7) ke nama Rarity game
+                    local rarityStr = rarityMap[rank] or "Common"
+                    local enemyGradient = nil
+
+                    if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                         -- Mengambil warna dari database game
+                         local eColors = GlobalGradientDB:GetRarityColor(rarityStr)
+                         if eColors and eColors.Base and eColors.Wave then
+                             enemyGradient = ColorSequence.new{
+                                ColorSequenceKeypoint.new(0, eColors.Base),
+                                ColorSequenceKeypoint.new(1, eColors.Wave)
+                            }
+                         end
+                    end
+
+                    local descStr = "HP: " .. tostring(hp)
+                    table.insert(currentNames, {
+                        Title = enemyName .. " [" .. diff .. "]",
+                        Desc = descStr,
+                        Value = enemyName, 
+                        Rank = rank,
+                        Icon = iconAsset,
+                        Images = dropIcons,
+                        Gradient = enemyGradient -- <--- Tambahkan ini!
+                    })
+                end
+            end
+        else
+            ScanPlayerData() 
+        end
+        
+        table.sort(currentNames, function(a, b)
+            if a.Rank == b.Rank then return a.Value < b.Value end
+            return a.Rank < b.Rank 
+        end)
+        
+        table.clear(nameList)
+        for _, v in ipairs(currentNames) do table.insert(nameList, v) end
+        
+        -- [FIX PERMANEN: DIRECT VALUE SETTING]
+        -- Kita set targetnya DULUAN sebelum Refresh, jadi tidak perlu panggil Select()
+        if UI.EnemyDD then
+            task.spawn(function()
+                -- 1. Cari musuh yang harus dipilih berdasarkan Save Data
+                local savedEnemy = MapSelections[CurrentMapName]
+                local foundItem = nil
+                
+                if savedEnemy then
+                    for _, item in ipairs(nameList) do 
+                        if item.Value == savedEnemy then foundItem = item break end 
+                    end
+                end
+                
+                -- 2. Inject Value langsung ke Library
+                if foundItem then
+                    UI.EnemyDD.Value = foundItem 
+                    
+                    table.clear(targetList)
+                    table.insert(targetList, foundItem.Value)
+                    Notify("System", "Auto-Selected: " .. foundItem.Value, "check")
+
+                    -- [BARU] Set Image saat Auto Select
+                    -- [MULAI BAGIAN YANG DIUBAH/DITAMBAHKAN]
+                    if foundItem.Icon then
+                        -- Set Icon untuk Text Value (Kanan)
+                        UI.EnemyDD:SetValueImage(foundItem.Icon)
+                        UI.EnemyDD:SetDesc(foundItem.Value)
+
+                        -- Set Icon untuk Main Button (Kiri) - Mengikuti gaya Card/Gradient jika ada
+                        -- if foundItem.Gradient then
+                        --      UI.EnemyDD:SetMainImage({
+                        --          Image = foundItem.Icon,      -- ID Gambar
+                        --          Quantity = "",              -- Kosongkan text quantity agar bersih
+                        --          Gradient = foundItem.Gradient -- Gradient Object
+                        --      }, 40)
+                        -- else
+                        --      -- Fallback ke icon biasa jika tidak ada gradient
+                        --      UI.EnemyDD:SetMainImage(foundItem.Icon)
+                        -- end
+                    end
+                    -- [SELESAI BAGIAN YANG DIUBAH/DITAMBAHKAN]
+                else
+                    UI.EnemyDD.Value = nil -- Reset jika tidak ada save
+                    table.clear(targetList)
+                    -- [BARU] Reset Image ke Default
+                    UI.EnemyDD:SetValueImage("rbxassetid://84366761557806")
+                    UI.EnemyDD:SetMainImage("rbxassetid://84366761557806")
+                end
+
+                -- 3. Refresh UI SEKALI SAJA
+                pcall(function() 
+                    UI.EnemyDD:Refresh(nameList) 
+                end)
+            end)
+        end
+    end
+    task.wait(0.2)
+    isUpdatingUI = false
+end
+
+-- ============================================================================
+--  BRIDGENET & TELEPORT SYSTEM
+-- ============================================================================
+local function SmartTeleport(mapName)
+    if not mapName or mapName == "None" then return end
+    if getgenv().PlayerData and getgenv().PlayerData.Map == mapName then return end
+
+    isTransitioning = true
+    ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"Player", "Teleport", "Teleport", mapName, n = 4}, "\2"})
+    
+    repeat task.wait(0.5) until not isTransitioning
+    task.wait(1.5) 
+end
+
+ReplicatedStorage.BridgeNet2.dataRemoteEvent.OnClientEvent:Connect(function(data)
+    local events = data["\2"]
+    if not events then return end
+    for _, event in ipairs(events) do
+        if event[1] == "General" and event[2] == "Transition" and event[3] == "Teleport" then isTransitioning = true end
+        if event[1] == "Player" and event[2] == "Data" and event[3] == "MassUpdate" then
+            local uData = event[4]
+            if uData then
+                if uData.Map then
+                    if not getgenv().PlayerData then getgenv().PlayerData = {} end
+                    getgenv().PlayerData.Map = uData.Map
+                    task.spawn(function() task.wait(0.5) resetEnemiesList() end)
+                    isTransitioning = false
+                end
+            end
+        end
+    end
+end)
+
+-- ============================================================================
+--  FARMING LOGIC (ANTI-FLOAT FIX + LEG DETECTION)
+-- ============================================================================
+
+-- Helper: Cek apakah kita sedang di Map Gamemode
+local function IsInGamemode()
+    local cm = getgenv().PlayerData and getgenv().PlayerData.Map
+    return (cm == "TrialEasy") or (cm == "Raid") or (cm == "EclipseDefense")
+end
+
+local function kill(monster)
+    local head = monster:FindFirstChild("Head")
+    -- Kita butuh HumanoidRootPart untuk arah hadap yang stabil
+    local enemyRoot = monster:FindFirstChild("HumanoidRootPart") or monster:FindFirstChild("Head")
+    
+    if not head or not enemyRoot then return end
+    
+    -- [1] Hitung Tinggi Badan Karakter Kita
+    -- HipHeight = Jarak kaki ke pinggang. hrp.Size.Y/2 = Jarak pinggang ke tengah badan.
+    local myHip = humanoid.HipHeight
+    if myHip == 0 then myHip = 2 end -- Default R6
+    local myHeightOffset = myHip + (hrp.Size.Y / 2)
+
+    -- Loop Kill
+    while isFarm1 and not isGlobalBossActive and not isTransitioning and not Window.Destroyed do 
+        if IsInGamemode() then break end
+
+        -- Validasi Musuh
+        if not head or head.Transparency ~= 0 then break end
+        if not character or not hrp then break end 
+        if not monster.Parent then break end
+
+        -- Cek apakah target masih valid (User tidak uncheck)
+        local isStillWanted = false
+        local mName = monster:GetAttribute("CustomEnemyType") or monster:GetAttribute("ID") or monster.Name
+        for _, target in pairs(targetList) do
+             if mName == target or monster.Name == target then isStillWanted = true break end
+        end
+        if not isStillWanted then break end
+
+        -- [2] LOGIKA POSISI (ANTI MELAYANG)
+        -- A. Cari Posisi Lantai Musuh (Cek Kakinya)
+        local enemyFloorY = enemyRoot.Position.Y - 2.5 -- Fallback default jika kaki tidak ketemu
+        
+        local leg = monster:FindFirstChild("Left Leg") or monster:FindFirstChild("Right Leg") or 
+                    monster:FindFirstChild("LeftFoot") or monster:FindFirstChild("RightFoot") or
+                    monster:FindFirstChild("LeftLowerLeg") or monster:FindFirstChild("RightLowerLeg")
+        
+        if leg then 
+            -- Posisi Kaki - Setengah Tinggi Kaki = Lantai
+            enemyFloorY = leg.Position.Y - (leg.Size.Y / 2)
+        end
+
+        -- B. Hitung Posisi Akhir (Di Belakang Musuh)
+        local combatDistance = 5 
+        local backPosCFrame = enemyRoot.CFrame * CFrame.new(0, 0, combatDistance)
+        
+        -- Gabungkan: X/Z dari Belakang Musuh, Y dari Lantai Kaki + Tinggi Kita
+        local finalPosition = Vector3.new(backPosCFrame.X, enemyFloorY + myHeightOffset, backPosCFrame.Z)
+        
+        -- C. Teleport & Hadapkan ke Musuh
+        if hrp then 
+            -- LookAt: Posisi kita, melihat ke arah HRP musuh (tapi Y nya disamakan biar badan tegak)
+            local lookAtPos = Vector3.new(enemyRoot.Position.X, finalPosition.Y, enemyRoot.Position.Z)
+            hrp.CFrame = CFrame.new(finalPosition, lookAtPos)
+        end
+
+        -- Cek Jarak
+        if getDistance(hrp, monster) > distance then return end
+        
+        task.wait()
+    end
+end
+
+local function check()
+    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
+    if not EnemiesFolder then return end
+    
+    for _, monster in pairs(EnemiesFolder:GetChildren()) do
+        if isTransitioning or isGlobalBossActive or IsInGamemode() then break end
+        
+        if not monster:FindFirstChild("Head") or monster.Head.Transparency ~= 0 then continue end
+        if not hrp then task.wait() continue end
+        if getDistance(hrp, monster) >= distance then continue end
+
+        local mName = monster:GetAttribute("CustomEnemyType") or monster:GetAttribute("ID") or monster.Name
+        
+        for _, target in ipairs(targetList) do
+            if (target == mName or target == monster.Name) then
+                -- Ambil ID dari Data Server jika di workspace tidak ada (Opsional untuk akurasi attack)
+                if not monster:GetAttribute("ID") and getgenv().EnemiesData then
+                     for id, d in pairs(getgenv().EnemiesData) do
+                        if d.Model == monster then monster:SetAttribute("ID", id) break end
+                     end
+                end
+                
+                kill(monster)
+                break
+            end
+        end
+    end
+end
+
+-- Loop Utama Farm
+task.spawn(function()
+    while not Window.Destroyed do
+        if (isFarm1 == false) or isGlobalBossActive or isTransitioning == true or IsInGamemode() then 
+            task.wait(1)
+            continue
+        end
+        
+        check() 
+        task.wait()
+    end
+end)
+
+-- ============================================================================
+--  BOSS LOGIC
+-- ============================================================================
+
+local function ExecuteKillBoss(bossName)
+    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
+    if not EnemiesFolder then return end
+    
+    local targetBoss = nil
+    local searchTime = 0
+    repeat 
+        for _, mob in pairs(EnemiesFolder:GetChildren()) do
+            if mob.Name == bossName then targetBoss = mob break end
+        end
+        task.wait(0.5)
+        searchTime = searchTime + 0.5
+    until targetBoss or searchTime > 10 
+    
+    if targetBoss then
+        l:Notify({Title="Global Boss", Content="Found " .. bossName .. "! Killing...", Icon="swords"})
+        local head = targetBoss:FindFirstChild("Head")
+        
+        while isGlobalBossActive and targetBoss and targetBoss.Parent and head and head.Transparency == 0 do
+            if not hrp then break end
+            
+            if not isAutoBoss then 
+                isGlobalBossActive = false 
+                break 
+            end
+
+            local targetPos = getPosition(head) + Vector3.new(0, 5, 0)
+            hrp.CFrame = CFrame.new(targetPos)
+            task.wait()
+            if not targetBoss:FindFirstChild("Head") then break end
+        end
+        
+        if isGlobalBossActive then 
+            l:Notify({Title="Global Boss", Content="Defeated! Returning...", Icon="check"})
+            task.wait(1)
+            if savedPreviousMap then SmartTeleport(savedPreviousMap) savedPreviousMap = nil end
+        end
+        isGlobalBossActive = false 
+    else
+        l:Notify({Title="Global Boss", Content="Not Found / Despawned", Icon="x"})
+        isGlobalBossActive = false
+        if savedPreviousMap then SmartTeleport(savedPreviousMap) savedPreviousMap = nil end
+    end
+end
+
+local function TriggerGlobalBoss(bossName, mapName)
+    if isGlobalBossActive then return end
+    if getgenv().PlayerData and getgenv().PlayerData.Map then savedPreviousMap = getgenv().PlayerData.Map else savedPreviousMap = nil end
+    isGlobalBossActive = true
+    SmartTeleport(mapName)
+    ExecuteKillBoss(bossName)
+end
+
+-- ============================================================================
+--  CHAT LISTENER (BOSS HUNT & DROP WEBHOOK CLEANER)
+-- ============================================================================
+
+
+-- [FUNGSI BARU] Membersihkan kode HTML/RichText (<br>, <font...>, dll)
+local function CleanRichText(str)
+    -- Hapus semua karakter yang diapit oleh < dan >
+    return string.gsub(str, "<[^>]+>", "")
+end
+
+local function SendChatDropWebhook(finalText)
+    SendWebhook("🎁 Item/Pet Drop Notification", finalText, 16763904)
+end
+
+-- [VARS UPDATED] - Taruh ini SEBELUM Chat Listener
+local GamemodeVars = {
+    Trial = {Active = false, Name = "TrialEasy", TargetWave = 500},
+    Raid = {Active = false, Name = "Raid", TargetWave = 50, KeyItem = "Raid Key", BroadcastActive = false},
+    Eclipse = {Active = false, Name = "EclipseDefense", TargetWave = 50, KeyItem = "Eclipse Key", BroadcastActive = false}
+}
+
+-- [CHAT LISTENER UPDATE]
+TextChatService.MessageReceived:Connect(function(message)
+    if Window.Destroyed then return end
+    
+    local rawText = message.Text
+    local cleanText = CleanRichText(rawText)
+
+    -- 1. DETEKSI GAMEMODE START
+    if string.find(rawText, "%[GAMEMODE%]") and string.find(rawText, "has started") then
+        if string.find(cleanText, "Eclipse Defense") then
+            GamemodeVars.Eclipse.BroadcastActive = true
+            task.delay(60, function() GamemodeVars.Eclipse.BroadcastActive = false end)
+        end
+        if string.find(cleanText, "Raid") then
+            GamemodeVars.Raid.BroadcastActive = true
+            task.delay(60, function() GamemodeVars.Raid.BroadcastActive = false end)
+        end
+    end
+
+    -- 2. FITUR DROP WEBHOOK
+    if string.find(cleanText, "You got") then
+        local pName = game.Players.LocalPlayer.Name
+        local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+        local newText = string.gsub(cleanText, "You", censoredName)
+        SendChatDropWebhook(newText)
+    end
+
+    -- 3. FITUR BOSS HUNT
+    if isAutoBoss then 
+        if IsInGamemode() then return end -- Jangan ganggu Gamemode
+
+        for _, bossName in pairs(selectedBosses) do
+            local data = GlobalBossDB[bossName]
+            if data and data.Map then
+                if string.find(cleanText, bossName) and string.find(cleanText, data.Map) then
+                    TriggerGlobalBoss(bossName, data.Map)
+                    break 
+                end
+            end
+        end
+    end
+end)
+
+-- ============================================================================
+--  GAMEMODES LOGIC (OPTIMIZED: USES ENEMIES DATA)
+-- ============================================================================
+
+-- [VARS CONFIG]
+local GamemodeVars = {
+    Trial = {Active = false, Name = "TrialEasy", TargetWave = 500},
+    Raid = {Active = false, Name = "Raid", TargetWave = 50, KeyItem = "Raid Key", BroadcastActive = false},
+    Eclipse = {Active = false, Name = "EclipseDefense", TargetWave = 50, KeyItem = "Eclipse Key", BroadcastActive = false}
+}
+
+-- [HELPER] Kirim Signal Gamemode
+local function FireGamemode(modeName, action)
+    if ReplicatedStorage:FindFirstChild("BridgeNet2") then
+        for i=1, 3 do
+            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                {"Gamemodes", modeName, action, n = 3}, 
+                "\2"
+            })
+        end
+    end
+end
+
+-- [HELPER] Deteksi Wave via UI
+local function GetCurrentWave(modeName)
+    local pGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+    local hud = pGui and pGui:FindFirstChild("Interface") and pGui.Interface:FindFirstChild("HUD")
+    if not hud then return 0 end
+
+    local modeFrame = hud:FindFirstChild("Gamemodes") and hud.Gamemodes:FindFirstChild(modeName)
+    if modeFrame and modeFrame.Visible then
+        local waveTxt = modeFrame:FindFirstChild("Background") and modeFrame.Background:FindFirstChild("Wave")
+        if waveTxt then
+            return tonumber(string.match(waveTxt.Text, "%d+")) or 0
+        end
+    end
+    return 0
+end
+
+-- [LOGIKA KILLER FIXED: NOTLOOK TRIGGER + VISUAL CHECK]
+local function GamemodeKiller(stopCheckFunc)
+    while not Window.Destroyed do
+        -- Cek kondisi stop global
+        if not stopCheckFunc() or isTransitioning then break end
+
+        local dataDB = getgenv().EnemiesData
+        if not dataDB then 
+            task.wait(0.5)
+            continue 
+        end
+        
+        local foundTarget = false
+
+        for uuid, enemyData in pairs(dataDB) do
+            if not stopCheckFunc() then break end
+
+            -- [TRIGGER UTAMA: NOTLOOK]
+            -- Jika NotLook == true, berarti musuh sedang spawn/belum siap. Kita SKIP.
+            -- Kita hanya serang jika NotLook == false (atau nil yang dianggap false)
+            if enemyData.NotLook == true then 
+                continue 
+            end
+            
+            -- [VALIDASI FISIK] Pastikan modelnya benar-benar ada di Workspace
+            local monsterModel = enemyData.Model
+            local enemyRoot = enemyData.HRP
+            local enemyLeg = enemyData.Leg
+            
+            if not monsterModel or not monsterModel.Parent then continue end
+            if not enemyRoot or not enemyRoot.Parent then continue end
+            
+            -- [VALIDASI TAMBAHAN] Pastikan di Workspace (Bukan di Cache/Nil)
+            if not monsterModel:IsDescendantOf(workspace) then continue end
+
+            -- [LOGIKA ATTACK]
+            foundTarget = true
+
+            -- Setup Tinggi Badan Kita
+            local myHip = humanoid.HipHeight
+            if myHip == 0 then myHip = 2 end 
+            local myHeightOffset = myHip + (hrp.Size.Y / 2) + 0.5 
+
+            -- Loop Attack (Selama NotLook masih false dan musuh hidup)
+            while enemyRoot and enemyRoot.Parent and monsterModel.Parent and not Window.Destroyed do
+                if not stopCheckFunc() then break end
+                if not hrp or not humanoid or humanoid.Health <= 0 then break end
+                
+                -- Cek ulang status NotLook secara realtime dari data (jika tiba-tiba berubah jadi true/mati)
+                if enemyData.NotLook == true then break end
+
+                -- [LOGIKA POSISI BARU (SCALED)]
+                local floorY
+                
+                if enemyLeg and enemyLeg.Parent then
+                    -- Rumus Geometri Game (Size Based)
+                    local legHeight = enemyLeg.Size.Y
+                    local hrpHalfHeight = enemyRoot.Size.Y / 2
+                    floorY = enemyRoot.Position.Y - (hrpHalfHeight + legHeight)
+                else
+                    -- Fallback
+                    floorY = enemyRoot.Position.Y - 4.5
+                end
+
+                -- Safety Check: Jika koordinat Y aneh (jatuh ke void), stop kejar
+                if floorY < -400 then break end
+
+                -- Hitung Posisi Belakang
+                local combatDistance = 5 + (enemyRoot.Size.Z/2)
+                local backPosCFrame = enemyRoot.CFrame * CFrame.new(0, 0, combatDistance)
+                
+                -- Gabungkan X/Z Belakang + Y Lantai
+                local finalPosition = Vector3.new(backPosCFrame.X, floorY + myHeightOffset, backPosCFrame.Z)
+
+                -- Eksekusi Teleport
+                if hrp then 
+                    local lookAtPos = Vector3.new(enemyRoot.Position.X, finalPosition.Y, enemyRoot.Position.Z)
+                    hrp.CFrame = CFrame.new(finalPosition, lookAtPos)
+                end
+                
+                task.wait() 
+            end
+        end
+
+        -- Jika tidak ada target yang valid (semua NotLook=true atau kosong), tunggu sebentar
+        if not foundTarget then 
+            task.wait(0.2) 
+        end
+    end
+end
+
+-- [CONTROLLER UTAMA (TIDAK BERUBAH - HANYA MEMANGGIL KILLER BARU)]
+local function GamemodeController(configKey)
+    local Config = GamemodeVars[configKey]
+    if not Config then return end
+
+    while Config.Active and not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        local currentMap = pData and pData.Map
+        local ModeInternalName = Config.Name 
+
+        -- KONDISI 1: SEDANG DI DALAM GAMEMODE
+        local isInSpecificMode = (currentMap == ModeInternalName)
+        
+        if isInSpecificMode and not isGlobalBossActive and not isTransitioning then
+            local currWave = GetCurrentWave(ModeInternalName)
+            
+            if currWave >= Config.TargetWave then
+                Notify(configKey, "Target Reached! Leaving...", "check")
+                FireGamemode(ModeInternalName, "Leave")
+                
+                local waitTime = 0
+                repeat task.wait(1) waitTime=waitTime+1 until getgenv().PlayerData.Map ~= ModeInternalName or waitTime > 5
+                task.wait(2)
+
+                if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= "Trial Lobby" then
+                    Notify("Smart Return", "Returning to: " .. savedPreviousMap, "map")
+                    SmartTeleport(savedPreviousMap)
+                    savedPreviousMap = nil
+                end
+            else
+                -- Jalankan Killer dengan Logika Baru (Data Based)
+                GamemodeKiller(function()
+                    return Config.Active and (getgenv().PlayerData.Map == ModeInternalName)
+                end)
+            end
+
+        -- KONDISI 2: DI LOBBY (SIAP JOIN)
+        else
+            if currentMap ~= "None" and currentMap ~= "Loading" then
+                    local canJoin = false
+                    local joinReason = ""
+
+                    -- [LOGIKA 1: TRIAL]
+                    if configKey == "Trial" then
+                        local t = os.date("*t")
+                        local m = t.min
+                        -- Gunakan trialList global
+                        if trialList then
+                            for _, trial in pairs(trialList) do
+                                local start1 = trial.time 
+                                local end1 = start1 + 1
+                                local start2 = (trial.time + 30) % 60 
+                                local end2 = start2 + 1
+                                
+                                if (m >= start1 and m < end1) or (m >= start2 and m < end2) then
+                                    canJoin = true 
+                                    joinReason = "Time Window"
+                                    break 
+                                end
+                            end
+                        end
+                    
+                    -- [LOGIKA 2: RAID & ECLIPSE]
+                    else
+                        local keyCount = 0
+                        if pData.Items and Config.KeyItem then
+                            keyCount = pData.Items[Config.KeyItem] or 0
+                        end
+
+                        if keyCount > 0 then
+                            canJoin = true
+                            joinReason = "Key Available ("..keyCount..")"
+                        elseif Config.BroadcastActive then
+                            canJoin = true
+                            joinReason = "Event Started (Chat)"
+                        end
+                    end
+
+                    -- Eksekusi Join
+                    if canJoin then
+                        if currentMap ~= ModeInternalName and currentMap ~= "Trial Lobby" then
+                            savedPreviousMap = currentMap
+                        end
+
+                        Notify(configKey, "Joining via " .. joinReason, "swords")
+                        FireGamemode(ModeInternalName, "Join")
+                        
+                        if Config.BroadcastActive then 
+                            Config.BroadcastActive = false 
+                        end
+                        
+                        if configKey == "Trial" then
+                            Notify("Trial", "Attempting to join...", "hourglass")
+                            task.wait(10) 
+                        else
+                            task.wait(5)
+                        end
+                    end
+            end
+        end
+        task.wait(1)
+    end
+end
+-- [UPDATED GACHA LOGIC WITH DYNAMIC CHECK & BALANCE PROTECTION]
+local function changePower(name, value)
+    for _, power in pairs(powerList) do
+        if power.Name == name then
+            power.auto = value
+            return
+        end
+    end
+end
+
+task.spawn(function()
+    while not Window.Destroyed do
+        if targetStar and targetStar ~= "None" then
+            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "Stars", "Open", targetStar, 10, n = 10}, "\2"})
+        end
+        if isRankUp == true and getgenv().PlayerData and GlobalRankDB then
+            local pData = getgenv().PlayerData
+            local nextRank = (pData.Rank or 0) + 1
+            local nextData = GlobalRankDB[nextRank]
+            if nextData then
+                local reqPower = ParseAbbreviated(nextData.Power)
+                local curPower = pData.Power or 0 
+                if curPower >= reqPower then
+                    ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "RankUp", "RankUp", n = 10}, "\2"})
+                end
+            end
+        end
+        task.wait(0.5) 
+    end
+end)
+
+-- World Upgrade Loop Logic (Updated with Coin Check & Max Level Check)
+task.spawn(function()
+    while not Window.Destroyed do
+        local targetMap = wu_SelectedMap
+        local pData = getgenv().PlayerData
+
+        -- 1. Tentukan Map Target
+        if targetMap == "Current Map" and pData then
+             targetMap = pData.Map
+        end
+
+        if targetMap and targetMap ~= "Current Map" and targetMap ~= "None" and pData then
+            -- 2. Ambil Config Auto Upgrade untuk Map ini
+            local mapConfig = GetWUConfig(targetMap)
+            
+            -- 3. Ambil Data Progress Pemain di Map ini
+            local userUpgrades = (pData.WorldUpgrades and pData.WorldUpgrades[targetMap]) or {}
+            
+            -- 4. Ambil Database Harga untuk Map ini
+            local dbUpgrades = GlobalWorldUpgradeDB[targetMap]
+
+            if dbUpgrades then
+                local myCoins = pData.Coins or 0
+
+                -- Fungsi Helper Lokal untuk Eksekusi Upgrade
+                local function TryUpgrade(typeStr)
+                    if mapConfig[typeStr] then -- Jika Toggle ON
+                        local typeData = dbUpgrades[typeStr]
+                        if typeData and typeData.Levels then
+                            -- Cek Level Saat Ini
+                            local currentLvl = userUpgrades[typeStr] or 0
+                            local nextLvl = currentLvl + 1
+                            
+                            -- Cek Harga Level Selanjutnya
+                            local nextLvlStr = tostring(nextLvl)
+                            local priceStr = typeData.Levels[nextLvlStr]
+                            
+                            if priceStr then -- Jika level selanjutnya ada (belum MAX)
+                                local price = ParseAbbreviated(priceStr)
+                                
+                                -- [PENGECEKAN UTAMA] Cek Saldo vs Harga
+                                if myCoins >= price then
+                                    ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "WorldUpgrades", "Upgrade", targetMap, typeStr, n = 5}, "\2"})
+                                    -- Kurangi koin bayangan agar loop tidak spam req saat koin pas-pasan sebelum data update
+                                    myCoins = myCoins - price 
+                                    task.wait(0.1) 
+                                else
+                                    -- Debug: print("Not enough coins for " .. typeStr .. " Lvl " .. nextLvl)
+                                end
+                            else
+                                -- Level Max, matikan toggle otomatis (Opsional, agar tidak cek terus)
+                                -- mapConfig[typeStr] = false 
+                            end
+                        end
+                    end
+                end
+
+                -- Cek ketiga tipe upgrade
+                TryUpgrade("Power")
+                TryUpgrade("Damage")
+                TryUpgrade("Coins")
+            end
+        end
+        task.wait(0.5) -- Delay loop
+    end
+end)
+
+-- [UI INTERFACE]
+
+-- Mengambil Icon Game secara otomatis menggunakan GameId
+local GameIconURL = "rbxthumb://type=GameIcon&id=" .. game.GameId .. "&w=150&h=150"
+
+local BaseProfile = {
+    Banner = "rbxassetid://124762019485618", 
+    Avatar = "rbxassetid://84366761557806", -- << Bagian ini sudah diganti
+    Status = true, 
+    Badges = {
+        {
+            Icon = "geist:logo-discord", 
+            Callback = function() 
+                setclipboard("https://discord.gg/cy6uMRmeZ") 
+                Notify("Discord", "Copied!", "geist:logo-discord") 
+            end
+        }, 
+        {
+            Icon = "youtube", 
+            Callback = function() 
+                setclipboard("https://www.youtube.com/@ANHubRoblox") 
+                Notify("YouTube", "Copied!", "youtube") 
+            end
+        }
+    }
+}
+
+local function MakeProfile(data) 
+    local p = table.clone(BaseProfile); 
+    for k,v in pairs(data or {}) do p[k]=v end 
+    return p 
+end
+
+Window:Tab({Profile = MakeProfile({ Title = "ANHub Script", Desc = "Anime Advanced" }), SidebarProfile = true})
+Window:Tag({ Title = "v" .. l.Version, Icon = "github", Color = Color3.fromHex("#ff0000") });
+
+local MainTab = Window:Tab({Title = "Main Feature", Icon = "swords", Profile = MakeProfile({Avatar = GameIconURL,Title = "Game Feature", Desc = "Anime Advanced"}), SidebarProfile = false})
+
+local FM_Categories = {}
+local function FM_Add(cat, elem)
+    if not FM_Categories[cat] then FM_Categories[cat] = {} end
+    table.insert(FM_Categories[cat], elem)
+    local f = rawget(elem, "ElementFrame") or (elem.UIElements and elem.UIElements.Main) or elem.GroupFrame
+    if f then f.Visible = false end
+    return elem
+end
+
+local function FM_OnChange(selected)
+    for name, elems in pairs(FM_Categories) do
+        local vis = (name == selected)
+        for _, e in ipairs(elems) do
+            local f = rawget(e, "ElementFrame") or (e.UIElements and e.UIElements.Main) or e.GroupFrame
+            if f then f.Visible = vis end
+        end
+    end
+end
+
+-- Cari bagian ini di script Anda dan tambahkan baris "Enchant"
+local FM_Category = MainTab:Category({
+    Title = "Select Category", 
+    Default = "Farm",
+    Options = {
+        {Title="Farm", Icon="sword"},
+        {Title="Gamemodes", Icon="hourglass"},
+        {Title="Bosses", Icon="skull"},
+        {Title="Gacha", Icon="dices"},
+        {Title="Avatars", Icon="user"},
+        {Title="World Upgrade", Icon="globe"},
+        {Title="Trial Upgrades", Icon="zap"},
+        {Title="Upgrade Rank", Icon="chevrons-up"},
+        {Title="Expedition", Icon="compass"},
+        {Title="Enchant", Icon="sparkles"}, -- <--- TAMBAHKAN INI (Baris Baru)
+        {Title="Stronger", Icon="star"}
+    },
+    Callback = FM_OnChange
+})
+
+if FM_Category.ElementFrame then 
+    FM_Category.ElementFrame.Parent = MainTab.UIElements.ContainerFrameCanvas 
+    FM_Category.ElementFrame.Position = UDim2.new(0,0,0, MainTab.UIElements.ContainerFrame.Position.Y.Offset)
+    
+    local catSize = FM_Category.ElementFrame.Size.Y.Offset
+    MainTab.UIElements.ContainerFrame.Position = UDim2.new(0,0,0, MainTab.UIElements.ContainerFrame.Position.Y.Offset + catSize)
+    MainTab.UIElements.ContainerFrame.Size = UDim2.new(1, 0, 1, MainTab.UIElements.ContainerFrame.Size.Y.Offset - catSize)
+    
+    local pad = MainTab.UIElements.ContainerFrame:FindFirstChildOfClass("UIPadding")
+    if pad then pad.PaddingTop = UDim.new(0, 5) end
+end
+MainTab:Space({Columns=1})
+
+UI.EnemyDD = MainTab:Dropdown({
+    Title = "Select Enemies", 
+    Values = nameList, 
+    Multi = false, 
+    AllowNone = true, 
+    Value = nil, 
+    Flag = "TargetEnemies_Cfg",
+    Image = "rbxassetid://84366761557806", 
+    ImageSize = 50, 
+    Callback = function(v) 
+        table.clear(targetList); 
+        if v then 
+             -- Ambil value string dari object (karena dropdown values berisi table)
+             local val = (type(v) == "table" and (v.Value or v.Title)) or v
+             table.insert(targetList, val)
+             
+             -- [UPDATE] Logic SetMainImage dengan Card Style
+             if type(v) == "table" and v.Icon then
+                 -- 1. Icon Value (Kanan) tetap icon biasa
+                 UI.EnemyDD:SetValueImage(v.Icon)
+                 
+                 -- 2. Icon Main (Kiri) berubah jadi Card jika Gradient tersedia
+                 if v.Gradient then
+                     UI.EnemyDD:SetMainImage({
+                        Image = v.Icon, -- ID Gambar Baru
+                        Quantity = "", -- Update jumlah acak
+                        Gradient = v.Gradient
+                    }, 50)
+                     UI.EnemyDD:SetDesc(v.Value)
+                 -- else
+                 --     -- Fallback ke icon biasa jika tidak ada gradient
+                 --     UI.EnemyDD:SetMainImage(v.Icon)
+                 end
+             end
+
+             -- Simpan Config (Maps Selection)
+             if not isUpdatingUI and not isTransitioning then
+                 local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
+                 if currentMap then SaveMapSelection(currentMap, val) end
+             end
+        else
+             -- Reset ke Default Image jika tidak ada yang dipilih
+             UI.EnemyDD:SetValueImage("rbxassetid://84366761557806")
+             UI.EnemyDD:SetMainImage("rbxassetid://84366761557806")
+             
+             if not isUpdatingUI and not isTransitioning then
+                 local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
+                 if currentMap then SaveMapSelection(currentMap, nil) end
+             end
+        end 
+    end
+})
+FM_Add("Farm", UI.EnemyDD)
+FM_Add("Farm", MainTab:Toggle({Title = "Auto Kill Selected", Flag="Farm1_Cfg", Callback = function(v) isFarm1 = v end}))
+
+
+-- BOSSES
+local MapList = {"None"}
+task.spawn(function()
+    local added = {}
+    for _, data in pairs(GlobalBossDB) do
+        local map = data.Map
+        if map and not added[map] then
+            table.insert(MapList, map)
+            added[map] = true
+        end
+    end
+end)
+
+-- Helper khusus untuk parsing Health Boss (Support angka besar: Sx, Sp, Oc)
+local function ParseHealth(str)
+    if type(str) ~= "string" then return 0 end
+    local num = tonumber(string.match(str, "^[%d%.]+")) or 0
+    local suffix = string.match(str, "[%a]+$")
+    local mult = 1
+    
+    -- Satuan angka besar sesuai decompile
+    if suffix == "K" then mult = 1e3
+    elseif suffix == "M" then mult = 1e6
+    elseif suffix == "B" then mult = 1e9
+    elseif suffix == "T" then mult = 1e12
+    elseif suffix == "Qd" then mult = 1e15
+    elseif suffix == "Qn" then mult = 1e18
+    elseif suffix == "Sx" then mult = 1e21
+    elseif suffix == "Sp" then mult = 1e24
+    elseif suffix == "Oc" then mult = 1e27
+    elseif suffix == "N" then mult = 1e30
+    elseif suffix == "Dc" then mult = 1e33
+    end
+    return num * mult
+end
+
+local BossListData = {}
+
+-- Loop Boss Database
+for name, data in pairs(GlobalBossDB) do
+    local bossDropIcons = {}
+    
+    -- Proses Drops agar tampil sebagai CARD (Ada Gradient, Rate, dll)
+    
+    -- Ambil Map Index untuk Sorting (Agar rapi per Map)
+    local mapIndex = 999
+    local mapName = data.Map or "Unknown"
+    if GlobalMapDB and GlobalMapDB[mapName] then
+        mapIndex = GlobalMapDB[mapName].Index or 999
+    end
+    local rarityMap = {
+        [1] = "Common", [2] = "Uncommon", [3] = "Rare", 
+        [4] = "Epic", [5] = "Legendary", [6] = "Mythical", [7] = "Scarlet"
+    }
+    if data.Drops then
+        for _, drop in ipairs(data.Drops) do
+            if drop.Item then
+                local iconFound = nil
+                local ResultItem = nil
+
+                -- 1. Deteksi Tipe Item & Ambil Data Global
+                if drop.Type == "Avatar" then
+                    local avatarData = GlobalAvatarDB[drop.Item]
+                    ResultItem = avatarData
+                    if avatarData then iconFound = avatarData.Icon end
+                elseif drop.Type == "Sword" then
+                    local swordData = GlobalSwordDB[drop.Item]
+                    ResultItem = swordData
+                    if swordData then iconFound = swordData.Icon end
+                else
+                    local itemData = GlobalItemDB[drop.Item]
+                    ResultItem = itemData
+                    if itemData then iconFound = itemData.Icon end
+                end
+
+                -- 2. Buat Struktur Card jika Item & Icon ditemukan
+                if iconFound and ResultItem then
+                    local Colors
+                    local DropCount
+
+                    -- Ambil Warna Rarity dari Game
+                    if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                         Colors = GlobalGradientDB:GetRarityColor(ResultItem.Rarity or rarityMap[mapIndex])
+                    end
+
+                    -- Format Jumlah Drop (contoh: 1x atau 1x-5x)
+                    if drop.Minimum == drop.Maximum then
+                        DropCount = drop.Minimum .. "x"
+                    else
+                        DropCount = drop.Minimum .. "x-" .. FormatNumber(drop.Maximum) .. "x"
+                    end
+
+                    -- Masukkan ke Table dengan Format Card UI
+                    if Colors and type(Colors) == "table" and Colors.Base and Colors.Wave then
+                        table.insert(bossDropIcons, {
+                            Card = true,
+                            Rate = drop.Chance .. "%",
+                            Title = drop.Item,
+                            Quantity = DropCount,
+                            Image = iconFound,
+                            Gradient = ColorSequence.new{
+                                ColorSequenceKeypoint.new(0, Colors.Base),
+                                ColorSequenceKeypoint.new(1, Colors.Wave)
+                            }
+                        })
+                    else
+                        -- Fallback jika gradient gagal load (jarang terjadi)
+                        table.insert(bossDropIcons, {
+                            Card = true,
+                            Rate = drop.Chance .. "%",
+                            Title = drop.Item,
+                            Quantity = DropCount,
+                            Image = iconFound,
+                            Gradient = ColorSequence.new(Color3.new(1,1,1)) 
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Ambil Health Value untuk Sorting
+    local healthVal = ParseHealth(data.Health or "0")
+
+    table.insert(BossListData, {
+        Title = name .. " [" .. (data.Difficult or "Boss") .. "]", 
+        Desc = "HP: " .. (data.Health or "?"), 
+        Value = name, 
+        Icon = CharacterIcons[name] or nil, 
+        Images = bossDropIcons, -- Sekarang berisi Data Card, bukan icon string biasa
+        -- Data untuk sorting internal
+        SortMapIndex = mapIndex,
+        SortHealth = healthVal
+    })
+end
+
+-- Logic Sorting: Urutkan Map (Index) -> Lalu Urutkan Health (Kecil ke Besar)
+table.sort(BossListData, function(a,b) 
+    if a.SortMapIndex == b.SortMapIndex then
+        return a.SortHealth < b.SortHealth
+    end
+    return a.SortMapIndex < b.SortMapIndex 
+end)
+
+FM_Add("Bosses", MainTab:Toggle({Title = "Enable Auto Boss Hunt", Desc = "Turn this ON to auto-detect Bosses from chat.", Flag = "AutoBoss_Master_Cfg", Callback = function(v) isAutoBoss = v if not v then isGlobalBossActive = false end end}))
+FM_Add("Bosses", MainTab:Dropdown({Title = "Select Boss Targets", Values = BossListData, Multi = true, AllowNone = true, Flag = "GlobalBoss_Selection", Callback = function(val) selectedBosses = {} if type(val) == "table" then for _, v in ipairs(val) do table.insert(selectedBosses, (type(v)=="table" and v.Value) or v) end else selectedBosses = val end end}))
+FM_Add("Bosses", MainTab:Button({Title = "Force Start / Scan Current Map", Desc = "Manually check if a selected boss is in the current map", Icon = "swords", Callback = function() isAutoBoss = true local found = false local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies") if EnemiesFolder then for _, mob in pairs(EnemiesFolder:GetChildren()) do for _, targetName in pairs(selectedBosses) do if mob.Name == targetName then found = true isGlobalBossActive = true ExecuteKillBoss(targetName) break end end if found then break end end end if not found then Notify("System", "No selected boss found here.", "search") end end}))
+
+-- GAMEMODES UI
+local TrialNamesList = {}
+if trialList and #trialList > 0 then 
+    for _, t in ipairs(trialList) do table.insert(TrialNamesList, t.name) end 
+else 
+    TrialNamesList = {"TrialEasy"} 
+end
+
+FM_Add("Gamemodes", MainTab:Dropdown({
+    Title="Trial Type", 
+    Values=TrialNamesList, 
+    Multi=false, 
+    Default="TrialEasy", 
+    Flag="TrialSelect_Unique_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Trial then GamemodeVars.Trial.Name = v end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Input({
+    Title="Target Wave (Trial)", 
+    Value="500", 
+    Flag="WaveTarget_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Trial then GamemodeVars.Trial.TargetWave = tonumber(v) or 500 end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Toggle({
+    Title="Auto Farm Trial", 
+    Flag="AutoTrial_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Trial then 
+            GamemodeVars.Trial.Active = v
+            if v then task.spawn(function() GamemodeController("Trial") end) end 
+        end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Input({
+    Title="Target Wave (Raid)", 
+    Value="50", 
+    Flag="WaveTargetRaid_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Raid then GamemodeVars.Raid.TargetWave = tonumber(v) or 50 end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Toggle({
+    Title="Auto Farm Raid", 
+    Flag="AutoRaid_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Raid then 
+            GamemodeVars.Raid.Active = v
+            if v then task.spawn(function() GamemodeController("Raid") end) end 
+        end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Input({
+    Title="Target Wave (Eclipse)", 
+    Value="50", 
+    Flag="WaveTargetEclipse_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Eclipse then GamemodeVars.Eclipse.TargetWave = tonumber(v) or 50 end 
+    end
+}))
+
+FM_Add("Gamemodes", MainTab:Toggle({
+    Title="Auto Farm Eclipse", 
+    Flag="AutoEclipse_Cfg", 
+    Callback=function(v) 
+        if GamemodeVars and GamemodeVars.Eclipse then 
+            GamemodeVars.Eclipse.Active = v
+            if v then task.spawn(function() GamemodeController("Eclipse") end) end 
+        end 
+    end
+}))
+
+-- ============================================================================
+--  TRIAL UPGRADES (DYNAMIC SYSTEM - 2 PER GROUP & PERKS INFO)
+-- ============================================================================
+
+local TrialUpgradeToggles = {}
+local TrialSystemName = "Trial Upgrades" 
+
+-- 1. UI Construction
+FM_Add("Trial Upgrades", MainTab:Paragraph({Title = "Trial Upgrades Manager", Desc = "Auto buy upgrades using Tickets"}))
+
+if GlobalUpgradeSystemsDB[TrialSystemName] and GlobalUpgradeSystemsDB[TrialSystemName].List then
+    local list = GlobalUpgradeSystemsDB[TrialSystemName].List
+    
+    local sortedKeys = {}
+    for k, v in pairs(list) do table.insert(sortedKeys, {Key = k, Index = v.Index or 99}) end
+    table.sort(sortedKeys, function(a,b) return a.Index < b.Index end)
+
+    local currentGroup 
+
+    for i, item in ipairs(sortedKeys) do
+        if i % 2 == 1 then
+            currentGroup = MainTab:Group({})
+            FM_Add("Trial Upgrades", currentGroup)
+        end
+
+        local upgradeName = item.Key
+        
+        local tgl = currentGroup:Toggle({
+            Title = upgradeName,
+            Desc = "Waiting...",
+            Flag = "TrialUp_"..upgradeName, 
+            Callback = function(v) 
+                TrialUpgradeToggles[upgradeName] = v 
+            end
+        })
+        
+        TrialUpgradeToggles[upgradeName .. "_UI"] = tgl
+    end
+end
+
+-- 2. Loop Logic Auto Upgrade
+local function SendTrialUpgradeWebhook(upgradeName, lvl)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local titleText = "⚡ Trial Upgrade Upgraded!"
+    local desc = "User: " .. censoredName .. "\n" ..
+                 "Upgrade: **" .. upgradeName .. "**\n" ..
+                 "New Level: **" .. lvl .. "**"
+    
+    SendWebhook(titleText, desc, 16776960) -- Warna Kuning
+end
+
+task.spawn(function()
+    local lastTrialLogs = {} -- Tracker
+
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        local sysData = GlobalUpgradeSystemsDB[TrialSystemName]
+        
+        if pData and sysData and pData.Upgrade then
+            local myUpgrades = pData.Upgrade[TrialSystemName] or {}
+            
+            local priceType = sysData.Price.Type
+            local priceName = sysData.Price.Name
+            
+            local myBalance = 0
+            if priceType == "Item" and pData.Items then
+                myBalance = pData.Items[priceName] or 0
+            elseif pData[priceName] then 
+                myBalance = pData[priceName] or 0
+            end
+
+            for upgradeName, upgradeInfo in pairs(sysData.List) do
+                local toggleState = TrialUpgradeToggles[upgradeName]
+                local uiElement = TrialUpgradeToggles[upgradeName .. "_UI"]
+                
+                local currentLvl = myUpgrades[upgradeName] or 0
+                local maxLvl = upgradeInfo.Levels or 999
+                
+                -- Hitung Harga
+                local basePrice = upgradeInfo.Price.Base
+                local effectPrice = upgradeInfo.Price.Effect
+                local currentPrice = basePrice + (effectPrice * currentLvl)
+
+                -- [BARU] Hitung Perks (Stats)
+                local perkDesc = ""
+                if upgradeInfo.Perks then
+                    for _, p in ipairs(upgradeInfo.Perks) do
+                        -- Rumus Stat: BaseAmount + (Effect * (Level - 1))
+                        local totalVal = 0
+                        if currentLvl > 0 then
+                            totalVal = p.Amount + (p.Effect * (currentLvl - 1))
+                        end
+                        
+                        -- Format Teks
+                        if p.Type == "Times" then
+                            -- 0.1 -> 10%
+                            perkDesc = perkDesc .. "+" .. math.floor(totalVal * 100 + 0.5) .. "% " .. p.Name .. "\n"
+                        else
+                            perkDesc = perkDesc .. "+" .. totalVal .. " " .. p.Name .. "\n"
+                        end
+                    end
+                end
+
+                -- Update UI dengan Info Lengkap
+                if uiElement then
+                    local balInfo = priceName..": " .. FormatNumber(myBalance)
+                    
+                    if currentLvl >= maxLvl then
+                        uiElement:SetTitle(upgradeName .. " [MAX]")
+                        uiElement:SetDesc(perkDesc .. "Level: " .. currentLvl .. " (Maxed)")
+                        uiElement:Lock(true) -- Opsional: Lock jika max
+                        uiElement:Set(false)
+                    else
+                        uiElement:SetTitle(upgradeName)
+                        uiElement:SetDesc("Lvl: " .. currentLvl .. " | Cost: " .. FormatNumber(currentPrice) .. "\n" .. perkDesc .. balInfo)
+                    end
+                end
+
+                -- Eksekusi Buy
+                if toggleState and currentLvl < maxLvl then
+                    if myBalance >= currentPrice then
+                        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                            {"General", "Upgrade", "Upgrade", TrialSystemName, upgradeName, n = 5}, 
+                            "\2"
+                        })
+                        myBalance = myBalance - currentPrice
+                        
+                        -- [WEBHOOK LOGIC]
+                        local nextLvl = currentLvl + 1
+                        if lastTrialLogs[upgradeName] ~= nextLvl then
+                            SendTrialUpgradeWebhook(upgradeName, nextLvl)
+                            lastTrialLogs[upgradeName] = nextLvl
+                        end
+
+                        task.wait(0.1)
+                    end
+                end
+            end
+        end
+        task.wait(0.5) 
+    end
+end)
+
+-- ============================================================================
+--  WORLD UPGRADE UI (SORTED & NO CURRENT MAP)
+-- ============================================================================
+
+-- 1. Generate List Map (Sorted by Index)
+local WUMapList = {}
+local tempMapSorter = {}
+
+if GlobalMapDB and GlobalWorldUpgradeDB then
+    for mapName, mapData in pairs(GlobalMapDB) do
+        -- Hanya masukkan map yang punya data World Upgrades di database
+        if GlobalWorldUpgradeDB[mapName] then
+            table.insert(tempMapSorter, {Name = mapName, Index = mapData.Index or 999})
+        end
+    end
+    
+    -- Sortir dari Index Terkecil (Map Awal) ke Terbesar
+    table.sort(tempMapSorter, function(a,b) return a.Index < b.Index end)
+    
+    for _, m in ipairs(tempMapSorter) do
+        table.insert(WUMapList, m.Name)
+    end
+end
+
+-- 2. Setup Variables
+local WUPowerToggle
+local WUDamageToggle
+local WUCoinsToggle
+
+-- 3. Dropdown Map Selection
+local WU_MapDropdown = FM_Add("World Upgrade", MainTab:Dropdown({
+    Title = "Select Map", 
+    Desc = "Select the specific map you want to upgrade.", 
+    Values = WUMapList, 
+    Value = nil, -- Tidak ada default "Current Map" lagi
+    Flag = "WU_MapSelect", 
+    Callback = function(v) 
+        local selectedVal = (type(v)=="table" and v.Value) or v
+        wu_SelectedMap = selectedVal
+        
+        -- Update tampilan toggle saat ganti map
+        if selectedVal and selectedVal ~= "None" then
+            local conf = GetWUConfig(selectedVal)
+            if WUPowerToggle then WUPowerToggle:Set(conf.Power) end
+            if WUDamageToggle then WUDamageToggle:Set(conf.Damage) end
+            if WUCoinsToggle then WUCoinsToggle:Set(conf.Coins) end
+        end
+    end
+}))
+
+-- 4. Toggles
+WUPowerToggle = FM_Add("World Upgrade", MainTab:Toggle({
+    Title = "Power", 
+    Desc = "+0%",
+    Image = "rbxassetid://116941678612804",
+    Callback = function(v) 
+        if wu_SelectedMap then GetWUConfig(wu_SelectedMap).Power = v end
+    end
+}))
+
+WUDamageToggle = FM_Add("World Upgrade", MainTab:Toggle({
+    Title = "Damage", 
+    Desc = "+0%",
+    Image = "rbxassetid://78687483459513",
+    Callback = function(v) 
+        if wu_SelectedMap then GetWUConfig(wu_SelectedMap).Damage = v end
+    end
+}))
+
+WUCoinsToggle = FM_Add("World Upgrade", MainTab:Toggle({
+    Title = "Coins", 
+    Desc = "+0%",
+    Image = "rbxassetid://100340053265882",
+    Callback = function(v) 
+        if wu_SelectedMap then GetWUConfig(wu_SelectedMap).Coins = v end
+    end
+}))
+
+local function SendWorldUpgradeWebhook(mapName, typeStr, lvl)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local titleText = "🌍 World Upgrade Upgraded!"
+    local desc = "User: " .. censoredName .. "\n" ..
+                 "Map: **" .. mapName .. "**\n" ..
+                 "Upgrade: **" .. typeStr .. "**\n" ..
+                 "New Level: **" .. lvl .. "**"
+    
+    SendWebhook(titleText, desc, 65280) -- Warna Hijau
+end
+
+-- 5. Loop Logic World Upgrade (Updated: Remove Current Map Logic)
+task.spawn(function()
+    local lastWULogs = {} -- Tracker untuk menghindari spam webhook
+
+    while not Window.Destroyed do
+        local targetMap = wu_SelectedMap
+        local pData = getgenv().PlayerData
+
+        -- [UPDATE] Kita hapus logika "Current Map"
+        -- Script hanya jalan jika user sudah memilih map spesifik di dropdown
+        
+        if targetMap and targetMap ~= "None" and pData then
+            local mapConfig = GetWUConfig(targetMap)
+            local userUpgrades = (pData.WorldUpgrades and pData.WorldUpgrades[targetMap]) or {}
+            local dbUpgrades = GlobalWorldUpgradeDB[targetMap]
+
+            if dbUpgrades then
+                local myCoins = pData.Coins or 0
+
+                local function TryUpgrade(typeStr)
+                    if mapConfig[typeStr] then 
+                        local typeData = dbUpgrades[typeStr]
+                        if typeData and typeData.Levels then
+                            local currentLvl = userUpgrades[typeStr] or 0
+                            local nextLvl = currentLvl + 1
+                            local nextLvlStr = tostring(nextLvl)
+                            local priceStr = typeData.Levels[nextLvlStr]
+                            
+                            if priceStr then 
+                                local price = ParseAbbreviated(priceStr)
+                                if myCoins >= price then
+                                    ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "WorldUpgrades", "Upgrade", targetMap, typeStr, n = 5}, "\2"})
+                                    myCoins = myCoins - price 
+                                    
+                                    -- [WEBHOOK LOGIC]
+                                    local key = targetMap .. "_" .. typeStr
+                                    if lastWULogs[key] ~= nextLvl then
+                                        SendWorldUpgradeWebhook(targetMap, typeStr, nextLvl)
+                                        lastWULogs[key] = nextLvl
+                                    end
+
+                                    task.wait(0.1) 
+                                end
+                            end
+                        end
+                    end
+                end
+
+                TryUpgrade("Power")
+                TryUpgrade("Damage")
+                TryUpgrade("Coins")
+            end
+            
+            -- [UPDATE VISUAL UI DESKRIPSI]
+            -- Update teks deskripsi (+..%) di tombol toggle secara realtime
+            local mapUpgrades = userUpgrades or {}
+            local powLvl = mapUpgrades["Power"] or 0
+            local dmgLvl = mapUpgrades["Damage"] or 0
+            local coinLvl = mapUpgrades["Coins"] or 0
+            local MAX_LEVEL = 10
+            
+            
+            if WUPowerToggle then 
+                WUPowerToggle:SetDesc("+" .. (powLvl * 5) .. "% (Lvl " .. powLvl .. ")")
+                if powLvl >= MAX_LEVEL then
+                    WUPowerToggle:SetTitle("Power [MAX]")
+                    if WUPowerToggle.Value then WUPowerToggle:Set(false) end
+                    if WUPowerToggle.Lock then WUPowerToggle:Lock(true) end
+                else
+                    WUPowerToggle:SetTitle("Power")
+                    if WUPowerToggle.Unlock then WUPowerToggle:Unlock() elseif WUPowerToggle.Lock then WUPowerToggle:Lock(false) end
+                end
+            end
+
+            if WUDamageToggle then 
+                WUDamageToggle:SetDesc("+" .. (dmgLvl * 5) .. "% (Lvl " .. dmgLvl .. ")")
+                if dmgLvl >= MAX_LEVEL then
+                    WUDamageToggle:SetTitle("Damage [MAX]")
+                    if WUDamageToggle.Value then WUDamageToggle:Set(false) end
+                    if WUDamageToggle.Lock then WUDamageToggle:Lock(true) end
+                else
+                    WUDamageToggle:SetTitle("Damage")
+                    if WUDamageToggle.Unlock then WUDamageToggle:Unlock() elseif WUDamageToggle.Lock then WUDamageToggle:Lock(false) end
+                end
+            end
+
+            if WUCoinsToggle then 
+                WUCoinsToggle:SetDesc("+" .. (coinLvl * 5) .. "% (Lvl " .. coinLvl .. ")")
+                if coinLvl >= MAX_LEVEL then
+                    WUCoinsToggle:SetTitle("Coins [MAX]")
+                    if WUCoinsToggle.Value then WUCoinsToggle:Set(false) end
+                    if WUCoinsToggle.Lock then WUCoinsToggle:Lock(true) end
+                else
+                    WUCoinsToggle:SetTitle("Coins")
+                    if WUCoinsToggle.Unlock then WUCoinsToggle:Unlock() elseif WUCoinsToggle.Lock then WUCoinsToggle:Lock(false) end
+                end
+            end
+        else
+            -- Jika belum pilih map, set desc ke default
+            if WUPowerToggle then WUPowerToggle:SetDesc("Select Map first") end
+            if WUDamageToggle then WUDamageToggle:SetDesc("Select Map first") end
+            if WUCoinsToggle then WUCoinsToggle:SetDesc("Select Map first") end
+        end
+        
+        task.wait(0.5)
+    end
+end)
+
+-- ============================================================================
+--  UPGRADE RANK FEATURE (WITH DISCORD WEBHOOK + CENSORED NAME)
+-- ============================================================================
+
+local function SendRankWebhook(oldRank, newRank)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    local desc = "User: " .. censoredName .. "\n\n" .. "**Rank " .. oldRank .. "** ➡️  **Rank " .. newRank .. "**"
+    SendWebhook("🎉 Rank Up Successful!", desc, 3447003)
+end
+
+-- UI Elements
+UI.RankInfo = MainTab:Paragraph({Title = "Rank Info: Loading...", Desc = "Waiting for Player Data...", Image = "rbxassetid://108641720461944"})
+FM_Add("Upgrade Rank", UI.RankInfo)
+FM_Add("Upgrade Rank", MainTab:Toggle({Title="Auto Rank Up", Flag="RankUp_Cfg", Callback=function(v) isRankUp = v end}))
+
+-- Logic Loop
+task.spawn(function()
+    local isProcessingRank = false -- Debounce
+
+    while not Window.Destroyed do
+        if getgenv().PlayerData and getgenv().PlayerData.Rank and GlobalRankDB then
+            local pData = getgenv().PlayerData
+            
+            local currentRankIdx = pData.Rank
+            local nextRankIdx = currentRankIdx + 1
+            local currentPower = pData.Power or 0
+            
+            local currentRankData = GlobalRankDB[currentRankIdx]
+            local nextRankData = GlobalRankDB[nextRankIdx]
+            
+            -- Update UI Visual
+            if currentRankData and nextRankData then
+                local nextRankPowerReq = ParseAbbreviated(nextRankData.Power)
+                
+                local currentPerkPower = (currentRankData.Perks and currentRankData.Perks.Power) or "0"
+                local nextPerkPower = (nextRankData.Perks and nextRankData.Perks.Power) or "0"
+                
+                -- Hitung Progress Bar
+                local progress = 0
+                if nextRankPowerReq > 0 then progress = math.clamp(currentPower / nextRankPowerReq, 0, 1) end
+                local progressPercent = math.floor(progress * 100)
+                local bars = 20
+                local filled = math.floor(progress * bars)
+                local empty = bars - filled
+                local barStr = string.rep("■", filled) .. string.rep("□", empty)
+                
+                if UI.RankInfo then
+                    UI.RankInfo:SetTitle(string.format("Rank %d > Rank %d", currentRankIdx, nextRankIdx))
+                    UI.RankInfo:SetDesc(string.format("Perks x%s > x%s\n%s %d%%\nPower: %s / %s", currentPerkPower, nextPerkPower, barStr, progressPercent, FormatNumber(currentPower), nextRankData.Power))
+                end
+
+                -- [AUTO RANK UP LOGIC]
+                if isRankUp and currentPower >= nextRankPowerReq and not isProcessingRank then
+                    isProcessingRank = true -- Kunci dulu
+                    
+                    -- Kirim Request Server
+                    ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "RankUp", "RankUp", n = 10}, "\2"})
+                    
+                    Notify("Rank Up", "Upgrading to Rank " .. nextRankIdx .. "!", "chevrons-up")
+                    
+                    -- Kirim Webhook (Censored)
+                    SendRankWebhook(currentRankIdx, nextRankIdx)
+                    
+                    -- Tunggu sebentar sampai data server terupdate
+                    task.wait(6) 
+                    isProcessingRank = false -- Buka kunci
+                end
+            else
+                 if UI.RankInfo then 
+                    UI.RankInfo:SetTitle("Max Rank Reached") 
+                    UI.RankInfo:SetDesc("You have reached the maximum rank!") 
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+-- [2. UI GENERATOR - 2 PER ITEM LAYOUT]
+local currentGachaGroup
+local GachaSwordDropdown -- Reference untuk update realtime
+
+for i, power in ipairs(powerList) do 
+    -- KASUS 1: SWORD PASSIVE (CUSTOM GRID)
+    if power.Name == "Sword Passive" then
+        -- Header Section
+        local SPHeader = MainTab:Paragraph({Title = "Sword Passive System", Desc = "Select Sword & Passive Targets below"})
+        FM_Add("Gacha", SPHeader)
+        
+        -- ROW 1 (Toggle & Refresh Button)
+        local Row1 = MainTab:Group({})
+        FM_Add("Gacha", Row1)
+        
+        local spToggle = Row1:Toggle({
+            Title = "Auto Roll", 
+            Flag = "Power_" .. power.Name,
+            Image = power.Icon,
+            Callback = function(v) changePower(power.Name, v) end
+        })
+        PowerToggles[power.Name] = spToggle
+        
+        -- Forward declare variable untuk dropdown agar bisa direfresh tombol
+        local SwordDD 
+        
+        Row1:Button({
+            Title = "Refresh Swords",
+            Icon = "refresh-cw",
+            Callback = function() if SwordDD then SwordDD:Refresh(GetGachaSwordList()) end end
+        })
+
+        -- ROW 2 (Dropdown Sword & Dropdown Target)
+        local Row2 = MainTab:Group({})
+        FM_Add("Gacha", Row2)
+
+        SwordDD = Row2:Dropdown({
+            Title = "Target Sword",
+            Values = GetGachaSwordList(),
+            Value = nil,
+            Flag = "Gacha_SwordSelect",
+            Callback = function(v)
+                selectedGachaSwordSID = (type(v) == "table" and v.Value) or v
+                
+                -- [FIX] Jika 'v' hanya Value (dari Config), cari Object lengkapnya agar Gradient muncul
+                if type(v) ~= "table" then
+                    local list = GetGachaSwordList()
+                    for _, item in ipairs(list) do
+                        if item.Value == selectedGachaSwordSID then
+                            v = item
+                            break
+                        end
+                    end
+                end
+
+                -- [VISUAL UPDATE] Logika Icon + Gradient (Seperti Select Equipped Sword)
+                if type(v) == "table" and v.Icon and SwordDD then
+                    -- 1. Set Icon Kanan (Value)
+                    if SwordDD.SetValueImage then SwordDD:SetValueImage(v.Icon) end
+
+                    -- 2. Set Icon Kiri (Main) dengan Gradient jika ada
+                    if SwordDD.SetMainImage then
+                        if v.Gradient then
+                            SwordDD:SetMainImage({
+                                Image = v.Icon,
+                                Gradient = v.Gradient
+                            }, 50)
+                        else
+                            SwordDD:SetMainImage(v.Icon)
+                        end
+                    end
+                else
+                    -- Reset ke Default jika tidak ada pilihan
+                    if SwordDD.SetMainImage then SwordDD:SetMainImage("rbxassetid://84366761557806") end
+                    if SwordDD.SetValueImage then SwordDD:SetValueImage("rbxassetid://84366761557806") end
+                end
+
+                if PowerToggles["Sword Passive"] then
+                      local sName = (type(v) == "table" and v.Title) or "Unknown"
+                      PowerToggles["Sword Passive"]:SetDesc("Target: " .. sName)
+                end
+            end
+        })
+        GachaSwordDropdown = SwordDD
+
+        Row2:Dropdown({
+            Title = "Passive Index",
+            Values = GetSwordPassiveIndexList(),
+            Multi = true,
+            Flag = "Gacha_PassiveTargets",
+            Callback = function(values)
+                table.clear(SwordPassiveTargets)
+                if type(values) == "table" then
+                    for _, item in ipairs(values) do
+                        local pName = (type(item) == "table" and item.Value) or item
+                        SwordPassiveTargets[pName] = true
+                    end
+                end
+            end
+        })
+
+    -- KASUS 2: GACHA BIASA (Standard Grid)
+    else
+        -- Buat Group Baru setiap 2 item
+        if (i - (powerList[1].Name == "Sword Passive" and 1 or 0)) % 2 == 1 then
+            currentGachaGroup = MainTab:Group({})
+            FM_Add("Gacha", currentGachaGroup)
+        end
+
+        local titleStr = power.Name
+        if power.IsTalent then titleStr = "Auto " .. power.Name end
+
+        local tgl = currentGachaGroup:Toggle({
+            Title = titleStr, 
+            Flag = "Power_" .. power.Name,
+            Image = power.Icon,
+            ImageSize = 24,
+            Callback = function(v) changePower(power.Name, v) end
+        })
+        
+        if not IsMapUnlocked(power.Map) then
+            if tgl.Lock then 
+                 tgl:Lock(true)
+                 power.allow = false
+                 tgl:SetDesc("LOCKED: " .. power.Map)
+            end
+        end
+        PowerToggles[power.Name] = tgl
+    end
+end
+
+-- Talent Target Dropdown
+local TalentGroup = MainTab:Group({Title = "Talent Settings"})
+FM_Add("Gacha", TalentGroup)
+
+FM_Add("Gacha", TalentGroup:Dropdown({
+    Title = "Talent Target",
+    Desc = "Select stats to Lock automatically",
+    Values = TalentRankList,
+    Multi = true,
+    Flag = "TalentTargets_Cfg",
+    Callback = function(v)
+        table.clear(FormattedTalentTargets)
+        if type(v) == "table" then
+            for _, rankName in ipairs(v) do FormattedTalentTargets[rankName] = true end
+        else
+            FormattedTalentTargets[v] = true
+        end
+    end
+}))
+
+
+-- [3. LOGIC LOOP GACHA - FIXED & DEBUGGED]
+task.spawn(function()
+    while not Window.Destroyed do
+        for _, power in pairs(powerList) do
+            local pData = getgenv().PlayerData
+            
+            -- [A] Update Visual Toggle (Icon & Description)
+            if pData and pData.Gacha and pData.Gacha[power.Name] then
+                local currentItemName = pData.Gacha[power.Name].Current
+                if currentItemName and PowerToggles[power.Name] then
+                      local sourceName = power.Source 
+                      if power.Name == "Sword Passive" then sourceName = "Sword Passives" end
+                      
+                      local sourceDB = GlobalGachaSources[sourceName]
+                      if sourceDB and sourceDB[currentItemName] then
+                        local itemData = sourceDB[currentItemName]
+                        local gradientObj = nil
+                        if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                            local rData = GlobalGradientDB:GetRarityColor(itemData.Rarity or "Common")
+                            if rData then 
+                                gradientObj = ColorSequence.new{
+                                    ColorSequenceKeypoint.new(0, rData.Base), 
+                                    ColorSequenceKeypoint.new(1, rData.Wave)
+                                }
+                            end
+                        end
+                        if gradientObj then
+                            PowerToggles[power.Name]:SetMainImage({
+                                Title = currentItemName, Image = itemData.Icon, Gradient = gradientObj
+                            }, 50)
+                        end
+                     end
+                end
+            end
+
+            -- [B] Logic Auto Roll
+            local balance = 0
+            if pData and pData.Items then balance = pData.Items[power.Item] or 0 end
+            local currentPrice = power.Price or 0
+            
+            -- Hitung harga Talent (termasuk locked slots)
+            if power.IsTalent and pData and pData.Gacha and pData.Gacha.Talents then
+                local lockedData = pData.Gacha.Talents.Locked or {}
+                local lockedCount = 0
+                for _, isLocked in pairs(lockedData) do if isLocked then lockedCount = lockedCount + 1 end end
+                currentPrice = currentPrice + lockedCount
+            end
+
+            -- [REALTIME SWORD UPDATE] (Jalan terus meskipun Auto Roll OFF)
+            if power.Name == "Sword Passive" and selectedGachaSwordSID then
+                local currentSwordData = pData.Swords and pData.Swords[selectedGachaSwordSID]
+                if currentSwordData and GachaSwordDropdown and GachaSwordDropdown.SetMainImage then
+                     local sName = currentSwordData.Name
+                     local sRarity = currentSwordData.Rarity or "Common"
+                     local iconId = "rbxassetid://84366761557806"
+                     if GlobalSwordDB and GlobalSwordDB[sName] then iconId = GlobalSwordDB[sName].Icon end
+                     
+                     local gradientObj = nil
+                     if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                         local colors = GlobalGradientDB:GetRarityColor(sRarity)
+                         if colors and colors.Base and colors.Wave then
+                             gradientObj = ColorSequence.new{
+                                 ColorSequenceKeypoint.new(0, colors.Base),
+                                 ColorSequenceKeypoint.new(1, colors.Wave)
+                             }
+                         end
+                     end
+
+                     if gradientObj then
+                         GachaSwordDropdown:SetMainImage({Image = iconId, Gradient = gradientObj}, 50)
+                     else
+                         GachaSwordDropdown:SetMainImage(iconId)
+                     end
+                end
+            end
+
+            -- HANYA JALANKAN LOGIKA JIKA TOGGLE MENYALA (AUTO = TRUE)
+            if power.auto == true then 
+                local canAfford = true
+                
+                -- Cek Saldo
+                if power.Item and currentPrice > 0 and balance < currentPrice then
+                    canAfford = false
+                    power.auto = false
+                    Notify("Gacha", "Not enough " .. power.Item, "x")
+                    if PowerToggles[power.Name] then PowerToggles[power.Name]:Set(false) end
+                end
+
+                if canAfford then
+                    local args = {}
+                    local stopRolling = false -- Flag untuk menghentikan pengiriman sinyal
+                    
+                    -- === [LOGIKA KHUSUS SWORD PASSIVE] ===
+                    if power.Name == "Sword Passive" then
+                        if not selectedGachaSwordSID then
+                            power.auto = false
+                            if PowerToggles[power.Name] then PowerToggles[power.Name]:Set(false) end
+                            Notify("Gacha", "Select a Sword First!", "x")
+                            stopRolling = true
+                        else
+                            -- Ambil Data Pedang Saat Ini
+                            local currentSwordData = pData.Swords and pData.Swords[selectedGachaSwordSID]
+                            
+                            if currentSwordData then
+                                local myPassive = currentSwordData.Passive or "None"
+                                
+                                -- DEBUG: Print ke Console (F9) untuk memastikan nama pasif sama persis
+                                -- print("Current Passive:", myPassive, "| Targets:", HttpService:JSONEncode(SwordPassiveTargets))
+                                
+                                -- CEK TARGET: Apakah Passive saat ini ada di dalam tabel target?
+                                if SwordPassiveTargets[myPassive] == true then
+                                    stopRolling = true
+                                    power.auto = false -- Matikan Loop Internal
+                                    
+                                    -- Matikan Toggle UI
+                                    if PowerToggles[power.Name] then 
+                                        PowerToggles[power.Name]:Set(false) 
+                                    end
+                                    
+                                    Notify("Gacha", "STOP: Got " .. myPassive .. "!", "check")
+                                end
+                            else
+                                -- Jika data pedang tiba-tiba hilang (unequip/error)
+                                stopRolling = true
+                            end
+                            
+                            -- Jika STOPROLLING masih false, baru kita roll
+                            if not stopRolling then
+                                args = {{"General", "Gacha", "Roll", power.Name, selectedGachaSwordSID, SwordPassiveTargets, n = 6}, "\2"}
+                                ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer(args)
+                            end
+                        end
+
+                    -- === [LOGIKA TALENT] ===
+                    elseif power.IsTalent then
+                        local tData = pData.Gacha.Talents
+                        local currents = tData.Currents or {}
+                        local locked = tData.Locked or {}
+                        local allLocked = true
+                        -- Cek apakah semua slot sudah terkunci
+                        for statName, _ in pairs(currents) do if not locked[statName] then allLocked = false break end end
+                        
+                        if allLocked then
+                            power.auto = false
+                            if PowerToggles[power.Name] then PowerToggles[power.Name]:Set(false) end
+                            Notify("System", "All Talents Locked!", "check")
+                        else
+                            args = {{"General", "Gacha", "Roll", power.Name, FormattedTalentTargets, n = 5}, "\2"}
+                            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer(args) 
+                        end
+
+                    -- === [LOGIKA STANDARD GACHA (AURA DLL)] ===
+                    else
+                        args = {{"General", "Gacha", "Roll", power.Name, {}, n = 5}, "\2"}
+                        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer(args) 
+                    end
+                end
+            end
+            
+            -- [C] Update Description UI (Info Harga & Status)
+            if PowerToggles[power.Name] and IsMapUnlocked(power.Map) then
+                if power.Name == "Sword Passive" then
+                      local tCount = 0
+                      for _ in pairs(SwordPassiveTargets) do tCount = tCount + 1 end
+                      
+                      -- Ambil nama pasif saat ini untuk ditampilkan di deskripsi
+                      local currentPassiveTxt = "None"
+                      if selectedGachaSwordSID and pData.Swords and pData.Swords[selectedGachaSwordSID] then
+                          currentPassiveTxt = pData.Swords[selectedGachaSwordSID].Passive or "None"
+                      end
+                      
+                      PowerToggles[power.Name]:SetDesc("Price: "..currentPrice.." | Targets: "..tCount.."\nCurrent: "..currentPassiveTxt)
+                elseif power.IsTalent then
+                      local count = 0
+                      for _ in pairs(FormattedTalentTargets) do count = count + 1 end
+                      PowerToggles[power.Name]:SetDesc("Price: "..currentPrice.." | Targets: "..count)
+                else
+                      PowerToggles[power.Name]:SetDesc("Cost: "..currentPrice.."\n"..power.Item..": "..FormatNumber(balance))
+                end
+            end
+        end
+        task.wait(0.5) -- Delay loop agar tidak spam/crash
+    end
+end)
+
+-- ============================================================================
+--  STRONGER FEATURE (SMART HATCH + SORTED MAPS + UI HIDE)
+-- ============================================================================
+
+-- 1. Generate Daftar Star yang TERURUT (Berdasarkan Index Map)
+local StarList = {}
+local StarsFolder = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Stars")
+local TempStarSorter = {}
+
+for _, module in pairs(StarsFolder:GetChildren()) do
+    if module:IsA("ModuleScript") then
+        local mapName = module.Name
+        local mapIndex = 999 -- Default jika tidak punya index (paling bawah)
+        
+        -- Cek Index dari Database Map Global
+        if GlobalMapDB and GlobalMapDB[mapName] then
+            mapIndex = GlobalMapDB[mapName].Index or 999
+        end
+        
+        table.insert(TempStarSorter, {Name = mapName, Index = mapIndex})
+    end
+end
+
+-- Lakukan Sorting (Index Kecil ke Besar)
+table.sort(TempStarSorter, function(a, b)
+    return a.Index < b.Index
+end)
+
+-- Masukkan ke StarList bersih
+for _, data in ipairs(TempStarSorter) do
+    table.insert(StarList, data.Name)
+end
+
+-- Tambahkan opsi None di paling atas
+table.insert(StarList, 1, "None")
+
+-- UI Elements
+FM_Add("Stronger", MainTab:Dropdown({
+    Title = "Auto Hatch (Star)", 
+    Values = StarList, -- List sudah terurut (World 1, World 2, ...)
+    Value = "None", 
+    Flag = "HatchTarget_Cfg", 
+    Callback = function(v) 
+        targetStar = (type(v)=="table" and v.Title) or v 
+    end
+}))
+
+-- Helper: Cari Model Star
+local function GetStarModel(starName)
+    local CollectionService = game:GetService("CollectionService")
+    local stars = CollectionService:GetTagged("StarModel")
+    for _, model in pairs(stars) do
+        if model.Name == starName or model:GetAttribute("ID") == starName then
+            return model
+        end
+    end
+    return nil
+end
+
+-- [UI HOOK SYSTEM - FIXED RESTORE]
+local StarHookConnection = nil
+
+local function HookStarUI(shouldHook)
+    local pGui = game.Players.LocalPlayer:FindFirstChild("PlayerGui")
+    local starFrame = pGui and pGui:FindFirstChild("Interface") 
+        and pGui.Interface:FindFirstChild("Frames") 
+        and pGui.Interface.Frames:FindFirstChild("Star")
+
+    if not starFrame then return end
+
+    if shouldHook then
+        -- [AKTIFKAN HIDE]
+        if not StarHookConnection then
+            starFrame.Visible = false
+            starFrame.Position = UDim2.new(2, 0, 2, 0) -- Lempar keluar layar
+            
+            StarHookConnection = starFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+                if starFrame.Visible then
+                    starFrame.Visible = false
+                    starFrame.Position = UDim2.new(2, 0, 2, 0)
+                end
+            end)
+        end
+    else
+        -- [MATIKAN HIDE & KEMBALIKAN UI]
+        if StarHookConnection then
+            StarHookConnection:Disconnect()
+            StarHookConnection = nil
+            
+            -- Reset Manual
+            starFrame.Visible = true 
+            starFrame.Position = UDim2.fromScale(0.5, 0.5)
+            starFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+        end
+    end
+end
+
+-- Loop Logic Auto Hatch
+task.spawn(function()
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        local currentMap = pData and pData.Map
+        local isGamemode = IsInGamemode()
+        
+        -- [KONDISI STOP/PAUSE]
+        if targetStar == "None" then
+            HookStarUI(false)
+        end
+        
+        -- [KONDISI STOP/PAUSE]
+        if (targetStar == "None" or not targetStar) or isGamemode or isGlobalBossActive or isTransitioning then
+            task.wait(1) 
+            continue 
+        end
+
+        -- [KONDISI AKTIF]
+        HookStarUI(true) -- Pasang Hook
+
+        -- [LOGIKA MAP TARGET]
+        local StarModule = StarsFolder:FindFirstChild(targetStar)
+        if StarModule then
+            local success, StarData = pcall(require, StarModule)
+            if success and StarData and StarData.Map then
+                local requiredMap = StarData.Map
+                if currentMap ~= requiredMap then
+                    SmartTeleport(requiredMap)
+                    task.wait(2) 
+                    continue 
+                end
+            end
+        end
+
+        -- [LOGIKA HATCHING]
+        local starModel = GetStarModel(targetStar)
+        
+        if starModel then
+            local starPos = getPosition(starModel)
+            
+            if starPos and hrp then
+                local dist = (hrp.Position - starPos).Magnitude
+                
+                if dist <= 15 then
+                    ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                        {"General", "Stars", "Open", targetStar, 10, n = 10}, 
+                        "\2"
+                    })
+                else
+                    hrp.CFrame = CFrame.new(starPos + Vector3.new(0, 5, 0))
+                    task.wait(0.5) 
+                end
+            end
+        end
+        
+        task.wait(0.2) 
+    end
+    
+    HookStarUI(false)
+end)
+
+-- ============================================================================
+--  AVATARS FEATURE (GRADIENT STYLE)
+-- ============================================================================
+
+local avatarStatsUI -- Object Dropdown Stats
+local avatarVisualUI -- Object Dropdown Visual
+
+-- Helper: Hitung Power Asli
+local function GetAvatarTotalPower(avatarName, currentLevel)
+    local db = GlobalAvatarDB[avatarName]
+    if not db or not db.Perks or not db.Perks.Power then return 0 end
+    
+    local baseAmountStr = db.Perks.Power.Amount
+    local basePower = ParseAbbreviated(tostring(baseAmountStr)) or 0
+    
+    local level = currentLevel or 1
+    local multiplier = 1 + ((level - 1) * 0.1)
+    
+    return basePower * multiplier
+end
+
+-- Helper: Buat Gradient Berdasarkan Rarity
+local function CreateGradient(rarity)
+    if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+        local colors = GlobalGradientDB:GetRarityColor(rarity or "Common")
+        if colors and colors.Base and colors.Wave then
+            return ColorSequence.new{
+                ColorSequenceKeypoint.new(0, colors.Base),
+                ColorSequenceKeypoint.new(1, colors.Wave)
+            }
+        end
+    end
+    return nil
+end
+
+-- Fungsi Refresh List Dropdown
+local function RefreshAvatarList()
+    local pData = getgenv().PlayerData
+    local listItems = {}
+    
+    if pData and pData.Avatars and GlobalAvatarDB and GlobalMapDB then
+        -- 1. Kelompokkan Avatar berdasarkan World (Map)
+        local avatarsByWorld = {}
+        
+        for name, data in pairs(pData.Avatars) do
+            local globalData = GlobalAvatarDB[name]
+            if globalData then
+                local worldName = globalData.World or "Unknown"
+                
+                if not avatarsByWorld[worldName] then
+                    avatarsByWorld[worldName] = {}
+                end
+                
+                local baseAmountStr = globalData.Perks.Power.Amount
+                local basePower = ParseAbbreviated(tostring(baseAmountStr)) or 0
+                local level = data.Level or 1
+                local totalPower = GetAvatarTotalPower(name, level)
+                local formattedTotal = string.format("%.2f", totalPower)
+
+                -- Format Item untuk Dropdown
+                table.insert(avatarsByWorld[worldName], {
+                    Title = name, 
+                    Desc = "Lvl " .. level .. " | Power: " .. formattedTotal .. "x", 
+                    Value = name,
+                    Icon = globalData.Icon,
+                    Rarity = globalData.Rarity, -- [PENTING] Kita butuh ini untuk Gradient
+                    BasePower = basePower,
+                    CurrentLevel = level,
+                    TotalPower = formattedTotal
+                })
+            end
+        end
+
+        -- 2. Sortir Map & Avatar
+        local sortedMaps = {}
+        for mapName, mapData in pairs(GlobalMapDB) do
+            if avatarsByWorld[mapName] then
+                table.insert(sortedMaps, {Name = mapName, Index = mapData.Index or 999})
+            end
+        end
+        table.sort(sortedMaps, function(a, b) return a.Index < b.Index end)
+
+        -- 3. Susun Final List
+        for _, mapInfo in ipairs(sortedMaps) do
+            local mapName = mapInfo.Name
+            local avatarsInMap = avatarsByWorld[mapName]
+            
+            table.sort(avatarsInMap, function(a, b) 
+                return a.BasePower < b.BasePower 
+            end)
+            
+            for _, avatarItem in ipairs(avatarsInMap) do
+                table.insert(listItems, avatarItem)
+            end
+        end
+    end
+    
+    -- Update Dropdown Stats
+    if avatarStatsUI and avatarStatsUI.Refresh then 
+        avatarStatsUI:Refresh(listItems) 
+    end
+
+    -- Update Dropdown Visual
+    if avatarVisualUI and avatarVisualUI.Refresh then 
+        avatarVisualUI:Refresh(listItems) 
+    end
+end
+
+-- [UI Elements Construction]
+local AvatarGroup = MainTab:Group({Title = "Avatar Manager"})
+FM_Add("Avatars", AvatarGroup)
+
+-- 1. DROPDOWN EQUIP STATS (GRADIENT ADDED)
+avatarStatsUI = MainTab:Dropdown({
+    Title = "Equip Stats (Power)",
+    Desc = "Select avatar for stats multiplier",
+    Values = {}, 
+    AllowNone = true,
+    Multi = false,
+    Flag = "AvatarStats_Select", 
+    Image = "rbxassetid://84366761557806", 
+    Callback = function(v)
+        if v and type(v) == "table" then
+            local val = v.Value
+            local icon = v.Icon
+            local powerTxt = v.TotalPower
+            local lvl = v.CurrentLevel
+            local rarity = v.Rarity -- Ambil Rarity
+
+            -- [GRADIENT LOGIC]
+            local gradientObj = CreateGradient(rarity)
+
+            if icon then
+                if gradientObj then
+                    -- Set Image dengan Gradient
+                    avatarStatsUI:SetMainImage({
+                        Image = icon,
+                        Gradient = gradientObj
+                    },50)
+                -- else
+                --     -- Fallback jika gradient gagal
+                --     avatarStatsUI:SetMainImage(icon)
+                end
+                avatarStatsUI:SetValueImage(icon)
+            end
+            
+            avatarStatsUI:SetDesc("Active: " .. val .. "\nLvl " .. lvl .. " | Pow: " .. powerTxt .. "x")
+
+            -- Logic Equip Game
+            local currentEquipped = getgenv().PlayerData and getgenv().PlayerData.Avatar
+            if currentEquipped ~= val then
+                ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "Avatars", "Equip", val, n = 4}, "\2"})
+                Notify("Stats", "Equipped: " .. val, "swords")
+            end
+        else
+            -- Reset ke Default
+            avatarStatsUI:SetMainImage("rbxassetid://84366761557806")
+            avatarStatsUI:SetValueImage("rbxassetid://84366761557806")
+            avatarStatsUI:SetDesc("Select avatar for stats multiplier")
+        end
+    end
+})
+FM_Add("Avatars", avatarStatsUI)
+
+-- 2. DROPDOWN EQUIP VISUAL (GRADIENT ADDED)
+avatarVisualUI = MainTab:Dropdown({
+    Title = "Equip Visual (Cosmetic)",
+    Desc = "Select avatar for appearance only",
+    Values = {}, 
+    AllowNone = true,
+    Multi = false,
+    Flag = "AvatarVisual_Select",
+    Image = "rbxassetid://84366761557806", 
+    Callback = function(v)
+        if v and type(v) == "table" then
+            local val = v.Value
+            local icon = v.Icon
+            local rarity = v.Rarity -- Ambil Rarity
+
+            -- [GRADIENT LOGIC]
+            local gradientObj = CreateGradient(rarity)
+            
+            if icon then
+                if gradientObj then
+                    avatarVisualUI:SetMainImage({
+                        Image = icon,
+                        Gradient = gradientObj
+                    },50)
+                else
+                    avatarVisualUI:SetMainImage(icon)
+                end
+                avatarVisualUI:SetValueImage(icon)
+            end
+            
+            avatarVisualUI:SetDesc("Active Visual: " .. val)
+
+            -- Logic Equip Game
+            local currentVisual = getgenv().PlayerData and getgenv().PlayerData.AvatarVisual
+            if currentVisual ~= val then
+                ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "Avatars", "Visual", val, n = 4}, "\2"})
+                Notify("Visual", "Appearance: " .. val, "eye")
+            end
+        else
+            -- Reset ke Default
+            avatarVisualUI:SetMainImage("rbxassetid://84366761557806")
+            avatarVisualUI:SetValueImage("rbxassetid://84366761557806")
+            avatarVisualUI:SetDesc("Select avatar for appearance only")
+        end
+    end
+})
+FM_Add("Avatars", avatarVisualUI)
+
+-- [REALTIME CHECKER SYSTEM - FINAL]
+task.spawn(function()
+    local lastDataSignature = ""
+    
+    -- Load awal sekali saja
+    task.wait(1)
+    RefreshAvatarList()
+
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        if pData and pData.Avatars then
+            -- 1. Buat Signature
+            local currentSig = ""
+            local keys = {}
+            for k in pairs(pData.Avatars) do table.insert(keys, k) end
+            table.sort(keys) 
+            
+            for _, k in ipairs(keys) do
+                local lvl = pData.Avatars[k].Level or 1
+                currentSig = currentSig .. k .. ":" .. lvl .. "|"
+            end
+            
+            -- 2. Cek Perubahan Data
+            if currentSig ~= lastDataSignature then
+                -- 3. Cek apakah Dropdown sedang TERBUKA menggunakan .Opened
+                -- Kita cek kedua dropdown (Stats & Visual), jika salah satu terbuka, maka refresh.
+                if (avatarStatsUI and avatarStatsUI.Opened) or (avatarVisualUI and avatarVisualUI.Opened) then
+                    lastDataSignature = currentSig
+                    RefreshAvatarList()
+                    -- print("Data Refreshed because dropdown is open!")
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+-- ============================================================================
+--  HEROES EXPEDITION FEATURE (SORTED MAPS + WEBHOOK)
+-- ============================================================================
+
+local ExpGroup = MainTab:Group({Title = "Expedition Manager"})
+FM_Add("Expedition", ExpGroup)
+
+local function SendExpeditionWebhook(status, mapName)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local titleText = "🚀 Expedition Started"
+    local embedColor = 16776960
+    if status == "Claimed" then
+        embedColor = 65280
+        titleText = "✅ Expedition Claimed"
+    end
+    
+    local desc = "User: " .. censoredName .. "\nWorld: **" .. (mapName or "Unknown") .. "**"
+    SendWebhook(titleText, desc, embedColor)
+end
+
+-- Vars
+local isAutoExpeditionSmart = false
+local selectedExpWorld = "XYZ Metropolis"
+local ExpStatusLabel = nil
+
+-- [LOGIKA SORTING MAP BERDASARKAN INDEX]
+local ExpWorldList = {}
+local TempExpSorter = {}
+
+if GlobalHeroesExpeditionDB then
+    for k, v in pairs(GlobalHeroesExpeditionDB) do
+        if type(v) == "table" and v.Time then
+            -- Ambil Index dari Database Map Global agar urutannya benar
+            local mapIndex = 999
+            if GlobalMapDB and GlobalMapDB[k] then
+                mapIndex = GlobalMapDB[k].Index or 999
+            end
+            table.insert(TempExpSorter, {Name = k, Index = mapIndex})
+        end
+    end
+    
+    -- Urutkan dari Index Kecil (World 1) ke Besar
+    table.sort(TempExpSorter, function(a, b)
+        return a.Index < b.Index
+    end)
+    
+    -- Masukkan ke list bersih
+    for _, data in ipairs(TempExpSorter) do
+        table.insert(ExpWorldList, data.Name)
+    end
+end
+
+-- 2. UI Elements
+FM_Add("Expedition", MainTab:Toggle({
+    Title = "Auto Expedition (Smart)",
+    Desc = "Auto Start, Wait & Claim Rewards",
+    Flag = "AutoExp_Smart_Cfg",
+    Callback = function(v) isAutoExpeditionSmart = v end
+}))
+
+FM_Add("Expedition", MainTab:Dropdown({
+    Title = "Select Target World",
+    Values = ExpWorldList, -- List sudah terurut
+    Value = "XYZ Metropolis",
+    Flag = "ExpWorld_Select",
+    Callback = function(v) selectedExpWorld = v end
+}))
+
+ExpStatusLabel = MainTab:Paragraph({
+    Title = "Status: Idle",
+    Desc = "Waiting for activation...",
+    Image = "rbxassetid://116941678612804" -- Icon Power
+})
+FM_Add("Expedition", ExpStatusLabel)
+
+-- Helper: Format Waktu (Detik ke MM:SS)
+local function FormatTime(seconds)
+    if seconds <= 0 then return "Ready!" end
+    local m = math.floor(seconds / 60)
+    local s = seconds % 60
+    return string.format("%02d:%02d", m, s)
+end
+
+-- 3. LOGIC LOOP
+task.spawn(function()
+    local hasNotifiedStart = false
+
+    while not Window.Destroyed do
+        if isAutoExpeditionSmart then
+            local pData = getgenv().PlayerData
+            
+            if pData and pData.HeroesExpedition then
+                local expData = pData.HeroesExpedition
+                local endTime = expData.EndTime
+                
+                if ExpStatusLabel then
+                    if endTime then
+                        local timeLeft = endTime - os.time()
+                        local currentMapName = expData.World or expData.Map or selectedExpWorld or "Unknown"
+
+                        if timeLeft > 0 then
+                            ExpStatusLabel:SetTitle("Status: Exploring...")
+                            ExpStatusLabel:SetDesc("Map: " .. currentMapName .. "\nTime Left: " .. FormatTime(timeLeft))
+                            hasNotifiedStart = false 
+                        else
+                            ExpStatusLabel:SetTitle("Status: Finished!")
+                            ExpStatusLabel:SetDesc("Collecting Rewards...")
+                        end
+                    else
+                        ExpStatusLabel:SetTitle("Status: Idle / Starting")
+                        ExpStatusLabel:SetDesc("Target: " .. (selectedExpWorld or "None"))
+                    end
+                end
+
+                if endTime then
+                    if os.time() >= endTime then
+                        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                            {"General", "HeroesExpedition", "Claim", n = 3}, 
+                            "\2"
+                        })
+                        
+                        local mapName = expData.World or expData.Map or "Unknown"
+                        Notify("Expedition", "Expedition Claimed!", "check")
+                        SendExpeditionWebhook("Claimed", mapName)
+                        
+                        task.wait(2) 
+                    end
+                else
+                    if selectedExpWorld and selectedExpWorld ~= "None" then
+                        if GlobalHeroesExpeditionDB[selectedExpWorld] then
+                            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                                {"General", "HeroesExpedition", "Start", selectedExpWorld, n = 4}, 
+                                "\2"
+                            })
+                            
+                            if not hasNotifiedStart then
+                                SendExpeditionWebhook("Started", selectedExpWorld)
+                                hasNotifiedStart = true
+                            end
+                            
+                            task.wait(2)
+                        end
+                    end
+                end
+            end
+        else
+             if ExpStatusLabel then
+                ExpStatusLabel:SetTitle("Status: Disabled")
+                ExpStatusLabel:SetDesc("Turn on Toggle to start.")
+             end
+        end
+        task.wait(1)
+    end
+end)
+
+-- ============================================================================
+--  ENCHANTMENT SYSTEM (SMART REFRESH + VISUAL UPDATE + WEBHOOK)
+-- ============================================================================
+
+-- [WEBHOOK CONFIG - Reused]
+
+
+local function SendEnchantWebhook(swordName, oldLvl, newLvl, rarity)
+    local pName = game.Players.LocalPlayer.Name
+    local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+    
+    local embedColor = 10181046 -- Ungu (Default Enchant)
+    if rarity == "Mythical" then embedColor = 10181046 
+    elseif rarity == "Scarlet" then embedColor = 16711680 end
+
+    local desc = "User: " .. censoredName .. "\n" ..
+                    "Sword: **" .. swordName .. "**\n" ..
+                    "Level: **" .. oldLvl .. "** ➡️ **" .. newLvl .. "**"
+
+    SendWebhook("⚔️ Sword Enchanted!", desc, embedColor)
+end
+
+-- 1. Setup Dynamic Database
+local EnchantmentDB = {}
+
+local function LoadDynamicEnchantmentDB()
+    local success, result = pcall(function()
+        return require(game:GetService("ReplicatedStorage").Shared.SwordEnchantments)
+    end)
+    
+    if success and type(result) == "table" then
+        EnchantmentDB = result
+    end
+end
+
+LoadDynamicEnchantmentDB()
+
+-- Variables Logic
+local selectedEnchantSID = nil
+local isAutoEmpower = false
+local EnchantStatusLabel -- Forward declaration
+local EnchantDropdown -- Forward declaration
+
+-- Helper: Ambil Daftar Pedang yang Dipakai
+local function GetEquippedSwordList()
+    local list = {}
+    local pData = getgenv().PlayerData
+    
+    if pData and pData.SwordsEquipped and pData.Swords then
+        for sid, _ in pairs(pData.SwordsEquipped) do
+            local swordData = pData.Swords[sid]
+            if swordData then
+                local name = swordData.Name
+                local rarity = swordData.Rarity or "Common"
+                local enchantInfo = swordData.Enchantment or {}
+                local lvl = enchantInfo.Level or 0
+                local kills = enchantInfo.Kills or 0
+                
+                local displayName = string.format("%s (Lvl %d)", name, lvl)
+                local descStr = string.format("Rarity: %s | Kills: %s", rarity, FormatNumber(kills))
+                
+                local iconId = "rbxassetid://84366761557806"
+                if GlobalSwordDB and GlobalSwordDB[name] then
+                    iconId = GlobalSwordDB[name].Icon
+                end
+
+                local gradientObj = nil
+                if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                    local colors = GlobalGradientDB:GetRarityColor(rarity)
+                    if colors and colors.Base and colors.Wave then
+                        gradientObj = ColorSequence.new{
+                            ColorSequenceKeypoint.new(0, colors.Base),
+                            ColorSequenceKeypoint.new(1, colors.Wave)
+                        }
+                    end
+                end
+
+                table.insert(list, {
+                    Title = displayName,
+                    Desc = descStr,
+                    Value = sid,
+                    Icon = iconId,
+                    Gradient = gradientObj,
+                    SortLvl = lvl,
+                    SortKills = kills
+                })
+            end
+        end
+        table.sort(list, function(a,b) return a.SortLvl > b.SortLvl end)
+    end
+    return list
+end
+
+-- 2. UI Elements
+EnchantDropdown = FM_Add("Enchant", MainTab:Dropdown({
+    Title = "Select Equipped Sword",
+    Desc = "Auto refresh based on your equipped swords.",
+    Values = GetEquippedSwordList(),
+    Value = nil,
+    Flag = "Enchant_SwordSelect",
+    Callback = function(v)
+        local val = (type(v) == "table" and v.Value) or v
+        selectedEnchantSID = val
+        
+        -- [FIX] Jika 'v' hanya Value (dari Config), cari Object lengkapnya agar Gradient muncul
+        if type(v) ~= "table" then
+            local list = GetEquippedSwordList()
+            for _, item in ipairs(list) do
+                if item.Value == val then
+                    v = item
+                    break
+                end
+            end
+        end
+
+        if type(v) == "table" and v.Icon and EnchantDropdown then
+             if EnchantDropdown.SetValueImage then EnchantDropdown:SetValueImage(v.Icon) end
+             if EnchantDropdown.SetMainImage then
+                 if v.Gradient then
+                     EnchantDropdown:SetMainImage({Image = v.Icon, Gradient = v.Gradient}, 50)
+                 else
+                     EnchantDropdown:SetMainImage(v.Icon)
+                 end
+             end
+             EnchantDropdown:SetDesc("Selected: " .. (v.Title or "Unknown"))
+        else
+             if EnchantDropdown.SetMainImage then EnchantDropdown:SetMainImage("rbxassetid://84366761557806") end
+             if EnchantDropdown.SetValueImage then EnchantDropdown:SetValueImage("rbxassetid://84366761557806") end
+             EnchantDropdown:SetDesc("Auto refresh based on your equipped swords.")
+        end
+    end
+}))
+
+EnchantStatusLabel = FM_Add("Enchant", MainTab:Paragraph({
+    Title = "Status: None",
+    Desc = "Select a sword to see enchantment progress.",
+    Image = "rbxassetid://111231588957724"
+}))
+
+FM_Add("Enchant", MainTab:Toggle({
+    Title = "Auto Empower (Upgrade)",
+    Desc = "Automatically upgrade sword when kills requirement met.",
+    Flag = "AutoEmpower_Cfg",
+    Callback = function(v) isAutoEmpower = v end
+}))
+
+FM_Add("Enchant", MainTab:Button({
+    Title = "Manual Empower",
+    Desc = "Force upgrade immediately.",
+    Icon = "zap",
+    Callback = function()
+        if selectedEnchantSID then
+            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                {"General", "SwordEnchantments", "Empower", selectedEnchantSID, n = 4},
+                "\2"
+            })
+            Notify("Enchant", "Empower Request Sent!", "zap")
+        else
+            Notify("Enchant", "Select a sword first!", "x")
+        end
+    end
+}))
+
+-- 3. Logic Loop
+task.spawn(function()
+    local lastSwordDataSignature = ""
+    
+    -- Variables untuk melacak kenaikan level (Webhook Trigger)
+    local trackedSwordID = nil
+    local lastKnownLevel = -1
+
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        
+        -- [A] SMART REFRESH UI (Dropdown)
+        if pData and pData.SwordsEquipped and pData.Swords then
+            local equipKeys = {}
+            for k in pairs(pData.SwordsEquipped) do table.insert(equipKeys, k) end
+            table.sort(equipKeys)
+            
+            local currentSig = ""
+            for _, sid in ipairs(equipKeys) do
+                local sData = pData.Swords[sid]
+                if sData then
+                    local lvl = (sData.Enchantment and sData.Enchantment.Level) or 0
+                    local kills = (sData.Enchantment and sData.Enchantment.Kills) or 0
+                    currentSig = currentSig .. sid .. ":" .. lvl .. ":" .. kills .. "|"
+                end
+            end
+            
+            if currentSig ~= lastSwordDataSignature then
+                if EnchantDropdown and EnchantDropdown.Opened then
+                    lastSwordDataSignature = currentSig
+                    EnchantDropdown:Refresh(GetEquippedSwordList())
+                end
+            end
+        end
+
+        -- [B] LOGIC UTAMA (Status Update, Auto Empower, Webhook)
+        if selectedEnchantSID and pData and pData.Swords then
+            local swordData = pData.Swords[selectedEnchantSID]
+            
+            if swordData then
+                -- Reset Tracker jika ganti pedang
+                if trackedSwordID ~= selectedEnchantSID then
+                    trackedSwordID = selectedEnchantSID
+                    lastKnownLevel = (swordData.Enchantment and swordData.Enchantment.Level) or 0
+                end
+
+                local enchantData = swordData.Enchantment or {Kills = 0, Level = 0}
+                local currentLevel = enchantData.Level or 0
+                local currentKills = enchantData.Kills or 0
+                
+                -- [LOGIKA WEBHOOK LEVEL UP]
+                if currentLevel > lastKnownLevel then
+                    Notify("Enchant", "Sword Level Up! " .. lastKnownLevel .. " -> " .. currentLevel, "chevrons-up")
+                    SendEnchantWebhook(swordData.Name, lastKnownLevel, currentLevel, swordData.Rarity)
+                    lastKnownLevel = currentLevel -- Update tracker
+                end
+                
+                -- [REALTIME UPDATE] Update Visual Dropdown Enchant (Icon & Gradient)
+                if EnchantDropdown and EnchantDropdown.SetMainImage then
+                    local sName = swordData.Name
+                    local sRarity = swordData.Rarity or "Common"
+                    local iconId = "rbxassetid://84366761557806"
+                    if GlobalSwordDB and GlobalSwordDB[sName] then iconId = GlobalSwordDB[sName].Icon end
+                    
+                    local gradientObj = nil
+                    if GlobalGradientDB and GlobalGradientDB.GetRarityColor then
+                        local colors = GlobalGradientDB:GetRarityColor(sRarity)
+                        if colors and colors.Base and colors.Wave then
+                            gradientObj = ColorSequence.new{
+                                ColorSequenceKeypoint.new(0, colors.Base),
+                                ColorSequenceKeypoint.new(1, colors.Wave)
+                            }
+                        end
+                    end
+
+                    if gradientObj then
+                        EnchantDropdown:SetMainImage({Image = iconId, Gradient = gradientObj}, 50)
+                    else
+                        EnchantDropdown:SetMainImage(iconId)
+                    end
+                end
+
+                -- Update Info Status UI
+                local nextLevelData = EnchantmentDB[currentLevel + 1]
+                local currentLevelData = EnchantmentDB[currentLevel] or EnchantmentDB[0]
+                
+                local statusTitle = ""
+                local statusDesc = ""
+                
+                if nextLevelData then
+                    local targetKills = ParseHealth(tostring(nextLevelData.Kills))
+                    local progress = 0
+                    if targetKills > 0 then progress = math.clamp(currentKills / targetKills, 0, 1) end
+                    local percent = math.floor(progress * 100)
+                    
+                    statusTitle = string.format("Lvl %d: %s (%d%%)", currentLevel, currentLevelData.Name or "Unknown", percent)
+                    statusDesc = string.format("Kills: %s / %s\nNext: %s", FormatNumber(currentKills), FormatNumber(targetKills), nextLevelData.Name)
+                    
+                    local perksStr = ""
+                    if currentLevelData.Perks then
+                        for k, v in pairs(currentLevelData.Perks) do
+                            local suffix = (k == "Luck") and "" or "%"
+                            perksStr = perksStr .. " • " .. k .. ": +" .. v .. suffix .."\n"
+                        end
+                    end
+                    if perksStr ~= "" then statusDesc = statusDesc .. "\n\nCurrent Perks:\n" .. perksStr end
+
+                    -- Auto Empower
+                    if isAutoEmpower and currentKills >= targetKills then
+                        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                            {"General", "SwordEnchantments", "Empower", selectedEnchantSID, n = 4},
+                            "\2"
+                        })
+                        task.wait(2) 
+                    end
+                else
+                    statusTitle = "MAX LEVEL REACHED"
+                    statusDesc = "Enchantment: " .. (currentLevelData.Name or "Unknown") .. "\nMax Perks Active."
+                    local perksStr = ""
+                    if currentLevelData.Perks then
+                        for k, v in pairs(currentLevelData.Perks) do
+                            local suffix = (k == "Luck") and "" or "%"
+                            perksStr = perksStr .. " • " .. k .. ": +" .. v .. suffix .."\n"
+                        end
+                    end
+                    if perksStr ~= "" then statusDesc = statusDesc .. "\n" .. perksStr end
+                end
+                
+                if EnchantStatusLabel then
+                    EnchantStatusLabel:SetTitle(statusTitle)
+                    EnchantStatusLabel:SetDesc(statusDesc)
+                end
+            else
+                if EnchantStatusLabel then
+                    EnchantStatusLabel:SetTitle("Error: Sword Not Found")
+                    EnchantStatusLabel:SetDesc("Please select a valid sword.")
+                end
+                selectedEnchantSID = nil
+                trackedSwordID = nil
+            end
+        end
+        
+        task.wait(1) 
+    end
+end)
+
+-- SETTINGS TAB
+local SettingsTab = Window:Tab({Title = "Settings", Icon = "settings-2"})
+local ConfigSection = SettingsTab:Section({Title = "Config Manager", Icon = "save", Opened = true})
+SettingsTab:Input({Title = "Config Name", Placeholder = "AN_AnimeAdvanced", Flag = "ConfigName_Input", Callback = function(txt) ConfigName = txt end})
+SettingsTab:Button({Title = "Save Config", Icon = "save", Callback = function() local cfg = Window.ConfigManager:CreateConfig(ConfigName) cfg:Save() Notify("Config", "Saved!", "check") end})
+SettingsTab:Button({Title = "Load Config", Icon = "upload", Callback = function() local cfg = Window.ConfigManager:GetConfig(ConfigName) or Window.ConfigManager:CreateConfig(ConfigName); if cfg then cfg:Load(); Notify("Config", "Loaded!", "check") end end})
+SettingsTab:Button({Title = "Delete Config", Icon = "trash", Callback = function() Window.ConfigManager:DeleteConfig(ConfigName); Notify("Config", "Deleted!", "trash") end})
+SettingsTab:Button({Title = "Reduce Lag / FPS Boost", Icon = "monitor", Callback = function() loadstring(game:HttpGet("https://raw.githubusercontent.com/khuyenbd8bb/RobloxKaitun/refs/heads/main/FPS%20Booster.lua"))() Notify("System", "Boosted!", "check") end})
+
+FM_OnChange("Farm")
+Window:SelectTab(MainTab.Index)
+
+-- ============================================================================
+--  INITIALIZATION
+-- ============================================================================
+task.spawn(function()
+    task.wait(1.5)
+    local CM = Window.ConfigManager
+    pcall(function()
+        if isfile(ConfigPath .. "/" .. ConfigName .. ".json") then
+            local cfg = CM:CreateConfig(ConfigName)
+            cfg:Load()
+            Notify("Config", "Auto-Loaded", "check")
+        else
+            CM:CreateConfig(ConfigName)
+        end
+    end)
+    repeat task.wait(1) if not getgenv().PlayerData then ScanPlayerData() end until getgenv().PlayerData
+    resetEnemiesList()
+    pcall(function()
+        local args = {{{"General", "Settings", "Update", "Auto Rejoin", false, n = 5}, "\2"}}
+        ReplicatedStorage:WaitForChild("BridgeNet2"):WaitForChild("dataRemoteEvent"):FireServer(unpack(args))
+    end)
+    while not Window.Destroyed do
+        task.wait(1)
+        pcall(function() local cfg = Window.ConfigManager:GetConfig(ConfigName) if cfg then cfg:Save() end end)
+    end
+end)
