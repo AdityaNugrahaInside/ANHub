@@ -1116,7 +1116,7 @@ local function GamemodeKiller(stopCheckFunc)
     end
 end
 
--- [CONTROLLER UTAMA]
+-- [CONTROLLER UTAMA - FIX BLOCKING LOOP]
 local function GamemodeController(configKey)
     local Config = GamemodeVars[configKey]
     if not Config then return end
@@ -1128,24 +1128,50 @@ local function GamemodeController(configKey)
 
         -- KONDISI 1: SEDANG DI DALAM GAMEMODE
         if currentMap == ModeInternalName then
-            local currWave = GetCurrentWave(ModeInternalName)
-            
-            if currWave >= Config.TargetWave then
-                Notify(configKey, "Target Reached! Leaving...", "check")
-                FireGamemode(ModeInternalName, "Leave")
+            -- Ambil data Wave
+            local rawWave = GetCurrentWave(ModeInternalName)
+            local currWave = tonumber(rawWave) or 0
+            local targetWaveInput = GamemodeVars[configKey].TargetWave
+            local targetLimit = tonumber(targetWaveInput) or 50
+
+            -- Cek Wave (Outer Check)
+            if currWave >= targetLimit and currWave > 0 then
+                Notify(configKey, "Target Reached ("..currWave..")! Leaving...", "check")
                 
                 local waitTime = 0
-                repeat task.wait(1) waitTime=waitTime+1 until getgenv().PlayerData.Map ~= ModeInternalName or waitTime > 15
-                task.wait(2)
+                repeat 
+                    task.wait(1) 
+                    waitTime = waitTime + 1 
+                    if getgenv().PlayerData then currentMap = getgenv().PlayerData.Map end
+                until (currentMap ~= ModeInternalName) or waitTime > 20
+                
+                task.wait(3)
 
-                if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= "Trial Lobby" then
+                if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= "Trial Lobby" and savedPreviousMap ~= "Loading" then
                     Notify("Smart Return", "Returning to: " .. savedPreviousMap, "map")
+                    isTransitioning = false 
                     SmartTeleport(savedPreviousMap)
-                    savedPreviousMap = nil
+                    savedPreviousMap = nil 
                 end
             else
+                -- [BAGIAN PENTING YANG DIPERBAIKI]
+                -- Kita menyuntikkan logika Cek Wave ke dalam GamemodeKiller.
+                -- Jadi, saat sedang sibuk kill musuh, dia tetap sadar kalau Wave sudah tercapai.
                 GamemodeKiller(function()
-                    return Config.Active and (getgenv().PlayerData.Map == ModeInternalName)
+                    -- 1. Cek Config & Map
+                    local isActive = GamemodeVars[configKey].Active
+                    local isStillInMap = (getgenv().PlayerData.Map == ModeInternalName)
+                    
+                    -- 2. Cek Wave DI DALAM LOOP KILL
+                    local liveWave = tonumber(GetCurrentWave(ModeInternalName)) or 0
+                    local liveTarget = tonumber(GamemodeVars[configKey].TargetWave) or 50
+                    
+                    -- JIKA WAVE TERCAPAI -> RETURN FALSE (Supaya Loop Kill Berhenti & Lanjut ke perintah Leave di atas)
+                    if liveWave >= liveTarget and liveWave > 0 then
+                        return false 
+                    end
+
+                    return isActive and isStillInMap
                 end)
             end
 
@@ -1153,68 +1179,42 @@ local function GamemodeController(configKey)
         elseif not isGlobalBossActive and not isTransitioning then
             if currentMap ~= "None" and currentMap ~= "Loading" then
                 
-                -- CEK KONFLIK GAMEMODE
                 if IsInGamemode() then
                     task.wait(1)
                 else
                     local canJoin = false
                     local joinReason = ""
 
-                    -- [LOGIKA 1: TRIAL (WINDOW 5 MENIT)]
+                    -- LOGIKA JOIN (Sama seperti sebelumnya)
                     if configKey == "Trial" then
                         local t = os.date("*t")
                         local m = t.min
-                        
                         if trialList then
                             for _, trial in pairs(trialList) do
                                 local start1 = trial.time 
                                 local end1 = start1 + 1
                                 local start2 = (trial.time + 30) % 60 
                                 local end2 = start2 + 1
-                                
                                 if (m >= start1 and m < end1) or (m >= start2 and m < end2) then
-                                    canJoin = true 
-                                    joinReason = "Time Window"
-                                    break 
+                                    canJoin = true; joinReason = "Time Window"; break 
                                 end
                             end
                         end
-                    
-                    -- [LOGIKA 2: RAID & ECLIPSE (KEY > BROADCAST)]
                     else
                         local keyCount = 0
-                        if pData.Items and Config.KeyItem then
-                            keyCount = pData.Items[Config.KeyItem] or 0
-                        end
-
-                        if keyCount > 0 then
-                            canJoin = true
-                            joinReason = "Key Available ("..keyCount..")"
-                        elseif Config.BroadcastActive then
-                            canJoin = true
-                            joinReason = "Event Started (Chat)"
-                        end
+                        if pData.Items and Config.KeyItem then keyCount = pData.Items[Config.KeyItem] or 0 end
+                        if keyCount > 0 then canJoin = true; joinReason = "Key Available ("..keyCount..")"
+                        elseif Config.BroadcastActive then canJoin = true; joinReason = "Event Started (Chat)" end
                     end
 
-                    -- Eksekusi Join
                     if canJoin then
-                        if currentMap ~= ModeInternalName and currentMap ~= "Trial Lobby" then
+                        if currentMap ~= ModeInternalName and currentMap ~= "Trial Lobby" and currentMap ~= "Loading" then
                             savedPreviousMap = currentMap
                         end
-
                         Notify(configKey, "Joining via " .. joinReason, "swords")
                         FireGamemode(ModeInternalName, "Join")
-                        
-                        if Config.BroadcastActive then 
-                            Config.BroadcastActive = false 
-                        end
-                        
-                        if configKey == "Trial" then
-                            Notify("Trial", "Attempting to join...", "hourglass")
-                            task.wait(10) 
-                        else
-                            task.wait(5)
-                        end
+                        if Config.BroadcastActive then Config.BroadcastActive = false end
+                        if configKey == "Trial" then Notify("Trial", "Attempting to join...", "hourglass"); task.wait(10) else task.wait(5) end
                     end
                 end
             end
