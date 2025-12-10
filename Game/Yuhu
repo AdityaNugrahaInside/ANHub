@@ -1,86 +1,66 @@
 if game.PlaceId ~= 79189799490564 then
-    return -- Perintah ini mematikan script seketika di sini
+    return
 end
-repeat
-    task.wait();
-until game:IsLoaded();
 
--- [LOADING SCREEN DARI FILE 2]
+repeat
+    task.wait()
+until game:IsLoaded()
+
+-- Load Loading Screen
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
--- [MODIFIKASI 1: UPDATE FOLDER PATH]
-local FolderPath = "ANUI/AnimeWeapons";
-local ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt";
-local ZoneDBFile = "Zone_Database.json";
+-- // Services //
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
 
-local function SecureWipe()
-    if not isfile or (not delfile) or (not readfile) or (not listfiles) then
-        return;
-    end;
-    local currentTime = os.time();
-    local isExpired = false;
+-- // Constants & Paths //
+local LocalPlayer = Players.LocalPlayer
+local FolderPath = "ANUI/AnimeWeapons"
+local ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
+local ZoneDBFile = "Zone_Database.json"
 
-    if isfile(ExpiryFile) then
-        local savedTime = tonumber(readfile(ExpiryFile)) or 0;
-        if currentTime > savedTime then
-            isExpired = true;
-        end;
-    elseif isfolder(FolderPath) then
-        isExpired = true;
-    end;
+-- // Network & Remotes //
+local Reliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Reliable")
+local Unreliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Unreliable")
 
-    if isExpired then
-        if isfile(ExpiryFile) then
-            delfile(ExpiryFile);
-        end;
+-- // Configs Paths //
+local ConfigsPath = ReplicatedStorage.Scripts.Configs
 
-        local PossiblePaths = {
-            "ANUI/AnimeWeapons",
-        };
-        local UserId = tostring(game.Players.LocalPlayer.UserId);
-        for _, path in pairs(PossiblePaths) do
-            if isfolder(path) then
-                for _, file in pairs(listfiles(path)) do
-                    if string.find(file, ".key") or string.find(file, ".json") or string.find(file, UserId) then
-                        pcall(function()
-                            delfile(file);
-                        end);
-                    end;
-                end;
-            end;
-        end;
-        task.wait(0.5);
-    end;
-end;
-SecureWipe();
+-- // Modules //
+local UtilsModule = require(ConfigsPath.Utility.Utils)
+local MaterialsModule = require(ConfigsPath.General.Materials)
+local YenModule = require(ConfigsPath.Machines.YenUpgrades)
+local TokenModule = require(ConfigsPath.Machines.TokenUpgrades)
+local RankModule = require(ConfigsPath.Machines.RankUp)
 
-local Players = game:GetService("Players");
-local LocalPlayer = Players.LocalPlayer;
-local Workspace = game:GetService("Workspace");
-local ReplicatedStorage = game:GetService("ReplicatedStorage");
-local ReplicatedFirst = game:GetService("ReplicatedFirst");
-local HttpService = game:GetService("HttpService");
-local RunService = game:GetService("RunService");
-local Reliable = (ReplicatedStorage:WaitForChild("Reply")):WaitForChild("Reliable");
-local Unreliable = (ReplicatedStorage:WaitForChild("Reply")):WaitForChild("Unreliable");
-local MaterialsModule = require(ReplicatedStorage.Scripts.Configs.General.Materials)
+-- // Variables //
 local TradeTokenInfo = MaterialsModule.TradeToken
+local YenUpgradeConfig = YenModule.Config
+local TokenUpgradeConfig = TokenModule.Config
 
-if not isfolder("ANUI") then makefolder("ANUI") end
-if not isfolder(FolderPath) then makefolder(FolderPath) end
-local MainController = nil
-
--- Kita scan semua objek di memori Lua
-for _, v in pairs(getgc(true)) do
-    if type(v) == "table" then
-        -- Kita cari ciri-ciri unik dari arg1 berdasarkan hasil decompile tadi
-        -- arg1 punya: .Data, .SyncChanged, dan .OpenScreen
-        if rawget(v, "Data") and rawget(v, "SyncChanged") then
-            MainController = v
-            break -- KETEMU! Berhenti searching.
-        end
-    end
-end
+local hrp, humanoid
+local LastZone = nil
+local CurrentZoneName = ""
+local CurrentZoneEnemiesCache = {}
+local IsLoadingConfig = false
+local IsTeleporting = false
+local GlobalEnemyMap = {}
+local RollConfigs = {}
+local AllRollTypes = {}
+local IsMeteorEventActive = false
+local MeteorTargetZone = nil
+local MeteorQueue = {}
+local ChanceModules = {}
+local ChanceSortedNames = {}
+local WeaponsModule = {}
+local AccessoriesConfig = {}
+local EnemiesConfig = {}
+local UpgradesModules = {}
 local Config = {
     AutoFarm = false,
     AutoFuse = false,
@@ -108,7 +88,6 @@ local Config = {
     AutoChance_Sung = false,
     SelectedEnemy = nil,
     ZoneConfigurations = {},
-    -- [GAMEMODES CONFIG]
     AutoGamemode = false,
     TargetDungeons = {},
     TargetRaids = {},
@@ -117,29 +96,84 @@ local Config = {
     TeleportBackMap = "None",
     AutoEquipVaultMode = nil,
     AutoEquipVaultFarm = nil
-};
-local hrp, humanoid;
-local LastZone = nil;
-local CurrentZoneName = "";
-local CurrentZoneEnemiesCache = {};
-local IsLoadingConfig = false;
-local IsTeleporting = false;
-local GlobalEnemyMap = {};
-local RollConfigs = {};
-local LastEnemyScanTime = 0;
-local LastEnemyChildCount = 0;
-local AllRollTypes = {};
--- [METEOR VARIABLES]
-local IsMeteorEventActive = false
-local MeteorTargetZone = nil -- Variable baru untuk menyimpan nama map meteor
-local MeteorQueue = {}
+}
+
+-- // UI Variables //
+local EnemyDropdown = nil
+local RankProgressUI = nil
+local RollToggleUI = {}
+local YenUpgradeToggleUI = {}
+local TokenUpgradeToggleUI = {}
+
+getgenv().PlayerData = nil
+
+-- // Security & Cleanup Functions //
+
+local function SecureWipe()
+    if not isfile or (not delfile) or (not readfile) or (not listfiles) then
+        return
+    end
+    
+    local currentTime = os.time()
+    local isExpired = false
+
+    if isfile(ExpiryFile) then
+        local savedTime = tonumber(readfile(ExpiryFile)) or 0
+        if currentTime > savedTime then
+            isExpired = true
+        end
+    elseif isfolder(FolderPath) then
+        isExpired = true
+    end
+
+    if isExpired then
+        if isfile(ExpiryFile) then
+            delfile(ExpiryFile)
+        end
+
+        local PossiblePaths = { FolderPath }
+        local UserId = tostring(game.Players.LocalPlayer.UserId)
+        
+        for _, path in pairs(PossiblePaths) do
+            if isfolder(path) then
+                for _, file in pairs(listfiles(path)) do
+                    if string.find(file, ".key") or string.find(file, ".json") or string.find(file, UserId) then
+                        pcall(function()
+                            delfile(file)
+                        end)
+                    end
+                end
+            end
+        end
+        task.wait(0.5)
+    end
+end
+SecureWipe()
+
+if not isfolder("ANUI") then makefolder("ANUI") end
+if not isfolder(FolderPath) then makefolder(FolderPath) end
+
+-- // Memory Scanning for MainController //
+local MainController = nil
+for _, v in pairs(getgc(true)) do
+    if type(v) == "table" then
+        -- Mencari arg1 berdasarkan ciri unik: .Data, .SyncChanged, dan .OpenScreen
+        if rawget(v, "Data") and rawget(v, "SyncChanged") then
+            MainController = v
+            break 
+        end
+    end
+end
+
+-- // Helper Functions //
+
 local function GetMaxItemCount(rollType)
     local config = RollConfigs[rollType]
     -- Cek di module Gacha biasa
     if not config or not config.List then
         -- Coba load ulang module aslinya jika RollConfigs belum lengkap
-        local path = ReplicatedStorage.Scripts.Configs.RollGachas:FindFirstChild(rollType) 
-                     or ReplicatedStorage.Scripts.Configs.RollGachaUpgrades:FindFirstChild(rollType)
+        local path = ConfigsPath.RollGachas:FindFirstChild(rollType) 
+                     or ConfigsPath.RollGachaUpgrades:FindFirstChild(rollType)
         if path then
             local s, m = pcall(require, path)
             if s and m and m.List then
@@ -148,44 +182,42 @@ local function GetMaxItemCount(rollType)
         end
         return 7 -- Fallback default jika gagal load
     end
-    -- Jika RollConfigs sudah menyimpan List (perlu modifikasi di LoadRollData agar menyimpan List)
     return config.List and #config.List or 7
 end
+
 local function DiscoverRollTypes()
-    local set = {};
-    local cfgRoot = ReplicatedStorage:FindFirstChild("Scripts") and ReplicatedStorage.Scripts:FindFirstChild("Configs");
-    if not cfgRoot then
-        return;
-    end;
-    local rollsFolder = cfgRoot:FindFirstChild("RollGachas");
+    local set = {}
+    local cfgRoot = ConfigsPath
+    if not cfgRoot then return end
+    
+    local rollsFolder = cfgRoot:FindFirstChild("RollGachas")
     if rollsFolder then
         for _, child in pairs(rollsFolder:GetChildren()) do
             if child:IsA("ModuleScript") then
-                set[child.Name] = true;
-            end;
-        end;
-    end;
-    local upgradesFolder = cfgRoot:FindFirstChild("RollGachaUpgrades");
+                set[child.Name] = true
+            end
+        end
+    end
+    
+    local upgradesFolder = cfgRoot:FindFirstChild("RollGachaUpgrades")
     if upgradesFolder then
         for _, child in pairs(upgradesFolder:GetChildren()) do
             if child:IsA("ModuleScript") then
-                set[child.Name] = true;
-            end;
-        end;
-    end;
-    AllRollTypes = {};
+                set[child.Name] = true
+            end
+        end
+    end
+    
+    AllRollTypes = {}
     for name, _ in pairs(set) do
-        table.insert(AllRollTypes, name);
-    end;
-    table.sort(AllRollTypes);
-end;
-DiscoverRollTypes();
--- [DYNAMIC CHANCE MODULE LOADER]
-local ChanceModules = {}
-local ChanceSortedNames = {}
+        table.insert(AllRollTypes, name)
+    end
+    table.sort(AllRollTypes)
+end
+DiscoverRollTypes()
 
 local function LoadChanceModules()
-    local path = ReplicatedStorage.Scripts.Configs:FindFirstChild("ChanceUpgrades")
+    local path = ConfigsPath:FindFirstChild("ChanceUpgrades")
     if path then
         for _, module in pairs(path:GetChildren()) do
             if module:IsA("ModuleScript") then
@@ -197,41 +229,34 @@ local function LoadChanceModules()
             end
         end
     end
-    table.sort(ChanceSortedNames) -- Urutkan nama abjad
+    table.sort(ChanceSortedNames)
 end
 LoadChanceModules()
-local EnemyDropdown = nil;
-local RankProgressUI = nil;
-local RollToggleUI = {};
-local YenUpgradeToggleUI = {};
-local TokenUpgradeToggleUI = {};
-(getgenv()).PlayerData = nil;
 
 local function JSONPretty(val, indent)
-    indent = indent or 0;
-    local valType = type(val);
+    indent = indent or 0
+    local valType = type(val)
     if valType == "table" then
-        local s = "{\n";
+        local s = "{\n"
         for k, v in pairs(val) do
-            local formattedKey = type(k) == "number" and tostring(k) or "\"" .. tostring(k) .. "\"";
-            s = s .. string.rep("    ", indent + 1) .. formattedKey .. ": " .. JSONPretty(v, indent + 1) .. ",\n";
-        end;
-        return s .. string.rep("    ", indent) .. "}";
+            local formattedKey = type(k) == "number" and tostring(k) or "\"" .. tostring(k) .. "\""
+            s = s .. string.rep("    ", indent + 1) .. formattedKey .. ": " .. JSONPretty(v, indent + 1) .. ",\n"
+        end
+        return s .. string.rep("    ", indent) .. "}"
     elseif valType == "string" then
-        return "\"" .. val .. "\"";
+        return "\"" .. val .. "\""
     else
-        return tostring(val);
-    end;
-end;
+        return tostring(val)
+    end
+end
+
 local function ScanPlayerData()
     if (getgenv()).PlayerData then
-        return;
-    end;
+        return
+    end
     (getgenv()).PlayerData = MainController.Data
-    setclipboard(JSONPretty(getgenv().PlayerData,1))
-end;
-
-task.spawn(ScanPlayerData);
+end
+task.spawn(ScanPlayerData)
 
 local function HookTimerVariable()
     task.spawn(function()
@@ -254,15 +279,12 @@ local function HookTimerVariable()
                                 targetFound = true
                                 
                                 -- [PERUBAHAN DISINI]
-                                -- Menggunakan RunService.Heartbeat
-                                -- Ini akan mereset timer SETIAP FRAME (sangat cepat)
-                                -- Game tidak punya kesempatan untuk menaikkan angka.
+                                -- Menggunakan RunService.Heartbeat untuk reset timer SETIAP FRAME
                                 local connection
                                 connection = RunService.Heartbeat:Connect(function()
                                     if func then
                                         debug.setupvalue(func, index, 0)
                                     else
-                                        -- Jika fungsi game mati/hilang, matikan juga connection kita
                                         if connection then connection:Disconnect() end
                                     end
                                 end)
@@ -285,208 +307,232 @@ local function HookTimerVariable()
         end
     end)
 end
-
--- Panggil fungsi
 HookTimerVariable()
+
 -- [2] MATIKAN TIMER ROBLOX (Error 278)
 task.spawn(function()
-    local VirtualUser = game:GetService("VirtualUser")
     game:GetService("Players").LocalPlayer.Idled:Connect(function()
         VirtualUser:CaptureController()
         VirtualUser:ClickButton2(Vector2.new())
     end)
 end)
--- [MODULE LOADING SECTION]
-local ConfigsPath = ReplicatedStorage.Scripts.Configs;
-local YenModule = require(ConfigsPath.Machines.YenUpgrades);
-local TokenModule = require(ConfigsPath.Machines.TokenUpgrades);
-local RankModule = require(ConfigsPath.Machines.RankUp);
-local UtilsModule = require(ConfigsPath.Utility.Utils);
-local MaterialsModule = require(ConfigsPath.General.Materials);
 
--- [MODIFIKASI BARU: LOAD WEAPONS DATABASE]
-local WeaponsModule = {}
+-- [LOAD DATABASES: WEAPONS, ACCESSORIES, ENEMIES]
 pcall(function()
-    -- Mengambil data dari MultipleZones/Weapons untuk mendapatkan Template ID senjata
+    -- Cari folder MultipleZones satu kali saja
     local MZPath = ConfigsPath:FindFirstChild("MultipleZones") or ConfigsPath:FindFirstChild("Multiple Zones")
-    if MZPath and MZPath:FindFirstChild("Weapons") then
-        local WeaponsFolder = MZPath.Weapons
-        for _, module in pairs(WeaponsFolder:GetChildren()) do
-            if module:IsA("ModuleScript") then
-                local success, data = pcall(require, module)
-                if success and type(data) == "table" then
-                    for weaponId, weaponData in pairs(data) do
-                        WeaponsModule[weaponId] = weaponData
+    
+    if MZPath then
+        -- 1. Load Weapons (Iterasi Folder)
+        local WeaponsFolder = MZPath:FindFirstChild("Weapons")
+        if WeaponsFolder then
+            for _, module in pairs(WeaponsFolder:GetChildren()) do
+                if module:IsA("ModuleScript") then
+                    local success, data = pcall(require, module)
+                    if success and type(data) == "table" then
+                        for weaponId, weaponData in pairs(data) do
+                            WeaponsModule[weaponId] = weaponData
+                        end
                     end
                 end
             end
         end
+
+        -- 2. Load Accessories (Single Module)
+        local AccModule = MZPath:FindFirstChild("Accessories")
+        if AccModule then
+            local success, data = pcall(require, AccModule)
+            if success then AccessoriesConfig = data end
+        end
+
+        -- 3. Load Enemies (Single Module)
+        local EnemyModule = MZPath:FindFirstChild("Enemies")
+        if EnemyModule then
+            local success, data = pcall(require, EnemyModule)
+            if success then EnemiesConfig = data end
+        end
     end
 end)
 
--- [LOAD ACCESSORIES DATABASE]
-local AccessoriesConfig = {}
-pcall(function()
-    local AccModuleScript = ConfigsPath:FindFirstChild("MultipleZones") and ConfigsPath.MultipleZones:FindFirstChild("Accessories")
-    if AccModuleScript then
-        AccessoriesConfig = require(AccModuleScript)
-    end
-end)
-
-local EnemiesConfig = {}
-pcall(function()
-    local MZPath = ConfigsPath:FindFirstChild("MultipleZones") or ConfigsPath:FindFirstChild("Multiple Zones")
-    if MZPath and MZPath:FindFirstChild("Enemies") then
-        EnemiesConfig = require(MZPath.Enemies)
-    end
-end)
-
-local UpgradesModules = {};
+-- [LOAD UPGRADES MODULES]
 do
-    local upgradesFolder = ReplicatedStorage.Scripts.Configs:FindFirstChild("RollGachaUpgrades");
+    local upgradesFolder = ConfigsPath:FindFirstChild("RollGachaUpgrades")
     if upgradesFolder then
         for _, m in pairs(upgradesFolder:GetChildren()) do
             if m:IsA("ModuleScript") then
-                local s, d = pcall(require, m);
+                local s, d = pcall(require, m)
                 if s and type(d) == "table" then
-                    UpgradesModules[m.Name] = d;
-                end;
-            end;
-        end;
-    end;
-end
-local YenUpgradeConfig = YenModule.Config;
-local TokenUpgradeConfig = TokenModule.Config;
-local MaxRankCap = RankModule.MAX or 33;
-local function GetYenCost(lvl, name)
-    -- Langsung "numpang" logika dari game
-    if YenModule and YenModule.GetUpgradeCost then
-        -- Arg1: Level, Arg2: Nama Upgrade (misal "Damage")
-        return YenModule.GetUpgradeCost(lvl, name)
+                    UpgradesModules[m.Name] = d
+                end
+            end
+        end
     end
-    return 0 -- Fallback jika module gagal
 end
-local function GetYenBuff(name, lvl)
-    return YenModule.GetUpgradeBuff(name, lvl);
-end;
-local function GetTokenCost(lvl,name)
-    return TokenModule.GetUpgradeCost(lvl,name);
-end;
-local function GetTokenBuff(name, lvl)
-    return TokenModule.GetUpgradeBuff(name, lvl);
-end;
-local function GetRankRequirement(rank)
-    return RankModule.GetRequirement(rank);
-end;
-local function GetRankBuff(rank)
-    return RankModule.GetBuff(rank);
-end;
-local function FormatNumber(n)
-    return UtilsModule.ToText(n);
-end;
 
 local function LoadZoneDB()
     if isfile(FolderPath .. "/" .. ZoneDBFile) then
         local success, result = pcall(function()
-            return HttpService:JSONDecode(readfile(FolderPath .. "/" .. ZoneDBFile));
-        end);
+            return HttpService:JSONDecode(readfile(FolderPath .. "/" .. ZoneDBFile))
+        end)
         if success and type(result) == "table" then
-            Config.ZoneConfigurations = result;
-        end;
-    end;
-end;
+            Config.ZoneConfigurations = result
+        end
+    end
+end
 
 local function SaveZoneConfig(zone, selectedItem)
-    if not zone or zone == "" or zone == "Unknown" then
-        return;
-    end;
-    if not selectedItem then
-        return;
-    end;
-    local val = type(selectedItem) == "table" and selectedItem.Value or selectedItem;
-    local title = type(selectedItem) == "table" and selectedItem.Title or selectedItem;
-    if not val or val == "" then
-        return;
-    end;
-    local savedEntry = {};
-    local foundObj = nil;
+    if not zone or zone == "" or zone == "Unknown" then return end
+    if not selectedItem then return end
+    
+    local val = type(selectedItem) == "table" and selectedItem.Value or selectedItem
+    local title = type(selectedItem) == "table" and selectedItem.Title or selectedItem
+    
+    if not val or val == "" then return end
+    
+    local savedEntry = {}
+    local foundObj = nil
     for _, cached in ipairs(CurrentZoneEnemiesCache) do
         if cached.Value == val then
-            foundObj = cached;
-            break;
-        end;
-    end;
+            foundObj = cached
+            break
+        end
+    end
+    
     if foundObj then
-        savedEntry = foundObj;
+        savedEntry = foundObj
     else
         savedEntry = {
             Title = title,
             Value = val,
             Desc = "Saved"
-        };
-    end;
-    Config.SelectedEnemy = val;
-    Config.ZoneConfigurations[zone] = savedEntry;
+        }
+    end
+    
+    Config.SelectedEnemy = val
+    Config.ZoneConfigurations[zone] = savedEntry
 
     if not isfolder(FolderPath) then
-        makefolder(FolderPath);
-    end;
+        makefolder(FolderPath)
+    end
     if writefile and HttpService then
         pcall(function()
-            writefile(FolderPath .. "/" .. ZoneDBFile, HttpService:JSONEncode(Config.ZoneConfigurations));
-        end);
-    end;
-end;
-LoadZoneDB();
+            writefile(FolderPath .. "/" .. ZoneDBFile, HttpService:JSONEncode(Config.ZoneConfigurations))
+        end)
+    end
+end
+LoadZoneDB()
 
 local function GetOnlineKeys()
-    local keys = {
-        "Keynya",
-        "FreeKey"
-    };
-    local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key";
+    local keys = {}
+    local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key"
     local success, response = pcall(function()
-        return game:HttpGet(url);
-    end);
+        return game:HttpGet(url)
+    end)
+    
     if success then
-        keys = {};
+        keys = {}
         for line in response:gmatch("[^\r\n]+") do
-            local cleanKey = string.gsub(line, "^%s*(.-)%s*$", "%1");
+            local cleanKey = string.gsub(line, "^%s*(.-)%s*$", "%1")
             if cleanKey ~= "" then
-                table.insert(keys, cleanKey);
-            end;
-        end;
-    end;
-    return keys;
-end;
+                table.insert(keys, cleanKey)
+            end
+        end
+    end
+    return keys
+end
+
+-- // UI Creation //
+local l = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v="..math.random()))()
+
+local Window = l:CreateWindow({
+    Title = "AN Hub - Anime Weapons",
+    Icon = "rbxassetid://84366761557806",
+    Author = "Aditya Nugraha",
+    Folder = "AnimeWeapons",
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Dark",
+    Resizable = true,
+    SideBarWidth = 220,
+    HideSearchBar = true,
+    KeySystem = {
+        Enabled = true,
+        Title = "ANHub Access",
+        Description = "Key expires every 24 Hours!",
+        Key = GetOnlineKeys(),
+        URL = "https://discord.gg/cy6uMRmeZ",
+        Note = "Join Discord for Key",
+        SaveKey = true
+    }
+})
+
+-- // Icon & Asset Functions //
+
 local function GetDynamicRankIcon()
-    local iconId = "rbxassetid://84366761557806";
+    local iconId = "rbxassetid://84366761557806"
     pcall(function()
-        local part = Workspace.Billboards.Machines.RankUp.icon;
+        local part = Workspace.Billboards.Machines.RankUp.icon
         if part and part.Image then
-            iconId = part.Image;
-        end;
-    end);
-    return iconId;
-end;
+            iconId = part.Image
+        end
+    end)
+    return iconId
+end
+
 local function GetIcon(id)
     return "rbxassetid://" .. tostring(id)
 end
+
 local function GetYenIcon()
     local icon = "rbxassetid://84366761557806"
     pcall(function()
-        icon = (game:GetService("Players")).LocalPlayer.PlayerGui.Screen.Hud.left.yen.icon.Image;
+        icon = (game:GetService("Players")).LocalPlayer.PlayerGui.Screen.Hud.left.yen.icon.Image
     end)
     return icon
 end
+
 local function GetTrainerIcon()
     local icon = "rbxassetid://10723415903"
     pcall(function()
-        icon = (game:GetService("Players")).LocalPlayer.PlayerGui.Screen.Hud.left.buttons.Arsenal.button.icon.Image;
+        icon = (game:GetService("Players")).LocalPlayer.PlayerGui.Screen.Hud.left.buttons.Arsenal.button.icon.Image
     end)
     return icon
 end
--- moved earlier
+
+local function LoadRollData(rollType)
+    local success, module = pcall(function()
+        return require(ConfigsPath.RollGachas[rollType])
+    end)
+    
+    -- Jika tidak ketemu di RollGachas, cari di RollGachaUpgrades
+    if not success or not module then
+        success, module = pcall(function()
+            return require(ConfigsPath.RollGachaUpgrades[rollType])
+        end)
+    end
+
+    if success and module then
+        RollConfigs[rollType] = {
+            Cost = module.Cost or 1,
+            MaterialKey = (module.Material or module.UpgradeMaterial) or (rollType .. "Token"),
+            ImageId = module.ImageId,
+            List = module.List
+        }
+    else
+        -- Fallback manual jika gagal total
+        RollConfigs[rollType] = {
+            Cost = 1,
+            MaterialKey = rollType .. "Token",
+            ImageId = "84366761557806",
+            List = {}
+        }
+    end
+end
+
+for _, rollType in ipairs(AllRollTypes) do
+    LoadRollData(rollType)
+end
+
 local function GetRollIconAsset(rollType)
     local defaultIcon = "rbxassetid://84366761557806"
     local config = RollConfigs[rollType]
@@ -523,66 +569,6 @@ local function GetRollIconAsset(rollType)
     
     return assetId or defaultIcon
 end
-local function LoadRollData(rollType)
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.RollGachas[rollType]);
-    end);
-    
-    -- Jika tidak ketemu di RollGachas, cari di RollGachaUpgrades
-    if not success or not module then
-        success, module = pcall(function()
-            return require(ReplicatedStorage.Scripts.Configs.RollGachaUpgrades[rollType]);
-        end);
-    end
-
-    if success and module then
-        RollConfigs[rollType] = {
-            Cost = module.Cost or 1,
-            MaterialKey = (module.Material or module.UpgradeMaterial) or (rollType .. "Token"),
-            ImageId = module.ImageId,
-            List = module.List -- SIMPAN LIST ITEM!
-        };
-    else
-        -- Fallback manual jika gagal total
-        RollConfigs[rollType] = {
-            Cost = 1,
-            MaterialKey = rollType .. "Token",
-            ImageId = "84366761557806",
-            List = {}
-        };
-    end;
-end;
-for _, rollType in ipairs(AllRollTypes) do
-    LoadRollData(rollType);
-end;
-
--- [MODIFIKASI BARU: Helper Function untuk Mendapatkan Icon dari ChanceReward]
-local function GetRewardAssetId(rewardKey)
-    if not rewardKey then return nil end
-    -- Kunci bisa berupa "Weapons.WildKatana" atau "Materials.BreathingToken.5"
-    local parts = string.split(rewardKey, ".")
-    local typeCategory = parts[1] -- "Weapons" atau "Materials"
-    local itemName = parts[2] -- "WildKatana" atau "BreathingToken"
-
-    local templateId = nil
-
-    if typeCategory == "Materials" and MaterialsModule[itemName] then
-        templateId = MaterialsModule[itemName].Template
-    elseif typeCategory == "Weapons" and WeaponsModule[itemName] then
-        templateId = WeaponsModule[itemName].Template
-    end
-
-    if templateId then
-        -- Format Asset ID
-        local idStr = tostring(templateId)
-        if not idStr:find("rbxassetid://") then
-            return "rbxassetid://" .. idStr
-        else
-            return idStr
-        end
-    end
-    return nil
-end
 
 -- [FUNGSI HELPER GRADIENT]
 local function GetGameGradient(rarityName)
@@ -593,6 +579,50 @@ local function GetGameGradient(rarityName)
     if success and gradientObj then return gradientObj.Color end
     local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
     return fallback and fallback.Color or nil
+end
+
+-- [HELPER: GENERATE CARD REWARDS]
+local function GenerateCardRewards(chanceRewardData)
+    local rewardCards = {}
+    if not chanceRewardData then return rewardCards end
+
+    for rewardKey, chanceVal in pairs(chanceRewardData) do
+        local parts = string.split(rewardKey, ".")
+        local category = parts[1]
+        local itemId = parts[2]
+        
+        local itemData = nil
+        if category == "Materials" and MaterialsModule[itemId] then
+            itemData = MaterialsModule[itemId]
+        elseif category == "Weapons" and WeaponsModule[itemId] then
+            itemData = WeaponsModule[itemId]
+        elseif category == "Accessories" and AccessoriesConfig[itemId] then
+            itemData = AccessoriesConfig[itemId]
+        end
+
+        if itemData then
+            local imgId = itemData.Template
+            if imgId then
+                if not tostring(imgId):find("rbxassetid://") then
+                    imgId = "rbxassetid://" .. tostring(imgId)
+                else
+                    imgId = tostring(imgId)
+                end
+                
+                local rarity = itemData.Rarity or "Common"
+                local itemName = itemData.Display or itemId
+                local chanceStr = "Rate:" .. tostring(chanceVal) .. "%"
+
+                table.insert(rewardCards, {
+                    Image = imgId,
+                    Gradient = GetGameGradient(rarity),
+                    Quantity = chanceStr,
+                    Title = itemName
+                })
+            end
+        end
+    end
+    return rewardCards
 end
 
 -- [MODIFIKASI BARU: UPDATE RefreshEnemyData]
@@ -611,61 +641,12 @@ local function RefreshEnemyData()
                 if not added[displayName] then
                     added[displayName] = true
                     
-                    local rewardImages = {}
-                    
-                    -- [NEW LOGIC] Generate Card Data untuk Library UI
-                    if data.ChanceReward then
-                        for rewardKey, chanceVal in pairs(data.ChanceReward) do
-                            -- 1. Identifikasi Tipe Item (Weapons / Materials)
-                            local parts = string.split(rewardKey, ".")
-                            local category = parts[1] -- Contoh: "Weapons"
-                            local itemId = parts[2]   -- Contoh: "WildKatana"
-                            
-                            local itemData = nil
-                            
-                            -- 2. Ambil Data Detail dari Module
-                            if category == "Materials" and MaterialsModule[itemId] then
-                                itemData = MaterialsModule[itemId]
-                            elseif category == "Weapons" and WeaponsModule[itemId] then
-                                itemData = WeaponsModule[itemId]
-                            end
-                            
-                            -- 3. Susun Data Card (Hanya jika item ditemukan)
-                            if itemData then
-                                -- Format Image ID
-                                local imgId = itemData.Template
-                                if imgId then
-                                    if not tostring(imgId):find("rbxassetid://") then
-                                        imgId = "rbxassetid://" .. tostring(imgId)
-                                    else
-                                        imgId = tostring(imgId)
-                                    end
-                                    
-                                    local rarity = itemData.Rarity or "Common"
-                                    local itemName = itemData.Display or itemId
-                                    
-                                    -- Format Persentase (Rate)
-                                    local chanceStr = "Rate:"..tostring(chanceVal) .. "%"
-                                    
-                                    -- [STRUCTURE PENTING] Sesuai Library Dropdown Anda
-                                    table.insert(rewardImages, {
-                                        Image = imgId,                   -- Gambar Utama
-                                        Gradient = GetGameGradient(rarity), -- Warna Gradient (Color3)
-                                        Quantity = chanceStr,                -- Pojok Kanan Atas (Persentase Drop)
-                                        Title = itemName                 -- Bar Bawah (Nama Item)
-                                    })
-                                end
-                            end
-                        end
-                    end
-                    
-                    -- Opsional: Urutkan reward berdasarkan persentase (Rate) atau Rarity jika diinginkan
-                    -- table.sort(rewardImages, function(a, b) return a.Rate < b.Rate end)
+                    local rewardImages = GenerateCardRewards(data.ChanceReward)
 
                     table.insert(uiList, {
                         Title = displayName .. " (" .. (data.Difficult or "Normal") .. ")",
                         Value = displayName,
-                        Desc = "HP: " .. FormatNumber((data.MaxHealth or 0)),
+                        Desc = "HP: " .. UtilsModule.ToText((data.MaxHealth or 0)),
                         HP = data.MaxHealth or 0,
                         Images = rewardImages -- List ini sekarang berisi TABLE Card Data, bukan string ID lagi
                     })
@@ -709,31 +690,6 @@ local function UpdateLiveEnemies()
     
     GlobalEnemyMap = newMap
 end
-
-local l = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v="..math.random()))();
-
-local Window = l:CreateWindow({
-    Title = "AN Hub - Anime Weapons",
-    Icon = "rbxassetid://84366761557806",
-    Author = "Aditya Nugraha",
-    Folder = "AnimeWeapons",
-    Size = UDim2.fromOffset(580, 460),
-    Acrylic = true,
-    Theme = "Dark",
-    Resizable = true,
-    SideBarWidth = 220,
-    HideSearchBar = true,
-    ToggleKey = Enum.KeyCode.RightControl,
-    KeySystem = {
-        Enabled = true,
-        Title = "ANHub Access",
-        Description = "Key expires every 24 Hours!",
-        Key = GetOnlineKeys(),
-        URL = "https://discord.gg/cy6uMRmeZ",
-        Note = "Join Discord for Key",
-        SaveKey = true
-    }
-});
 
 task.delay(1.0, function()
     Window:CollapseSidebar()
@@ -927,9 +883,6 @@ local function CreateTabButtons(section, tabNames)
     section:Divider()
     return TabSystem
 end
-local function GetHRP()
-    return LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart");
-end;
 LocalPlayer.CharacterAdded:Connect(function(char)
     hrp = char:WaitForChild("HumanoidRootPart");
     humanoid = char:WaitForChild("Humanoid");
@@ -1029,13 +982,6 @@ local function GetDistance(a, b)
         return (pa - pb).Magnitude
     end
     return math.huge
-end
-local function GetEnemiesFolder()
-    local client = workspace:FindFirstChild("Client")
-    if client and client:FindFirstChild("Enemies") then
-        return client.Enemies
-    end
-    return Workspace:FindFirstChild("Enemies")
 end
 local function LogicAutoFarm()
     local currentTargetObj = nil
@@ -1742,47 +1688,6 @@ local function LogicGamemodes()
         end;
     end;
 end;
--- [HELPER: GENERATE CARD REWARDS]
-local function GenerateCardRewards(chanceRewardData)
-    local rewardCards = {}
-    if not chanceRewardData then return rewardCards end
-
-    for rewardKey, chanceVal in pairs(chanceRewardData) do
-        local parts = string.split(rewardKey, ".")
-        local category = parts[1]
-        local itemId = parts[2]
-        
-        local itemData = nil
-        if category == "Materials" and MaterialsModule[itemId] then
-            itemData = MaterialsModule[itemId]
-        elseif category == "Weapons" and WeaponsModule[itemId] then
-            itemData = WeaponsModule[itemId]
-        end
-
-        if itemData then
-            local imgId = itemData.Template
-            if imgId then
-                if not tostring(imgId):find("rbxassetid://") then
-                    imgId = "rbxassetid://" .. tostring(imgId)
-                else
-                    imgId = tostring(imgId)
-                end
-                
-                local rarity = itemData.Rarity or "Common"
-                local itemName = itemData.Display or itemId
-                local chanceStr = "Rate:" .. tostring(chanceVal) .. "%"
-
-                table.insert(rewardCards, {
-                    Image = imgId,
-                    Gradient = GetGameGradient(rarity),
-                    Quantity = chanceStr,
-                    Title = itemName
-                })
-            end
-        end
-    end
-    return rewardCards
-end
 
 -- [1. PIRATE TOWER DATA]
 local pirateTowerList = {}
@@ -1793,7 +1698,7 @@ local function LoadPirateTowerData()
     if success and module then
         local hpBase = module.HealthBase or 0
         local floors = module.MAX_FLOOR or 100
-        local desc = "Floors: " .. floors .. " | HP Base: " .. FormatNumber(hpBase);
+        local desc = "Floors: " .. floors .. " | HP Base: " .. UtilsModule.ToText(hpBase);
         local rewardCards = GenerateCardRewards(module.ChanceReward)
 
         pirateTowerList = {{
@@ -1815,7 +1720,7 @@ local function LoadShadowGateData()
     if success and module then
         local hpBase = module.HealthBase or 0
         local waves = module.MAX_WAVE or 500
-        local desc = "Waves: " .. waves .. " | HP Base: " .. FormatNumber(hpBase);
+        local desc = "Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
         local rewardCards = GenerateCardRewards(module.ChanceReward)
 
         shadowGateList = {{
@@ -1841,7 +1746,7 @@ local function LoadDungeonData()
             
             -- [OPTIMASI: Tampilkan Jadwal Statis, bukan Timer bergerak]
             local scheduleInfo = "Min: " .. (phase.START_MINUTE or 0)
-            local desc = "HP: " .. FormatNumber(hpCalc) .. " | " .. scheduleInfo;
+            local desc = "HP: " .. UtilsModule.ToText(hpCalc) .. " | " .. scheduleInfo;
             
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
@@ -1876,7 +1781,7 @@ local function LoadRaidData()
             local times = phase.START_TIMES or {}
             table.sort(times)
             local timeStr = table.concat(times, ", ")
-            local desc = "HP: " .. FormatNumber(hpCalc) .. " | Mins: " .. timeStr;
+            local desc = "HP: " .. UtilsModule.ToText(hpCalc) .. " | Mins: " .. timeStr;
             
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
@@ -1910,7 +1815,7 @@ local function LoadDefenseData()
             local times = phase.START_TIMES or {}
             table.sort(times)
             local timeStr = table.concat(times, ", ")
-            local desc = "HP: " .. FormatNumber(hpCalc) .. " | Mins: " .. timeStr;
+            local desc = "HP: " .. UtilsModule.ToText(hpCalc) .. " | Mins: " .. timeStr;
 
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
@@ -1930,9 +1835,6 @@ local function LoadDefenseData()
 end;
 LoadDefenseData();
 
--- [UI ELEMENTS: DROPDOWNS]
--- Hapus semua Loop Update Waktu (task.spawn while)
-
 local DgnDrop = FM_Add("GameModes", FarmTab:Dropdown({
     Title = "Select Dungeon",
     Multi = true,
@@ -1949,8 +1851,6 @@ local DgnDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetDungeon = t;
     end
 }));
-
--- [NOTE: Loop Update Dungeon DIHAPUS demi performa]
 
 local RaidDrop = FM_Add("GameModes", FarmTab:Dropdown({
     Title = "Select Raid",
@@ -2043,18 +1943,6 @@ local GeneralTab = Window:Tab({
 });
 
 -- [PASTE BAGIAN INI DI ATAS LOGIKA EXCHANGE]
--- 1. Fungsi Helper untuk mengambil Gradient dari ReplicatedFirst
-local function GetGameGradient(rarityName)
-    local rf = game:GetService("ReplicatedFirst")
-    local success, gradientObj = pcall(function()
-        return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName)
-    end)
-    if success and gradientObj then return gradientObj.Color end
-    local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
-    return fallback and fallback.Color or nil
-end
-
--- [BAGIAN UI EXCHANGE - FIXED LOGIC]
 local GeneralManagerSection = FarmTab
 local ExchangeList = {}
 
@@ -2249,8 +2137,8 @@ task.spawn(function()
                 inputDisplay = outputDisplay * ratio -- Berapa Trade Token yang dibayar
                 
                 -- Update Teks UI
-                MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", FormatNumber(materialCount), FormatNumber(outputDisplay)))
-                TradePreview:SetDesc(string.format("Stock: %s | -%s (Pay)", FormatNumber(tradeTokenCount), FormatNumber(inputDisplay)))
+                MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay)))
+                TradePreview:SetDesc(string.format("Stock: %s | -%s (Pay)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(inputDisplay)))
             else
                 -- MODE JUAL (Sell): Material -> Trade Token
                 -- Rumus: Input = Material * Persen
@@ -2258,8 +2146,8 @@ task.spawn(function()
                 outputDisplay = inputDisplay * ratio -- Berapa Trade Token yang didapat
                 
                 -- Update Teks UI
-                MatPreview:SetDesc(string.format("Stock: %s | -%s (Sell)", FormatNumber(materialCount), FormatNumber(inputDisplay)))
-                TradePreview:SetDesc(string.format("Stock: %s | +%s (Get)", FormatNumber(tradeTokenCount), FormatNumber(outputDisplay)))
+                MatPreview:SetDesc(string.format("Stock: %s | -%s (Sell)", UtilsModule.ToText(materialCount), UtilsModule.ToText(inputDisplay)))
+                TradePreview:SetDesc(string.format("Stock: %s | +%s (Get)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(outputDisplay)))
             end
             
             -- [UPDATE VISUAL GAMBAR GRADIENT SECARA REALTIME]
@@ -2304,7 +2192,7 @@ for _, rollType in ipairs(AllRollTypes) do
     local myToggle = _rollGroup:Toggle({
         Title = rollType,
         Flag = configFlag .. "_Cfg",
-        Desc = displayName .. ": " .. FormatNumber(currentCount),
+        Desc = displayName .. ": " .. UtilsModule.ToText(currentCount),
         Image = GetRollIconAsset(rollType),
         ImageSize = 24,
         Callback = function(val)
@@ -2337,32 +2225,37 @@ task.spawn(function()
                 local displayName = (MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display) or rollType
                 local currentCount = pData.Materials[tokenKey] or 0
                 
-                -- [LOGIKA 1: SCAN VAULT DARI ITEM TERTINGGI]
+                -- [PERBAIKAN LOGIKA PENCARIAN ITEM TERTINGGI]
                 local currentImage = GetRollIconAsset(rollType) -- Default Icon
                 local currentRarity = "" 
                 local currentItemName = ""
-                
-                -- Ambil jumlah item maksimal dari Config Game (misal ShinobiRaid ada 7 item)
-                local totalDataList = (config.List and #config.List) or 0
-                
-                -- Loop mundur: 7, 6, 5... (Mencari item terkuat yang dimiliki)
-                if config.List and pData.Vault[rollType] then
-                    for i = totalDataList, 1, -1 do
-                        -- INI BAGIAN PENTING: tostring(i) cocok dengan data "1", "2", dst di Vault kamu
-                        if pData.Vault[rollType][tostring(i)] == true then
-                            local itemData = config.List[i]
-                            if itemData then
-                                if itemData.Template then
-                                    currentImage = "rbxassetid://" .. tostring(itemData.Template)
-                                end
-                                if itemData.Rarity then
-                                    currentRarity = itemData.Rarity
-                                end
-                                if itemData.Display then
-                                    currentItemName = itemData.Display
-                                end
+                local foundBestIndex = 0
+
+                -- 1. Scan Vault secara langsung untuk mencari Index Tertinggi yang dimiliki
+                -- (Kita scan semua key di Vault user untuk mencari angka terbesar, misal: 7)
+                if pData.Vault[rollType] then
+                    for k, v in pairs(pData.Vault[rollType]) do
+                        if v == true then
+                            local idx = tonumber(k)
+                            if idx and idx > foundBestIndex then
+                                foundBestIndex = idx
                             end
-                            break -- KETEMU! Langsung berhenti agar item yang lebih lemah diabaikan
+                        end
+                    end
+                end
+
+                -- 2. Ambil Data Visual dari Config berdasarkan Index Tertinggi yang ditemukan
+                if foundBestIndex > 0 and config.List and config.List[foundBestIndex] then
+                    local itemData = config.List[foundBestIndex]
+                    if itemData then
+                        if itemData.Template then
+                            currentImage = "rbxassetid://" .. tostring(itemData.Template)
+                        end
+                        if itemData.Rarity then
+                            currentRarity = itemData.Rarity
+                        end
+                        if itemData.Display then
+                            currentItemName = itemData.Display
                         end
                     end
                 end
@@ -2370,42 +2263,51 @@ task.spawn(function()
                 -- [LOGIKA 2: CEK PERUBAHAN & UPDATE UI]
                 local lastState = RollStateCache[rollType] or {}
                 
-                -- Apakah Gambar berubah? (Misal dari item 6 naik ke item 7)
-                local isVisualChanged = (lastState.Image ~= currentImage) or (lastState.Rarity ~= currentRarity)
-                local isCountChanged = (lastState.Count ~= currentCount)
-                
-                -- Update Text Jumlah Token
-                if isCountChanged then
-                	pcall(function() toggle:SetDesc(displayName .. ": " .. FormatNumber(currentCount)) end)
+                -- Update Text Jumlah Token (Selalu cek)
+                if lastState.Count ~= currentCount then
+                    pcall(function() toggle:SetDesc(displayName .. ": " .. UtilsModule.ToText(currentCount)) end)
                 end
 
                 -- Update Gambar Utama (SetMainImage) HANYA jika visual berubah
+                local isVisualChanged = (lastState.Image ~= currentImage) or (lastState.Rarity ~= currentRarity)
+                
                 if isVisualChanged then
                     pcall(function()
                         if not Window.Closed and toggle.SetMainImage then
-                        	if currentItemName ~= "" then
-	                            toggle:SetMainImage({
-	                                Image = currentImage,
-	                                Quantity = currentRarity, -- Menampilkan teks Rarity (Rare, Legendary, dsb)
-	                                Title =  currentItemName,
-	                                Gradient = GetGameGradient(currentRarity) -- Warna background mengikuti rarity
-	                            }, 50)
-                        	end
+                            -- Pastikan ada nama item, jika tidak pakai default
+                            local titleToShow = currentItemName ~= "" and currentItemName or rollType
+                            local qtyToShow = currentRarity ~= "" and currentRarity or "Common"
+                            local gradToShow = GetGameGradient(qtyToShow)
+
+                            toggle:SetMainImage({
+                                Image = currentImage,
+                                Quantity = qtyToShow, -- Menampilkan teks Rarity (Rare, Legendary, dsb)
+                                Title =  titleToShow,
+                                Gradient = gradToShow -- Warna background mengikuti rarity
+                            }, 50)
                         end
                     end)
 
-                    -- Simpan ke cache agar tidak lag (tidak update berulang-ulang jika tidak ada perubahan)
+                    -- Simpan ke cache agar tidak lag
                     RollStateCache[rollType] = {
                         Image = currentImage,
                         Rarity = currentRarity,
-                        Count = currentCount
+                        Count = currentCount,
+                        IsMaxed = lastState.IsMaxed -- Pertahankan status maxed lama sementara
                     }
+                else
+                    -- Update cache count saja jika visual tidak berubah
+                    lastState.Count = currentCount
+                    RollStateCache[rollType] = lastState
                 end
 
                 -- [LOGIKA 3: CEK MAXED OUT]
-                -- Cek apakah item terakhir (tertinggi) sudah dimiliki?
+                -- Cek apakah item terakhir dari Config list sudah dimiliki?
+                local totalInConfig = (config.List and #config.List) or 0
                 local isMaxed = false
-                if totalDataList > 0 and pData.Vault[rollType] and pData.Vault[rollType][tostring(totalDataList)] == true then
+                
+                -- Jika item tertinggi yang kita punya >= total item yang ada di Config, berarti MAX
+                if totalInConfig > 0 and foundBestIndex >= totalInConfig then
                     isMaxed = true
                 end
 
@@ -2421,7 +2323,7 @@ task.spawn(function()
                             RollStateCache[rollType] = cache
                         end
                         
-                        -- Matikan Toggle Auto Roll
+                        -- Matikan Toggle Auto Roll jika sudah Max
                         if Config["AutoRoll" .. rollType] then
                             Config["AutoRoll" .. rollType] = false
                             toggle:Set(false)
@@ -2792,7 +2694,7 @@ task.spawn(function()
                                         realName = MaterialsModule[matName].Display
                                     end
 
-                                    local line = string.format("%s: %s / %s", realName, FormatNumber(myAmt), FormatNumber(reqAmt))
+                                    local line = string.format("%s: %s / %s", realName, UtilsModule.ToText(myAmt), UtilsModule.ToText(reqAmt))
                                     table.insert(parts, line)
                                 end
                                 costStr = table.concat(parts, "\n")
@@ -3090,10 +2992,10 @@ task.spawn(function()
 
                             toggle:SetTitle(string.format("%s [%d/%d]", name, currentLvl, maxLvl))
                             toggle:SetDesc(string.format("Cost: %s%s\n%s: %s", 
-                                FormatNumber(cost), 
+                                UtilsModule.ToText(cost), 
                                 chanceTxt, 
                                 matDisplayName,
-                                FormatNumber(currentMat)
+                                UtilsModule.ToText(currentMat)
                             ))
                             
                             if isGacha and toggle.SetMainImage then
@@ -3115,7 +3017,6 @@ end)
 -- ============================================================================
 -- [SHARED HELPERS - DIBUTUHKAN OLEH VAULT & INVENTORY]
 -- ============================================================================
-local ConfigsFolder = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Configs")
 local ConfigCache = {}
 
 -- Warna & Rarity
@@ -3137,9 +3038,9 @@ local function GetGameConfig(categoryName)
     if ConfigCache[categoryName] then return ConfigCache[categoryName] end
     local module = nil
     local paths = {
-        ConfigsFolder:FindFirstChild("GamemodePowers"),
-        ConfigsFolder:FindFirstChild("RollGachas"),
-        ConfigsFolder:FindFirstChild("RollGachaUpgrades")
+        ConfigsPath:FindFirstChild("GamemodePowers"),
+        ConfigsPath:FindFirstChild("RollGachas"),
+        ConfigsPath:FindFirstChild("RollGachaUpgrades")
     }
     for _, folder in ipairs(paths) do
         if folder then
@@ -3633,19 +3534,19 @@ task.spawn(function()
             -- [1. LOGIKA RANK UP + WEBHOOK]
             local currentRank = Data.Attributes.Rank or 0;
             local currentMastery = Data.Attributes.Mastery or 0;
-            local req = GetRankRequirement(currentRank);
-            local currentBuff = GetRankBuff(currentRank);
-            local nextBuff = GetRankBuff(currentRank + 1);
+            local req = RankModule.GetRequirement(currentRank);
+            local currentBuff = RankModule.GetBuff(currentRank);
+            local nextBuff = RankModule.GetBuff(currentRank + 1);
             
             if RankProgressUI and not Window.Closed then
                 local percent = req > 0 and math.clamp(currentMastery / req, 0, 1) or 0;
                 local barText = string.rep("█", math.floor(percent * 10)) .. string.rep("▒", 10 - math.floor(percent * 10));
-                local buffText = currentRank >= MaxRankCap and "Buff: " .. FormatNumber(currentBuff) .. "% (MAX)" or "Buff: " .. FormatNumber(currentBuff) .. "% >> " .. FormatNumber(nextBuff) .. "%";
+                local buffText = currentRank >= RankModule.MAX and "Buff: " .. UtilsModule.ToText(currentBuff) .. "% (MAX)" or "Buff: " .. UtilsModule.ToText(currentBuff) .. "% >> " .. UtilsModule.ToText(nextBuff) .. "%";
                 RankProgressUI:SetTitle(string.format("Rank %d", currentRank));
-                RankProgressUI:SetDesc(string.format("%s\n[%s] %d%%\n%s / %s", buffText, barText, math.floor(percent * 100), FormatNumber(currentMastery), FormatNumber(req)));
+                RankProgressUI:SetDesc(string.format("%s\n[%s] %d%%\n%s / %s", buffText, barText, math.floor(percent * 100), UtilsModule.ToText(currentMastery), UtilsModule.ToText(req)));
             end;
             
-            if Config.AutoRankUp and currentMastery >= req and currentRank < MaxRankCap then
+            if Config.AutoRankUp and currentMastery >= req and currentRank < RankModule.MAX then
                 if Reliable then
                     local s = pcall(function()
                         Reliable:FireServer("RankUp");
@@ -3668,7 +3569,7 @@ task.spawn(function()
                 local currentYen = Data.Attributes.Yen or 0;
                 for name, configData in pairs(YenUpgradeConfig) do
                     local lvl = Data.YenUpgrades[name] or 0;
-                    local cost = GetYenCost(lvl, name);
+                    local cost = YenModule.GetUpgradeCost(lvl, name);
                     local toggle = YenUpgradeToggleUI[name];
                     
                     if toggle and toggle.SetTitle and toggle.SetDesc then
@@ -3677,12 +3578,13 @@ task.spawn(function()
                             if not Window.Closed then
                                 toggle:SetTitle(name .. " [MAX]");
                                 toggle:Lock();
-                                toggle:SetDesc(string.format("Maxed Out (Buff: +%s%%)", FormatNumber(GetYenBuff(name, lvl))));
+                                toggle:Set(false)
+                                toggle:SetDesc(string.format("Maxed Out (Buff: +%s%%)", UtilsModule.ToText(YenModule.GetUpgradeBuff(name, lvl))));
                             end
                         else
                             if not Window.Closed then
                                 toggle:SetTitle(name .. " [" .. lvl .. "/" .. maxLvl .. "]");
-                                toggle:SetDesc(string.format("Cost: %s | Buff: +%s%%", FormatNumber(cost), FormatNumber(GetYenBuff(name, lvl))));
+                                toggle:SetDesc(string.format("Cost: %s | Buff: +%s%%", UtilsModule.ToText(cost), UtilsModule.ToText(YenModule.GetUpgradeBuff(name, lvl))));
                             end
                             
                             if Config["AutoYen_" .. name] and currentYen >= cost then
@@ -3712,7 +3614,7 @@ task.spawn(function()
                 local currentToken = Data.Materials.UpgradeToken or 0;
                 for name, configData in pairs(TokenUpgradeConfig) do
                     local lvl = Data.TokenUpgrades[name] or 0;
-                    local cost = GetTokenCost(lvl,name);
+                    local cost = TokenModule.GetUpgradeCost(lvl,name);
                     local toggle = TokenUpgradeToggleUI[name];
                     
                     if toggle and toggle.SetTitle and toggle.SetDesc then
@@ -3721,12 +3623,12 @@ task.spawn(function()
                             if not Window.Closed then
                                 toggle:Lock();
                                 toggle:SetTitle(name .. " [MAX]");
-                                toggle:SetDesc(string.format("Maxed Out (Buff: +%s%%)", FormatNumber(GetTokenBuff(name, lvl))));
+                                toggle:SetDesc(string.format("Maxed Out (Buff: +%s%%)", UtilsModule.ToText(TokenModule.GetUpgradeBuff(name, lvl))));
                             end
                         else
                             if not Window.Closed then
                                 toggle:SetTitle(name .. " [" .. lvl .. "/" .. maxLvl .. "]");
-                                toggle:SetDesc(string.format("Cost: %s | Buff: +%s%%\nUpgrade Shard: %s", FormatNumber(cost), FormatNumber(GetTokenBuff(name, lvl)), FormatNumber(currentToken)));
+                                toggle:SetDesc(string.format("Cost: %s | Buff: +%s%%\nUpgrade Shard: %s", UtilsModule.ToText(cost), UtilsModule.ToText(TokenModule.GetUpgradeBuff(name, lvl)), UtilsModule.ToText(currentToken)));
                             end
                             
                             if Config["AutoToken_" .. name] and currentToken >= cost then
