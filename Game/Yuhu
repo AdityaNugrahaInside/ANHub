@@ -229,57 +229,70 @@ local function ScanPlayerData()
 end;
 
 task.spawn(ScanPlayerData);
--- [ ANHub: Optimized Timer Freeze (FIXED) ]
--- Perbaikan: Mengganti is_syn_closure dengan islclosure agar tidak error
 
 local function HookTimerVariable()
-    local targetFound = false
-    local gcList = getgc() -- Ambil snapshot memori
+    task.spawn(function()
+        local targetFound = false
+        
+        while not targetFound do
+            local gcList = getgc() 
 
-    for _, func in pairs(gcList) do
-        -- [PERBAIKAN DISINI]
-        -- Kita cek apakah itu fungsi, dan apakah itu Lua Closure (Fungsi Game)
-        -- Menggunakan islclosure jauh lebih aman daripada is_syn_closure
-        if type(func) == "function" and islclosure(func) then
-            
-            -- Gunakan pcall saat ambil info agar script tidak stop jika ada error tak terduga
-            local success, info = pcall(debug.getinfo, func)
+            for _, func in pairs(gcList) do
+                if type(func) == "function" and islclosure(func) then
+                    local info = debug.getinfo(func)
 
-            -- Cari fungsi yang berasal dari script AutoReconnect.c
-            if success and info.source and string.find(info.source, "AutoReconnect.c") then
-                
-                local upvalues = debug.getupvalues(func)
-                for index, value in pairs(upvalues) do
-                    -- Cari variabel angka (Timer)
-                    if type(value) == "number" then
-                        targetFound = true
+                    if info.source and string.find(info.source, "AutoReconnect.c") then
                         
-                        -- [BAGIAN RINGAN: Loop Reset]
-                        task.spawn(function()
-                            local f = func
-                            local idx = index
+                        local upvalues = debug.getupvalues(func)
+                        for index, value in pairs(upvalues) do
                             
-                            while true do
-                                if f then
-                                    debug.setupvalue(f, idx, 0) 
-                                end
-                                task.wait(1) -- Reset setiap 1 detik
+                            -- KUNCI TIMER
+                            if type(value) == "number" then
+                                targetFound = true
+                                
+                                -- [PERUBAHAN DISINI]
+                                -- Menggunakan RunService.Heartbeat
+                                -- Ini akan mereset timer SETIAP FRAME (sangat cepat)
+                                -- Game tidak punya kesempatan untuk menaikkan angka.
+                                local connection
+                                connection = RunService.Heartbeat:Connect(function()
+                                    if func then
+                                        debug.setupvalue(func, index, 0)
+                                    else
+                                        -- Jika fungsi game mati/hilang, matikan juga connection kita
+                                        if connection then connection:Disconnect() end
+                                    end
+                                end)
                             end
-                        end)
-                    end
-                    
-                    -- Sembunyikan UI jika ketemu
-                    if typeof(value) == "Instance" and (value:IsA("TextLabel") or value:IsA("Frame")) then
-                        value.Visible = false
+                            
+                            -- SEMBUNYIKAN UI
+                            if typeof(value) == "Instance" and (value:IsA("TextLabel") or value:IsA("Frame")) then
+                                value.Visible = false
+                                value:GetPropertyChangedSignal("Visible"):Connect(function()
+                                    value.Visible = false
+                                end)
+                            end
+                        end
                     end
                 end
             end
+            
+            if targetFound then break end
+            task.wait(2)
         end
-    end
+    end)
 end
 
-task.spawn(HookTimerVariable)
-
+-- Panggil fungsi
+HookTimerVariable()
+-- [2] MATIKAN TIMER ROBLOX (Error 278)
+task.spawn(function()
+    local VirtualUser = game:GetService("VirtualUser")
+    game:GetService("Players").LocalPlayer.Idled:Connect(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end)
+end)
 -- [MODULE LOADING SECTION]
 local ConfigsPath = ReplicatedStorage.Scripts.Configs;
 local YenModule = require(ConfigsPath.Machines.YenUpgrades);
@@ -924,14 +937,114 @@ pcall(function()
         humanoid = LocalPlayer.Character:FindFirstChild("Humanoid");
     end;
 end);
+local function MaintainAutoStatus()
+    while not Window.Destroyed do
+        if Config.AutoFarm or Config.AutoGamemode then
+            local Data = (getgenv()).PlayerData;
+            if Data and Data.Settings and Reliable then
+                if Data.Settings.AutoClick == false then
+                    pcall(function()
+                        Reliable:FireServer("Settings", {
+                            "AutoClick",
+                            true
+                        });
+                    end);
+                end;
+                if Data.Settings.AutoAttack == false then
+                    pcall(function()
+                        Reliable:FireServer("Settings", {
+                            "AutoAttack",
+                            true
+                        });
+                    end);
+                end;
+            end;
+        end;
+        task.wait(1);
+    end;
+end;
+local function isPlayerInZone(zone)
+    local chars = zone:FindFirstChild("Characters");
+    if chars and chars:FindFirstChild(LocalPlayer.Name) then
+        return true;
+    end;
+    return false;
+end;
+local function GetCurrentMapStatus()
+    -- [1] Cek Data Controller
+    local attr = MainController and MainController.Data and MainController.Data.Attributes
+    if attr and attr.Zone and attr.Zone ~= "" then return attr.Zone end
+
+    -- [2] Cek Folder Gamemode (Loop list agar code lebih pendek)
+    for _, mode in ipairs({"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate"}) do
+        if Workspace:FindFirstChild(mode) then return mode end
+    end
+
+    -- [3] Cek Zone Regions & [4] Deteksi Darurat
+    local zonesFolder = Workspace:FindFirstChild("Zones")
+    
+    if zonesFolder then
+        for _, zone in ipairs(zonesFolder:GetChildren()) do
+            if isPlayerInZone(zone) then return zone.Name end
+        end
+    elseif Workspace:FindFirstChild("Enemies") then
+        -- Masuk sini hanya jika folder "Zones" TIDAK ada, tapi "Enemies" ada
+        return "Dungeon:Active"
+    end
+
+    return "Unknown"
+end
+local function CheckIsFightingZone()
+    local mapName = GetCurrentMapStatus()
+    -- List kata kunci mode bertarung
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate"}
+
+    -- Loop cek satu per satu
+    for _, keyword in ipairs(fightingKeywords) do
+        if string.find(keyword,mapName) then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function GetPartPosition(obj)
+    if typeof(obj) == "Instance" then
+        if obj:IsA("Model") then
+            return obj:GetPivot().Position
+        elseif obj:IsA("BasePart") then
+            return obj.Position
+        end
+    end
+    return nil
+end
+local function GetDistance(a, b)
+    local pa = GetPartPosition(a)
+    local pb = GetPartPosition(b)
+    if pa and pb then
+        return (pa - pb).Magnitude
+    end
+    return math.huge
+end
+local function GetEnemiesFolder()
+    local client = workspace:FindFirstChild("Client")
+    if client and client:FindFirstChild("Enemies") then
+        return client.Enemies
+    end
+    return Workspace:FindFirstChild("Enemies")
+end
 local function LogicAutoFarm()
     local currentTargetObj = nil
     
     while Config.AutoFarm do
         if Window.Destroyed then break end
-        
+        local currentMap = GetCurrentMapStatus()
+        local isBusyInGameMode = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
         -- [LOGIKA 1: CEK METEOR EVENT]
-        if Config.AutoMeteor and IsMeteorEventActive and MeteorTargetZone then
+        -- Tambahan: "and not isBusyInGameMode"
+        -- Meteor hanya akan dieksekusi jika event aktif DAN kita TIDAK sedang di GameMode
+        if Config.AutoMeteor and IsMeteorEventActive and MeteorTargetZone and not isBusyInGameMode then
             
             -- [CEK ZONE: APAKAH KITA DI MAP YANG BENAR?]
             if CurrentZoneName ~= MeteorTargetZone then
@@ -1048,103 +1161,6 @@ local function LogicAutoFarm()
         
         task.wait() 
     end
-end
-local function MaintainAutoStatus()
-    while not Window.Destroyed do
-        if Config.AutoFarm or Config.AutoGamemode then
-            local Data = (getgenv()).PlayerData;
-            if Data and Data.Settings and Reliable then
-                if Data.Settings.AutoClick == false then
-                    pcall(function()
-                        Reliable:FireServer("Settings", {
-                            "AutoClick",
-                            true
-                        });
-                    end);
-                end;
-                if Data.Settings.AutoAttack == false then
-                    pcall(function()
-                        Reliable:FireServer("Settings", {
-                            "AutoAttack",
-                            true
-                        });
-                    end);
-                end;
-            end;
-        end;
-        task.wait(1);
-    end;
-end;
-local function isPlayerInZone(zone)
-    local chars = zone:FindFirstChild("Characters");
-    if chars and chars:FindFirstChild(LocalPlayer.Name) then
-        return true;
-    end;
-    return false;
-end;
-local function GetCurrentMapStatus()
-    -- [1] Cek Data Controller
-    local attr = MainController and MainController.Data and MainController.Data.Attributes
-    if attr and attr.Zone and attr.Zone ~= "" then return attr.Zone end
-
-    -- [2] Cek Folder Gamemode (Loop list agar code lebih pendek)
-    for _, mode in ipairs({"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate"}) do
-        if Workspace:FindFirstChild(mode) then return mode end
-    end
-
-    -- [3] Cek Zone Regions & [4] Deteksi Darurat
-    local zonesFolder = Workspace:FindFirstChild("Zones")
-    
-    if zonesFolder then
-        for _, zone in ipairs(zonesFolder:GetChildren()) do
-            if isPlayerInZone(zone) then return zone.Name end
-        end
-    elseif Workspace:FindFirstChild("Enemies") then
-        -- Masuk sini hanya jika folder "Zones" TIDAK ada, tapi "Enemies" ada
-        return "Dungeon:Active"
-    end
-
-    return "Unknown"
-end
-local function CheckIsFightingZone()
-	local mapName = GetCurrentMapStatus()
-    -- List kata kunci mode bertarung
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate"}
-
-    -- Loop cek satu per satu
-    for _, keyword in ipairs(fightingKeywords) do
-        if string.find(keyword,mapName) then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function GetPartPosition(obj)
-    if typeof(obj) == "Instance" then
-        if obj:IsA("Model") then
-            return obj:GetPivot().Position
-        elseif obj:IsA("BasePart") then
-            return obj.Position
-        end
-    end
-    return nil
-end
-local function GetDistance(a, b)
-    local pa = GetPartPosition(a)
-    local pb = GetPartPosition(b)
-    if pa and pb then
-        return (pa - pb).Magnitude
-    end
-    return math.huge
-end
-local function GetEnemiesFolder()
-    local client = workspace:FindFirstChild("Client")
-    if client and client:FindFirstChild("Enemies") then
-        return client.Enemies
-    end
-    return Workspace:FindFirstChild("Enemies")
 end
  
 -- [LOOP 2: LOGIC EKSEKUSI AUTO ROLL]
