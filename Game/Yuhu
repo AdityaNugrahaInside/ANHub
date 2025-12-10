@@ -1,3 +1,6 @@
+if game.PlaceId ~= 79189799490564 then
+    return -- Perintah ini mematikan script seketika di sini
+end
 repeat
     task.wait();
 until game:IsLoaded();
