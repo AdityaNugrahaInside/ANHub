@@ -2115,7 +2115,7 @@ task.spawn(function()
                 -- Rumus: Max Bisa Beli = TradeToken / Ratio
                 local maxCanBuy = math.floor(tradeTokenCount / ratio)
                 outputDisplay = math.floor(maxCanBuy * ExchangePercent) -- Berapa Material yang didapat
-                inputDisplay = outputDisplay * ratio -- Berapa Trade Token yang dibayar
+                inputDisplay = outputDisplay * 1 -- Berapa Trade Token yang dibayar
                 
                 -- Update Teks UI
                 MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay)))
