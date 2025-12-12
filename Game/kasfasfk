@@ -842,63 +842,6 @@ task.spawn(function()
 end)
 
 -- ============================================================================
---  BOSS LOGIC
--- ============================================================================
-
-local function ExecuteKillBoss(bossName)
-    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
-    if not EnemiesFolder then return end
-    
-    local targetBoss = nil
-    local searchTime = 0
-    repeat 
-        for _, mob in pairs(EnemiesFolder:GetChildren()) do
-            if mob.Name == bossName then targetBoss = mob break end
-        end
-        task.wait(0.5)
-        searchTime = searchTime + 0.5
-    until targetBoss or searchTime > 10 
-    
-    if targetBoss then
-        l:Notify({Title="Global Boss", Content="Found " .. bossName .. "! Killing...", Icon="swords"})
-        local head = targetBoss:FindFirstChild("Head")
-        
-        while isGlobalBossActive and targetBoss and targetBoss.Parent and head and head.Transparency == 0 do
-            if not hrp then break end
-            
-            if not isAutoBoss then 
-                isGlobalBossActive = false 
-                break 
-            end
-
-            local targetPos = getPosition(head) + Vector3.new(0, 5, 0)
-            hrp.CFrame = CFrame.new(targetPos)
-            task.wait()
-            if not targetBoss:FindFirstChild("Head") then break end
-        end
-        
-        if isGlobalBossActive then 
-            l:Notify({Title="Global Boss", Content="Defeated! Returning...", Icon="check"})
-            task.wait(1)
-            if savedPreviousMap then SmartTeleport(savedPreviousMap) savedPreviousMap = nil end
-        end
-        isGlobalBossActive = false 
-    else
-        l:Notify({Title="Global Boss", Content="Not Found / Despawned", Icon="x"})
-        isGlobalBossActive = false
-        if savedPreviousMap then SmartTeleport(savedPreviousMap) savedPreviousMap = nil end
-    end
-end
-
-local function TriggerGlobalBoss(bossName, mapName)
-    if isGlobalBossActive then return end
-    if getgenv().PlayerData and getgenv().PlayerData.Map then savedPreviousMap = getgenv().PlayerData.Map else savedPreviousMap = nil end
-    isGlobalBossActive = true
-    SmartTeleport(mapName)
-    ExecuteKillBoss(bossName)
-end
-
--- ============================================================================
 --  CHAT LISTENER (BOSS HUNT & DROP WEBHOOK CLEANER)
 -- ============================================================================
 -- [CHAT EVENT SYSTEM]
@@ -1690,10 +1633,107 @@ table.sort(BossListData, function(a,b)
     return a.SortMapIndex < b.SortMapIndex 
 end)
 -- ============================================================================
---  BOSS SECTION (REVISI: TIMER DI SETIAP ITEM LIST)
+--  NEW BOSS LOGIC (SEQUENTIAL ROTATION + 1 MINUTE WAIT)
 -- ============================================================================
 
--- [1. HELPER TIMER]
+local isBossRotationActive = false
+
+-- [1] FUNGSI UNTUK MEMBUNUH BOSS DI MAP SAAT INI
+local function KillCurrentBoss(bossName)
+    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
+    if not EnemiesFolder then return false end
+    
+    -- Scan Cepat: Cari apakah boss ada di folder enemies client
+    local targetBoss = nil
+    for _, mob in pairs(EnemiesFolder:GetChildren()) do
+        if mob.Name == bossName and (mob:GetAttribute("Health") or 0) > 0 then 
+            targetBoss = mob 
+            break 
+        end
+    end
+    
+    -- LOGIKA: Jika tidak ditemukan, return false (agar loop utama langsung skip ke next boss)
+    if not targetBoss then
+        Notify("Boss Hunt", bossName .. " Not Found/Dead. Skipping...", "fast-forward")
+        return false
+    end
+    
+    -- Jika ditemukan, Lakukan Kill
+    if targetBoss then
+        Notify("Boss Hunt", "Found " .. bossName .. "! Killing...", "swords")
+        local head = targetBoss:FindFirstChild("Head")
+        
+        while isAutoBoss and targetBoss and targetBoss.Parent and (targetBoss:GetAttribute("Health") or 0) > 0 do
+            if not hrp or not humanoid or humanoid.Health <= 0 then break end
+            
+            -- Teleport di atas kepala boss
+            if head then
+                local targetPos = getPosition(head) + Vector3.new(0, 5, 0)
+                hrp.CFrame = CFrame.new(targetPos)
+            end
+            
+            task.wait()
+            -- Cek integritas (jika boss despawn tiba-tiba)
+            if not targetBoss:FindFirstChild("Head") then break end
+        end
+        
+        Notify("Boss Hunt", bossName .. " Defeated.", "check")
+        return true
+    end
+    return false
+end
+
+-- [2] FUNGSI UTAMA ROTASI BOSS (SEQUENCE)
+local function ExecuteBossSequence()
+    if isBossRotationActive then return end
+    isBossRotationActive = true
+    isGlobalBossActive = true -- Stop normal farm agar tidak bentrok
+    
+    -- A. Simpan Map Awal (Home)
+    if getgenv().PlayerData and getgenv().PlayerData.Map then 
+        savedPreviousMap = getgenv().PlayerData.Map 
+    else
+        savedPreviousMap = "Global" 
+    end
+    
+    Notify("Boss Hunt", "Starting Boss Rotation...", "map")
+
+    -- B. Loop semua Boss yang dipilih di Dropdown
+    for _, bossName in ipairs(selectedBosses) do
+        if not isAutoBoss then break end -- Stop jika toggle dimatikan manual
+        
+        local bossData = GlobalBossDB[bossName]
+        if bossData and bossData.Map then
+            local targetMap = bossData.Map
+            
+            -- Cek Map: Jika kita belum di map boss, Teleport dulu
+            if getgenv().PlayerData.Map ~= targetMap then
+                Notify("Boss Hunt", "Warping to " .. targetMap .. " for " .. bossName, "map")
+                SmartTeleport(targetMap)
+                task.wait(1.5) -- Tunggu loading sebentar
+            end
+            
+            -- Coba Kill Boss (Jika tidak ada, fungsi ini langsung return false dan loop lanjut)
+            KillCurrentBoss(bossName)
+            task.wait(0.5)
+        end
+    end
+    
+    -- C. Kembali ke Map Awal (Home)
+    if isAutoBoss and savedPreviousMap and savedPreviousMap ~= "None" then
+        if getgenv().PlayerData.Map ~= savedPreviousMap then
+            Notify("Boss Hunt", "Rotation Done! Returning to " .. savedPreviousMap, "home")
+            SmartTeleport(savedPreviousMap)
+        else
+             Notify("Boss Hunt", "Rotation Done!", "check")
+        end
+    end
+    
+    isBossRotationActive = false
+    isGlobalBossActive = false
+end
+
+-- Helper Timer
 local function GetBossTimer()
     local date = os.date("*t")
     local targetMin = (date.min < 30) and 30 or 60
@@ -1708,9 +1748,46 @@ local function GetBossTimer()
     return string.format("%02d:%02d", m, s)
 end
 
+-- [3] LOOP PENGECEKAN WAKTU SPAWN
+task.spawn(function()
+    local waitingForSpawn = false
+    
+    while not Window.Destroyed do
+        -- Hanya jalan jika Toggle Boss nyala & Sedang tidak rotasi
+        if isAutoBoss and not isBossRotationActive and not IsInGamemode() then
+            local timerText = GetBossTimer()
+            
+            -- Trigger: Jika waktu hitung mundur habis (00:00), artinya Boss Spawn
+            if timerText == "00:00" and not waitingForSpawn then
+                waitingForSpawn = true
+                Notify("Boss Hunt", "Boss Spawned! Waiting 60s to ensure spawn...", "clock")
+                
+                -- [PERMINTAAN ANDA] Tunggu 1 Menit (60 detik)
+                local countdown = 10
+                repeat
+                    if not isAutoBoss then break end
+                    countdown = countdown - 1
+                    task.wait(1)
+                until countdown <= 0
+                
+                -- Jalankan Sequence Rotasi
+                if isAutoBoss then
+                    ExecuteBossSequence()
+                end
+                
+                -- Cooldown sebentar agar tidak trigger double
+                task.wait(10) 
+                waitingForSpawn = false
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+-- UI Bosses Section
 FM_Add("Bosses", MainTab:Toggle({
     Title = "Enable Auto Boss Hunt", 
-    Desc = "Turn this ON to auto-detect Bosses from chat.", 
+    Desc = "Turn this ON to auto-detect Bosses from timer.", 
     Flag = "AutoBoss_Master_Cfg", 
     Callback = function(v) 
         isAutoBoss = v 
@@ -1722,7 +1799,7 @@ FM_Add("Bosses", MainTab:Toggle({
 local BossDropdown = FM_Add("Bosses", MainTab:Dropdown({
     Title = "Select Boss Targets", 
     Desc = "Loading Timers...", 
-    Values = BossListData, -- Menggunakan list yang sudah di-sort sebelumnya
+    Values = BossListData, 
     Multi = true, 
     AllowNone = true, 
     Flag = "GlobalBoss_Selection", 
@@ -1739,65 +1816,33 @@ local BossDropdown = FM_Add("Bosses", MainTab:Dropdown({
 }))
 
 FM_Add("Bosses", MainTab:Button({
-    Title = "Force Start / Scan Current Map", 
-    Desc = "Manually check if a selected boss is in the current map", 
+    Title = "Force Start Rotation", 
+    Desc = "Manually start the boss rotation sequence now.", 
     Icon = "swords", 
     Callback = function() 
-        isAutoBoss = true 
-        local found = false 
-        local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies") 
-        if EnemiesFolder then 
-            for _, mob in pairs(EnemiesFolder:GetChildren()) do 
-                for _, targetName in pairs(selectedBosses) do 
-                    if mob.Name == targetName then 
-                        found = true 
-                        isGlobalBossActive = true 
-                        ExecuteKillBoss(targetName) 
-                        break 
-                    end 
-                end 
-                if found then break end 
-            end 
-        end 
-        if not found then Notify("System", "No selected boss found here.", "search") end 
+        if not isAutoBoss then 
+            Notify("System", "Please enable Auto Boss Hunt first!", "x")
+            return 
+        end
+        task.spawn(ExecuteBossSequence)
     end
 }))
 
--- [3. REALTIME UPDATE LOOP]
+-- [3. REALTIME UPDATE LOOP (UI Only)]
 task.spawn(function()
-    -- Cache status terakhir agar tidak spam update jika detik belum berubah
     local lastTimerText = ""
-
     while not Window.Destroyed do
         if BossDropdown then
             local timerText = GetBossTimer()
-            
-            -- Hanya update jika waktu berubah (setiap detik)
             if timerText ~= lastTimerText then
                 lastTimerText = timerText
-                
-                -- Update Judul Utama Dropdown
                 BossDropdown:SetDesc("Next Spawn: " .. timerText .. " (00/30)")
-
-                -- LOOP SEMUA ITEM DI LIST BOSS
-                -- Kita gunakan 'BossListData' sebagai acuan index
                 for i, bossData in ipairs(BossListData) do
                     local bossName = bossData.Value
-                    
-                    -- Ambil HP asli dari Database agar tidak hilang tertimpa
                     local hpText = "?"
-                    if GlobalBossDB[bossName] then
-                        hpText = GlobalBossDB[bossName].Health or "?"
-                    end
-
-                    -- Format Deskripsi Baru: HP + Timer
+                    if GlobalBossDB[bossName] then hpText = GlobalBossDB[bossName].Health or "?" end
                     local newDescString = "HP: " .. hpText .. " | ⏳ " .. timerText
-                    
-                    -- [PENTING] Gunakan :EditDrop(Index, NewData)
-                    -- Ini akan mengubah item ke-i di dalam list dropdown tanpa me-refresh seluruh list
-                    BossDropdown:EditDrop(i, {
-                        Desc = newDescString
-                    })
+                    BossDropdown:EditDrop(i, { Desc = newDescString })
                 end
             end
         end
@@ -3811,7 +3856,6 @@ EnchantDropdown = FM_Add("Enchant", MainTab:Dropdown({
 EnchantStatusLabel = FM_Add("Enchant", MainTab:Paragraph({
     Title = "Status: None",
     Desc = "Select a sword to see enchantment progress.",
-    Image = "rbxassetid://111231588957724"
 }))
 
 FM_Add("Enchant", MainTab:Toggle({
@@ -3821,7 +3865,7 @@ FM_Add("Enchant", MainTab:Toggle({
     Callback = function(v) isAutoEmpower = v end
 }))
 
--- [3. LOGIC LOOP ENCHANTMENT - FINAL (OPTIMIZED + LVL 0 LOGIC FIXED)]
+-- [3. LOGIC LOOP ENCHANTMENT - FINAL (OPTIMIZED + LVL 0 LOGIC FIXED + DYNAMIC IMAGE)]
 task.spawn(function()
     -- Tracker Data Logika
     local lastSwordDataSignature = ""
@@ -3832,7 +3876,8 @@ task.spawn(function()
     local visualCache = {
         ImageKey = "",
         Title = "",
-        Desc = ""
+        Desc = "",
+        StatusIcon = "" -- Cache baru untuk Icon Label
     }
 
     while not Window.Destroyed do
@@ -3881,6 +3926,7 @@ task.spawn(function()
                     visualCache.ImageKey = ""
                     visualCache.Title = ""
                     visualCache.Desc = ""
+                    visualCache.StatusIcon = ""
                 end
 
                 local enchantData = swordData.Enchantment or {Kills = 0, Level = 0}
@@ -3900,7 +3946,7 @@ task.spawn(function()
                 -- ============================================================
                 if not Window.Closed then
                     
-                    -- 1. UPDATE GAMBAR & GRADIENT (Dengan Caching)
+                    -- 1. UPDATE GAMBAR DROPDOWN & GRADIENT (Dengan Caching)
                     if EnchantDropdown and EnchantDropdown.SetMainImage then
                         local sName = swordData.Name
                         local sRarity = swordData.Rarity or "Common"
@@ -3957,10 +4003,8 @@ task.spawn(function()
                         
                         -- [LOGIC TITLE - LEVEL 0 HANDLER]
                         if currentLevel == 0 then
-                            -- Jika Level 0: Tidak tampilkan nama Enchantment
                             newTitle = string.format("Lvl 0 (%d%%)", percent)
                         else
-                            -- Jika Level > 0: Tampilkan nama Enchantment
                             local encName = (currentLevelData and currentLevelData.Name) or "Unknown"
                             newTitle = string.format("Lvl %d: %s (%d%%)", currentLevel, encName, percent)
                         end
@@ -3978,11 +4022,9 @@ task.spawn(function()
                         local perksSource = nil
                         
                         if currentLevel == 0 then
-                            -- Jika Level 0: Tampilkan "Next Perks" (Milik Level 1)
                             perksHeader = "\n\nNext Perks (Lvl 1):\n"
                             perksSource = nextLevelData
                         else
-                            -- Jika Level > 0: Tampilkan "Current Perks" (Milik Level Saat Ini)
                             perksHeader = "\n\nCurrent Perks:\n"
                             perksSource = currentLevelData
                         end
@@ -4011,6 +4053,22 @@ task.spawn(function()
                         end
                     end
                     
+                    -- [BARU] UPDATE IMAGE STATUS LABEL BERDASARKAN DATABASE
+                    local targetStatusIcon = "rbxassetid://111231588957724" -- Default Fallback
+                    
+                    -- Logic: Jika Level > 0, pakai icon Level tersebut. Jika 0, pakai icon Level 1 (Target).
+                    local iconLevel = (currentLevel > 0) and currentLevel or 1
+                    
+                    if EnchantmentDB and EnchantmentDB[iconLevel] and EnchantmentDB[iconLevel].Icon then
+                        targetStatusIcon = EnchantmentDB[iconLevel].Icon
+                    end
+
+                    -- Apply Image Update dengan Cache Check
+                    if EnchantStatusLabel and visualCache.StatusIcon ~= targetStatusIcon then
+                        EnchantStatusLabel:SetImage(targetStatusIcon)
+                        visualCache.StatusIcon = targetStatusIcon
+                    end
+
                     -- Update UI Title
                     if EnchantStatusLabel and visualCache.Title ~= newTitle then
                         EnchantStatusLabel:SetTitle(newTitle)
@@ -4028,6 +4086,7 @@ task.spawn(function()
                 -- ============================================================
                 elseif isAutoEmpower then
                     visualCache.ImageKey = "" -- Reset cache visual
+                    visualCache.StatusIcon = ""
                     
                     local nextLevelData = EnchantmentDB[currentLevel + 1]
                     if nextLevelData then
