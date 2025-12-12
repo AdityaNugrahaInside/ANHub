@@ -1723,7 +1723,7 @@ isBossRotationActive = false
 
 -- [1] FUNGSI UNTUK MEMBUNUH BOSS DI MAP SAAT INI
 local function KillCurrentBoss(bossName)
-    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies")
+    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies") and workspace.Client.Enemies:FindFirstChild("Glboal Bosses")
     if not EnemiesFolder then return false end
     
     -- Scan Cepat: Cari apakah boss ada di folder enemies client
@@ -1737,7 +1737,7 @@ local function KillCurrentBoss(bossName)
     
     -- LOGIKA: Jika tidak ditemukan, return false (agar loop utama langsung skip ke next boss)
     if not targetBoss then
-        Notify("Boss Hunt", bossName .. " Not Found/Dead. Skipping...", "fast-forward")
+        Notify("Boss Hunt", bossName .. " Not Found/Deads. Skipping...", "fast-forward")
         return false
     end
     
