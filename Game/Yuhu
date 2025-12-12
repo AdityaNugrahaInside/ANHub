@@ -1943,7 +1943,7 @@ local ExchangeIsBuying = false -- Default Selling (False)
 
 -- Fungsi Helper untuk mengambil Ratio Harga
 local function GetExchangeRatio(tokenKey)
-    local val = nil
+    local val = 0.1
     if MaterialsModule[tokenKey].ExchangeRatio then
         val = MaterialsModule[tokenKey].ExchangeRatio
     elseif tokenKey == "TradeToken" then
