@@ -1944,9 +1944,10 @@ local ExchangeIsBuying = false -- Default Selling (False)
 -- Fungsi Helper untuk mengambil Ratio Harga
 local function GetExchangeRatio(tokenKey)
     local val = 0.1
+    if not tokenKey or not MaterialsModule[tokenKey] then return 0.1 end
     if MaterialsModule[tokenKey].ExchangeRatio then
         val = MaterialsModule[tokenKey].ExchangeRatio
-    elseif tokenKey == "TradeToken" then
+    elseif MaterialsModule[tokenKey].Display == "Trade Token" then
         val = 1
     else
         val = 0.1
@@ -2120,7 +2121,7 @@ task.spawn(function()
                 inputDisplay = outputDisplay * ratio -- Berapa Trade Token yang dibayar
                 
                 -- Update Teks UI
-                MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay)))
+                MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay/10)))
                 TradePreview:SetDesc(string.format("Stock: %s | -%s (Pay)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(inputDisplay)))
             else
                 -- MODE JUAL (Sell): Material -> Trade Token
