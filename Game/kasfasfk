@@ -17,6 +17,10 @@ local VirtualUser = game:GetService('VirtualUser')
 local PlayerScripts = LocalPlayer:WaitForChild("PlayerScripts")
 
 -- [VARS & CHARACTER]
+-- ============================================================================
+-- [GLOBAL VARIABLES & STATE]
+-- ============================================================================
+-- 1. Character & Core
 local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local hrp = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
@@ -26,6 +30,81 @@ LocalPlayer.CharacterAdded:Connect(function(newChar)
     hrp = newChar:WaitForChild("HumanoidRootPart")
     humanoid = newChar:WaitForChild("Humanoid")
 end)
+
+-- 2. Game State & Configs
+local attackRangePart 
+local distance = 10000
+local attackRange 
+local isUpdatingUI = false 
+local isTransitioning = false 
+
+-- 3. Feature Flags & Lists
+local targetList = {}
+local nameList = {} 
+local isFarm1 = false
+
+local selectedBosses = {}
+local isAutoBoss = false 
+local isGlobalBossActive = false 
+local savedPreviousMap = nil
+local isBossRotationActive = false
+local MapList = {"None"}
+local BossListData = {}
+
+local waveTrial = 0
+local targetWaveTrial = 500
+local trialList = {{name = "TrialEasy", time = 15}}
+local isTrial = false
+
+local waveRaid = 0
+local targetWaveRaid = 50
+local isRaid = false
+local raidJoinList = {{name = "Raid", time = 0}} 
+
+local SelectedGamemodeName = "TrialEasy"
+local ActiveEventsFromChat = {} 
+local UI_GM = { WaveInput = nil, AutoToggle = nil, KeyToggle = nil, InfoLabel = nil }
+local GM_DropdownList = {}
+
+local GlobalGachaSources = {} 
+local powerList = {}        
+local PowerToggles = {}
+local selectedGachaSwordSID = nil
+local SwordPassiveTargets = {} 
+local TalentRankList = {'F', 'E', 'D', 'C', 'B', "A-", 'A'} 
+local FormattedTalentTargets = {}
+
+local wu_SelectedMap = "Current Map"
+local WU_MapConfig = {} 
+local targetStar = "None"
+local isRankUp = false
+
+local UI = {} 
+local DifficultyRank = {["Very Easy"]=1, ["Easy"]=2, ["Medium"]=3, ["Hard"]=4, ["Insane"]=5, ["Boss"]=6, ["Godlike"]=7}
+local lastCachedMap = nil
+
+-- 4. Databases (Empty Init)
+local GlobalBossDB = {}
+local GlobalHeroesExpeditionDB = {}
+local GlobalGradientDB = {}
+local GlobalRankDB = {}
+local GlobalMapDB = {}
+local GlobalWorldUpgradeDB = {}
+local GlobalUpgradeSystemsDB = {}
+local CharacterIcons = {}
+local GlobalItemDB = {}
+local GlobalAvatarDB = {}
+local GlobalSwordDB = {}
+local GlobalGamemodeDB = {}
+local GamemodeSettings = {}
+local GlobalRunesDB = {}
+
+-- 5. Rune System
+local SelectedRuneSlot = "Rune"
+local SelectedRuneToAct = "Damage Rune"
+local isAutoPrestige = false
+local AutoPrestigeDelay = 0.5
+
 
 -- Anti-AFK
 LocalPlayer.Idled:Connect(function()
@@ -62,8 +141,6 @@ if not isfolder(ConfigPath) then makefolder(ConfigPath) end
 
 -- [DATA SYSTEM: MAP SELECTION]
 local MapSelections = {}
-local isUpdatingUI = false 
-local isTransitioning = false 
 
 -- Load Data Map Selections
 if isfile(SelectionsFile) then
@@ -181,34 +258,8 @@ local function Notify(title, content, icon)
 end
 
 -- ============================================================================
---  GAME LOGIC VARIABLES
+--  GAME LOGIC VARIABLES (Moved to Global Header)
 -- ============================================================================
-local attackRangePart 
-local distance = 10000
-local attackRange 
-
--- Farm Vars
-local targetList = {}
-local nameList = {} 
-local isFarm1 = false
-
--- Boss Vars
-local selectedBosses = {}
-local isAutoBoss = false 
-local isGlobalBossActive = false 
-local savedPreviousMap = nil
-
--- Dungeon/Trial Vars
-local waveTrial = 0
-local targetWaveTrial = 500
-local trialList = {{name = "TrialEasy", time = 15}}
-local isTrial = false
-
--- Raid Vars
-local waveRaid = 0
-local targetWaveRaid = 50
-local isRaid = false
-local raidJoinList = {{name = "Raid", time = 0}} 
 
 -- Helper untuk Cek Map Unlocked
 local function IsMapUnlocked(mapName)
@@ -226,34 +277,14 @@ end
 --  GACHA SYSTEM (FIXED: SWORD PASSIVE 2-COLUMN GRID)
 -- ============================================================================
 
--- [1. VARIABLES & DATA STORAGE]
-local GlobalGachaSources = {} 
-local powerList = {}        
-local PowerToggles = {}
-local selectedGachaSwordSID = nil
-local SwordPassiveTargets = {} 
-local TalentRankList = {'F', 'E', 'D', 'C', 'B', "A-", 'A'} 
-local FormattedTalentTargets = {}
+-- [1. VARIABLES & DATA STORAGE] (Moved to Header)
 
 -- ============================================================================
 --  MODULAR DATA LOADER SYSTEM
 -- ============================================================================
 
 
--- Definisi Variabel Global Database
-GlobalBossDB = {}
-GlobalHeroesExpeditionDB = {}
-GlobalGradientDB = {}
-GlobalRankDB = {}
-GlobalMapDB = {}
-GlobalWorldUpgradeDB = {}
-GlobalUpgradeSystemsDB = {}
-CharacterIcons = {}
-GlobalItemDB = {}
-GlobalAvatarDB = {}
-GlobalSwordDB = {}
-GlobalGamemodeDB = {}
-GamemodeSettings = {} 
+-- Definisi Variabel Global Database (Moved to Header)
 
 local function LoadGameData()
     local RS = game:GetService("ReplicatedStorage")
@@ -309,6 +340,7 @@ local function LoadGameData()
     GlobalItemDB             = RequireModule("Shared.Items")
     GlobalAvatarDB           = RequireModule("Shared.Avatars")
     GlobalSwordDB            = RequireModule("Shared.Swords")
+    GlobalRunesDB            = RequireModule("Shared.Runes")
 
     -- 2. Load Folder Modules (Sistem Upgrade)
     GlobalWorldUpgradeDB     = RequireFolder("Shared.WorldUpgrades")
@@ -445,8 +477,8 @@ end
 task.spawn(LoadDynamicGachaList)
 
 -- World Upgrades Vars
-local wu_SelectedMap = "Current Map"
-local WU_MapConfig = {} 
+wu_SelectedMap = "Current Map"
+WU_MapConfig = {} 
 local function GetWUConfig(mapName)
     if not WU_MapConfig[mapName] then
         WU_MapConfig[mapName] = {Power = false, Damage = false, Coins = false}
@@ -455,8 +487,8 @@ local function GetWUConfig(mapName)
 end
 
 -- Stronger
-local targetStar = "None"
-local isRankUp = false
+targetStar = "None"
+isRankUp = false
 
 -- Range Checker
 task.spawn(function()
@@ -506,9 +538,7 @@ end
 -- ============================================================================
 --  ENEMY LIST & AUTO SELECT (FARMING) [LAG FIXED]
 -- ============================================================================
-local UI = {} 
-local DifficultyRank = {["Very Easy"]=1, ["Easy"]=2, ["Medium"]=3, ["Hard"]=4, ["Insane"]=5, ["Boss"]=6, ["Godlike"]=7}
-local lastCachedMap = nil -- [OPTIMIZATION] To prevent unnecessary refreshing
+-- UI, DifficultyRank, lastCachedMap moved to Header
 
 local function resetEnemiesList()
     isUpdatingUI = true
@@ -831,10 +861,36 @@ local function FarmServerEnemies()
     end
 end
 
+
+-- [HELPER] Fungsi untuk mendapatkan folder target berdasarkan Map
+local function GetTargetFolder(mapName)
+    if not mapName then return nil end
+    
+    -- Path dasar: workspace.Server.Enemies.Gamemodes
+    local server = workspace:FindFirstChild("Server")
+    local enemies = server and server:FindFirstChild("Enemies")
+    local gamemodes = enemies and enemies:FindFirstChild("Gamemodes")
+    
+    if gamemodes then
+        return gamemodes:FindFirstChild(mapName)
+    end
+    return nil
+end
+
+local function IsSwordsmanActive()
+    local folder = GetTargetFolder("SwordsmanInvasion")
+    if folder and #folder:GetChildren() > 0 then
+        -- Cek settings
+        local settings = GamemodeSettings["SwordsmanInvasion"]
+        return settings and settings.Active
+    end
+    return false
+end
+
 -- Loop Utama Eksekusi Farm
 task.spawn(function()
     while not Window.Destroyed do
-        if isFarm1 and not isGlobalBossActive and not isTransitioning and not IsInGamemode() then
+        if isFarm1 and not isGlobalBossActive and not isTransitioning and not IsInGamemode() and not IsSwordsmanActive() then
             FarmServerEnemies()
         end
         task.wait(0.1)
@@ -845,7 +901,7 @@ end)
 --  CHAT LISTENER (BOSS HUNT & DROP WEBHOOK CLEANER)
 -- ============================================================================
 -- [CHAT EVENT SYSTEM]
-local ActiveEventsFromChat = {} -- Tabel sementara untuk menyimpan status event chat
+ActiveEventsFromChat = {} -- Tabel sementara untuk menyimpan status event chat
 
 -- Helper: Membersihkan format teks (HTML tags) dari chat
 local function CleanRichText(str)
@@ -905,21 +961,6 @@ local ATTACK_DISTANCE = 5      -- Jarak mundur dari musuh (Z axis)
 local HOVER_HEIGHT = 1         -- Tinggi tambahan di atas kepala musuh
 local DEAD_CHECK_RADIUS = 5    -- Radius cek kematian di EnemiesData
 
--- [HELPER] Fungsi untuk mendapatkan folder target berdasarkan Map
-local function GetTargetFolder(mapName)
-    if not mapName then return nil end
-    
-    -- Path dasar: workspace.Server.Enemies.Gamemodes
-    local server = workspace:FindFirstChild("Server")
-    local enemies = server and server:FindFirstChild("Enemies")
-    local gamemodes = enemies and enemies:FindFirstChild("Gamemodes")
-    
-    if gamemodes then
-        return gamemodes:FindFirstChild(mapName)
-    end
-    return nil
-end
-
 -- [HELPER] Fungsi untuk mendapatkan CFrame Target (Model/Part)
 local function GetTargetCFrame(instance)
     if instance:IsA("BasePart") then
@@ -931,9 +972,9 @@ local function GetTargetCFrame(instance)
 end
 
 -- [GAMEMODE KILLER - ANTI FLOAT / NAPAK TANAH FIX]
-local function GamemodeKiller(stopCheckFunc)
+local function GamemodeKiller(stopCheckFunc, overrideMapName)
     -- Inisialisasi
-    local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
+    local currentMap = overrideMapName or (getgenv().PlayerData and getgenv().PlayerData.Map)
     local serverFolder = GetTargetFolder(currentMap)
 
     if not serverFolder then 
@@ -1029,7 +1070,7 @@ end
 -- ============================================================================
 
 -- [1] DATA INITIALIZATION
-local SelectedGamemodeName = "TrialEasy"
+SelectedGamemodeName = "TrialEasy"
 
 -- Load Gamemode Database
 local function LoadGamemodeDB()
@@ -1049,6 +1090,23 @@ local function LoadGamemodeDB()
     end
 end
 LoadGamemodeDB()
+
+-- Manually add SwordsmanInvasion if not present (Custom Event)
+if not GamemodeSettings["SwordsmanInvasion"] then
+    GamemodeSettings["SwordsmanInvasion"] = {
+        Active = false,
+        TargetWave = 9999,
+        UseKey = false,
+        Priority = false
+    }
+end
+if not GlobalGamemodeDB["SwordsmanInvasion"] then
+    GlobalGamemodeDB["SwordsmanInvasion"] = {
+        DisplayName = "Swordsman Invasion",
+        MaxWave = 9999
+    }
+end
+
 -- [SAVE SYSTEM] GAMEMODE CONFIG
 local GamemodeConfigFile = FolderPath .. "/GamemodeSettings.json"
 
@@ -1128,11 +1186,46 @@ task.spawn(function()
             if settings.Active then
                 local dbData = GlobalGamemodeDB[modeName]
                 
+                local isSwordsmanInvading = (modeName == "SwordsmanInvasion" and GetTargetFolder("SwordsmanInvasion") and #GetTargetFolder("SwordsmanInvasion"):GetChildren() > 0)
+
                 -- KONDISI A: SEDANG DI DALAM GAMEMODE (Logic Exit)
-                if currentMap == modeName then
+                if currentMap == modeName or isSwordsmanInvading then
                     local targetWave = settings.TargetWave
                     
-                    if detectedWave >= targetWave and detectedWave > 0 then
+                    if modeName == "SwordsmanInvasion" then
+                        local requiredMap = "World of Aincrad"
+                        
+                        -- 1. Cek Map Requirement
+                        if currentMap ~= requiredMap then
+                             Notify(modeName, "Teleporting to " .. requiredMap .. " for Invasion...", "map")
+                             SmartTeleport(requiredMap)
+                             task.wait(2) -- Tunggu loading sebentar
+                             return -- Stop iterasi kali ini, tunggu loop berikutnya di map baru
+                        end
+
+                        -- 2. Simpan Map Asal (Hanya jika kita baru saja pindah dari map lain ke WoA, 
+                        -- tapi karena kita sudah di WoA, logic ini mungkin perlu penyesuaian jika ingin balik ke map "sebelum" WoA.
+                        -- Untuk amannya, kita asumsikan user stay di WoA atau balik manual)
+                        if not savedPreviousMap and currentMap ~= requiredMap then
+                            savedPreviousMap = currentMap
+                        end
+                        
+                        -- 3. Bunuh Musuh
+                        GamemodeKiller(function()
+                            local folder = GetTargetFolder("SwordsmanInvasion")
+                            return settings.Active and folder and #folder:GetChildren() > 0
+                        end, "SwordsmanInvasion")
+                        
+                        -- 4. Balik ke Map Asal (Optional, sesuai request: "setelah sudah mati baru teleport ke map asal")
+                        -- Jika savedPreviousMap ada (berarti tadi dari map lain), kita balik.
+                        if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= requiredMap then
+                            Notify(modeName, "Invasion Cleared! Returning...", "check")
+                            isTransitioning = false 
+                            SmartTeleport(savedPreviousMap)
+                            savedPreviousMap = nil 
+                        end
+
+                    elseif detectedWave >= targetWave and detectedWave > 0 then
                         if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= "Loading" then
                             Notify(modeName, "Target Reached ("..detectedWave..")! Leaving...", "check")
                             isTransitioning = false 
@@ -1150,7 +1243,7 @@ task.spawn(function()
 
                 -- KONDISI B: DI LOBBY (SIAP JOIN)
                 -- Kita tambahkan 'not IsInGamemode()' agar tidak join kalau lagi main mode lain
-                elseif not isBusy and currentMap ~= "None" and currentMap ~= "Loading" and not IsInGamemode() then
+                elseif not isBusy and currentMap ~= "None" and currentMap ~= "Loading" and not IsInGamemode() and modeName ~= "SwordsmanInvasion" then
                     if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= "Loading" then
                         Notify("System", "Returning to: " .. savedPreviousMap, "map")
                         isTransitioning = false 
@@ -1214,9 +1307,6 @@ end
 
 task.spawn(function()
     while not Window.Destroyed do
-        if targetStar and targetStar ~= "None" then
-            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({{"General", "Stars", "Open", targetStar, 10, n = 10}, "\2"})
-        end
         if isRankUp == true and getgenv().PlayerData and GlobalRankDB then
             local pData = getgenv().PlayerData
             local nextRank = (pData.Rank or 0) + 1
@@ -1305,7 +1395,8 @@ local FM_Category = MainTab:Category({
         {Title="Trial Upgrades", Icon="zap"},
         {Title="Upgrade Rank", Icon="chevrons-up"},
         {Title="Expedition", Icon="compass"},
-        {Title="Enchant", Icon="sparkles"}, -- <--- TAMBAHKAN INI (Baris Baru)
+        {Title="Runes", Icon="hexagon"}, -- <--- TAMBAHKAN INI (Baris Baru)
+        {Title="Enchant", Icon="sparkles"},
         {Title="Stronger", Icon="star"}
     },
     Callback = FM_OnChange
@@ -1434,6 +1525,7 @@ task.spawn(function()
                 local newDesc = baseHP .. " | Alive: " .. liveCount
                 
                 -- Edit Dropdown (Hanya jika teks berubah)
+                -- OPTIMASI FPS: Cek apakah nilai benar-benar berubah sebelum memanggil fungsi UI
                 if currentDesc ~= newDesc then
                     UI.EnemyDD:EditDrop(i, {
                         Desc = newDesc
@@ -1446,8 +1538,42 @@ task.spawn(function()
     end
 end)
 
+-- PATCH OPTIMASI FUNGSI UI (SetDesc, SetTitle, SetMainImage)
+-- Kita bungkus fungsi asli dengan pengecekan state (Cache) agar tidak memicu re-render jika data sama
+if UI.EnemyDD then
+    local oldSetMainImage = UI.EnemyDD.SetMainImage
+    local lastMainImage = nil
+    
+    UI.EnemyDD.SetMainImage = function(self, imageInfo, size)
+        -- Jika input sama persis dengan cache, batalkan update
+        -- Note: Kita perlu handling tipe data table vs string
+        local isSame = false
+        if type(imageInfo) == "table" and type(lastMainImage) == "table" then
+             if imageInfo.Image == lastMainImage.Image and imageInfo.Gradient == lastMainImage.Gradient then
+                 isSame = true
+             end
+        elseif imageInfo == lastMainImage then
+             isSame = true
+        end
+        
+        if isSame then return end -- SKIP UPDATE
+        
+        lastMainImage = imageInfo
+        if oldSetMainImage then oldSetMainImage(self, imageInfo, size) end
+    end
+    
+    local oldSetValueImage = UI.EnemyDD.SetValueImage
+    local lastValueImage = nil
+    
+    UI.EnemyDD.SetValueImage = function(self, img)
+        if img == lastValueImage then return end
+        lastValueImage = img
+        if oldSetValueImage then oldSetValueImage(self, img) end
+    end
+end
+
 -- BOSSES
-local MapList = {"None"}
+MapList = {"None"}
 task.spawn(function()
     local added = {}
     for _, data in pairs(GlobalBossDB) do
@@ -1482,7 +1608,7 @@ local function ParseHealth(str)
     return num * mult
 end
 
-local BossListData = {}
+table.clear(BossListData)
 
 -- Loop Boss Database
 for name, data in pairs(GlobalBossDB) do
@@ -1593,7 +1719,7 @@ end)
 --  NEW BOSS LOGIC (SEQUENTIAL ROTATION + 1 MINUTE WAIT)
 -- ============================================================================
 
-local isBossRotationActive = false
+isBossRotationActive = false
 
 -- [1] FUNGSI UNTUK MEMBUNUH BOSS DI MAP SAAT INI
 local function KillCurrentBoss(bossName)
@@ -1791,23 +1917,29 @@ task.spawn(function()
     while not Window.Destroyed do
         if BossDropdown then
             local timerText = GetBossTimer()
+            
+            -- OPTIMASI FPS: Hanya update Header Utama Dropdown
+            -- Kita tidak lagi update 50+ item di dalam dropdown setiap detik karena menyebabkan FPS Drop parah
             if timerText ~= lastTimerText then
                 lastTimerText = timerText
                 BossDropdown:SetDesc("Next Spawn: " .. timerText .. " (00/30)")
-                for i, bossData in ipairs(BossListData) do
-                    local bossName = bossData.Value
-                    local hpText = "?"
-                    if GlobalBossDB[bossName] then hpText = GlobalBossDB[bossName].Health or "?" end
-                    local newDescString = "HP: " .. hpText .. " | ⏳ " .. timerText
-                    BossDropdown:EditDrop(i, { Desc = newDescString })
-                end
+                
+                -- OPTIONAL: Update item HANYA jika dropdown sedang dibuka (tapi API WindUI tidak mengekspos state isOpen)
+                -- Jadi kita DISABLE update individual item timer demi performa.
+                -- User tetap bisa lihat timer di Header Dropdown.
+                
+                -- for i, bossData in ipairs(BossListData) do
+                --     local bossName = bossData.Value
+                --     local hpText = "?"
+                --     if GlobalBossDB[bossName] then hpText = GlobalBossDB[bossName].Health or "?" end
+                --     local newDescString = "HP: " .. hpText .. " | ⏳ " .. timerText
+                --     BossDropdown:EditDrop(i, { Desc = newDescString })
+                -- end
             end
         end
         task.wait(1)
     end
 end)
-
-
 
 -- [CHAT LISTENER] Deteksi Event Start (Raid / Eclipse)
 game:GetService("TextChatService").MessageReceived:Connect(function(message)
@@ -1848,10 +1980,10 @@ end)
 -- ============================================================================
 
 -- UI Reference Variables
-local UI_GM = { WaveInput = nil, AutoToggle = nil, KeyToggle = nil, InfoLabel = nil }
+UI_GM = { WaveInput = nil, AutoToggle = nil, KeyToggle = nil, InfoLabel = nil }
 
 -- 1. Generate Dropdown List
-local GM_DropdownList = {}
+table.clear(GM_DropdownList)
 for name, _ in pairs(GlobalGamemodeDB) do table.insert(GM_DropdownList, name) end
 table.sort(GM_DropdownList)
 
@@ -2418,6 +2550,188 @@ task.spawn(function()
     end
 end)
 
+-- ============================================================================
+-- [RUNES SYSTEM IMPLEMENTATION]
+-- ============================================================================
+
+-- Helper: Get Owned Runes List for Dropdown
+local function GetOwnedRunesList()
+    local list = {}
+    local pData = getgenv().PlayerData
+    
+    if pData and pData.Runes then
+        for name, data in pairs(pData.Runes) do
+            local level = data.Level or 0
+            
+            local iconId = "rbxassetid://84366761557806"
+            if GlobalRunesDB and GlobalRunesDB[name] and GlobalRunesDB[name].Icon then
+                iconId = GlobalRunesDB[name].Icon
+            end
+            
+            table.insert(list, {
+                Title = string.format("%s (Lv %d)", name, level),
+                Value = name,
+                Icon = iconId
+            })
+        end
+    end
+    
+    if #list == 0 then
+        table.insert(list, {Title = "No Runes Found", Value = "None"})
+        return list
+    end
+    
+    table.sort(list, function(a, b) return a.Title < b.Title end)
+    return list
+end
+
+local function HasEnoughMaterials(runeName, prestigeTier)
+    local pData = getgenv().PlayerData
+    
+    -- 1. Cek Data Pemain & Database
+    if not pData or not pData.Items then return false end
+    if not GlobalRunesDB or not GlobalRunesDB[runeName] then return false end
+
+    local runeConfig = GlobalRunesDB[runeName]
+    if not runeConfig.Prestige then return false end
+
+    -- 2. Tentukan Tier Selanjutnya
+    -- Kita coba ambil pakai String ("1") dan Number (1) untuk memastikan ketemu
+    local nextTierNum = prestigeTier + 1
+    local requirements = runeConfig.Prestige[tostring(nextTierNum)] or runeConfig.Prestige[nextTierNum]
+
+    -- PENTING: Jika requirements tidak ditemukan/kosong, jangan return true sembarangan.
+    -- Asumsikan jika tidak ada config untuk tier selanjutnya, berarti max level atau error.
+    if not requirements then 
+        return false 
+    end
+
+    -- 3. Loop Cek Material
+    for itemName, requiredAmount in pairs(requirements) do
+        -- Ambil jumlah item yang dimiliki pemain
+        local ownedAmount = pData.Items[itemName] or 0
+        
+        -- Pastikan tipe data benar-benar angka
+        local numOwned = tonumber(ownedAmount) or 0
+        local numReq = tonumber(requiredAmount) or 0
+
+        -- LOGIKA CEK:
+        if numOwned < numReq then
+            -- Uncomment baris di bawah ini jika ingin melihat item apa yang kurang di Console (F9)
+            -- warn(string.format("[Rune Check] Gagal: %s | Punya: %d | Butuh: %d", itemName, numOwned, numReq))
+            
+            return false -- Jika ada SATU saja yang kurang, langsung return false
+        end
+    end
+
+    -- Jika loop selesai tanpa return false, berarti semua cukup
+    return true
+end
+
+-- Dropdown: Rune Selection (Auto-Updating)
+local RuneEquipDD = MainTab:Dropdown({
+    Title = "List Runes",
+    Value = "Damage Rune",
+    Values = GetOwnedRunesList(),
+    Flag = "RuneSelect_Cfg",
+    Callback = function(v)
+        SelectedRuneToAct = (type(v) == "table" and v.Value) or v
+    end
+})
+FM_Add("Runes", RuneEquipDD)
+
+local PrestigeToggle = MainTab:Toggle({
+    Title = "Auto Prestige All Runes",
+    Desc = "Automatically prestige all runes if materials are available.",
+    Default = isAutoPrestige,
+    Flag = "RuneAutoPrestige_Cfg",
+    Callback = function(v)
+        isAutoPrestige = v
+        Notify("Rune System", (v and "Auto Prestige Enabled." or "Auto Prestige Disabled."), "star")
+    end
+})
+FM_Add("Runes", PrestigeToggle)
+
+-- Background Tasks: Auto Prestige & UI Updater
+task.spawn(function()
+    local lastRuneLevels = {}
+
+    while not Window.Destroyed do
+        task.wait(AutoPrestigeDelay)
+        
+        local pData = getgenv().PlayerData
+        if not pData or not pData.Runes then 
+            task.wait(1)
+            continue 
+        end
+
+        -- 1. Auto Prestige Logic
+        if isAutoPrestige and GlobalRunesDB and next(GlobalRunesDB) ~= nil then
+            for runeName, runeData in pairs(pData.Runes) do
+                local currentPrestigeTier = runeData.PrestigeTier or 0
+                if GlobalRunesDB[runeName] then
+                    if HasEnoughMaterials(runeName, currentPrestigeTier) then
+                        local args = {{{"General", "Runes", "Prestige", runeName}, "\2"}}
+                        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer(unpack(args))
+                        Notify("Auto Prestige", string.format("Request Prestige %s", runeName), "star")
+                        task.wait(0.5)
+                    end
+                end
+            end
+        end
+        
+        -- 2. Auto Update UI (Dropdown Title)
+        -- Check for Level changes to update Dropdown Title via :EditDrop
+        if RuneEquipDD and RuneEquipDD.Values then
+             local needsFullRefresh = false
+             
+             -- Detect New/Removed Runes count
+             local currentCount = 0
+             for _ in pairs(pData.Runes) do currentCount = currentCount + 1 end
+             local cachedCount = 0
+             for _ in pairs(lastRuneLevels) do cachedCount = cachedCount + 1 end
+             
+             if currentCount ~= cachedCount then
+                 needsFullRefresh = true
+             else
+                 -- Check individual level changes
+                 for runeName, runeData in pairs(pData.Runes) do
+                     local lvl = runeData.Level or 0
+                     if lastRuneLevels[runeName] ~= lvl then
+                         lastRuneLevels[runeName] = lvl
+                         
+                         -- Find index in Dropdown
+                         local targetIndex = nil
+                         for i, v in ipairs(RuneEquipDD.Values) do
+                             local val = (type(v) == "table" and v.Value) or v
+                             if val == runeName then
+                                 targetIndex = i
+                                 break
+                             end
+                         end
+                         
+                         if targetIndex then
+                             -- Update Title using EditDrop
+                             RuneEquipDD:EditDrop(targetIndex, {
+                                 Title = string.format("%s (Lv %d)", runeName, lvl)
+                             })
+                         else
+                             needsFullRefresh = true -- Rune exists in data but not in list? Refresh.
+                         end
+                     end
+                 end
+             end
+             
+             if needsFullRefresh then
+                 lastRuneLevels = {}
+                 for k,v in pairs(pData.Runes) do lastRuneLevels[k] = v.Level or 0 end
+                 RuneEquipDD:Refresh(GetOwnedRunesList())
+             end
+        end
+    end
+end)
+
+-- ============================================================================
 -- [2. UI GENERATOR - 2 PER ITEM LAYOUT (FIXED TALENT POSITION)]
 local currentGachaGroup
 local GachaSwordDropdown -- Reference untuk update realtime
@@ -3499,7 +3813,7 @@ task.spawn(function()
             end
 
             -- E. EXECUTE FARMING
-            if GQ_IsAutoDo and activeTarget then
+            if GQ_IsAutoDo and activeTarget and not IsInGamemode() then
                 local targetName = activeTarget.Enemy
                 local targetMap = activeTarget.Map
                 
@@ -4101,6 +4415,7 @@ task.spawn(function()
         task.wait(1) 
     end
 end)
+
 
 -- SETTINGS TAB
 local SettingsTab = Window:Tab({Title = "Settings", Icon = "settings-2"})
