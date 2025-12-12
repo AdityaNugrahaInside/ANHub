@@ -37,7 +37,7 @@ local MaterialsModule = require(ConfigsPath.General.Materials)
 local YenModule = require(ConfigsPath.Machines.YenUpgrades)
 local TokenModule = require(ConfigsPath.Machines.TokenUpgrades)
 local RankModule = require(ConfigsPath.Machines.RankUp)
-
+local AvatarLevelsModule = require(ConfigsPath.Machines.AvatarLevels) -- DITAMBAHKAN
 -- // Variables //
 local TradeTokenInfo = MaterialsModule.TradeToken
 local YenUpgradeConfig = YenModule.Config
@@ -95,7 +95,12 @@ local Config = {
     TargetWave = 500,
     TeleportBackMap = "None",
     AutoEquipVaultMode = nil,
-    AutoEquipVaultFarm = nil
+    AutoEquipVaultFarm = nil,
+    AutoAvatarLevelUp = false,
+    AutoJoinDefense = false,
+    AutoJoinRaid = false,
+    AutoRollHeroStats = false,
+    HeroesStats_LockStats = ""
 }
 
 -- // UI Variables //
@@ -480,6 +485,17 @@ local function GetTrainerIcon()
     return icon
 end
 
+local function GetAvatarTokenIcon()
+    local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
+    local config = MaterialsModule[tokenKey]
+    if config and config.Template then
+        return "rbxassetid://" .. tostring(config.Template)
+    end
+    -- Fallback default icon (Ganti dengan asset ID yang Anda inginkan)
+    return "rbxassetid://13106597792758" 
+end
+
+
 local function LoadRollData(rollType)
     local success, module = pcall(function()
         return require(ConfigsPath.RollGachas[rollType])
@@ -567,12 +583,16 @@ local function GenerateCardRewards(chanceRewardData)
     local rewardCards = {}
     if not chanceRewardData then return rewardCards end
 
+    -- Isi rawCards dengan data lengkap, termasuk kriteria untuk sorting
+    local rawCards = {}
+
     for rewardKey, chanceVal in pairs(chanceRewardData) do
         local parts = string.split(rewardKey, ".")
         local category = parts[1]
         local itemId = parts[2]
         
         local itemData = nil
+        -- NOTE: Asumsi MaterialsModule, WeaponsModule, AccessoriesConfig sudah didefinisikan di lingkungan kode.
         if category == "Materials" and MaterialsModule[itemId] then
             itemData = MaterialsModule[itemId]
         elseif category == "Weapons" and WeaponsModule[itemId] then
@@ -594,15 +614,47 @@ local function GenerateCardRewards(chanceRewardData)
                 local itemName = itemData.Display or itemId
                 local chanceStr = "Rate:" .. tostring(chanceVal) .. "%"
 
-                table.insert(rewardCards, {
+                table.insert(rawCards, {
                     Image = imgId,
                     Gradient = GetGameGradient(rarity),
                     Quantity = chanceStr,
-                    Title = itemName
+                    Title = itemName,
+                    
+                    -- Kriteria Sorting Tambahan (hanya untuk internal)
+                    ChanceValue = chanceVal, -- Prioritas 1
+                    ItemId = itemId,         -- Prioritas 2
+                    Category = category      -- Prioritas 3
                 })
             end
         end
     end
+
+    -- Blok kode untuk menyortir rawCards berdasarkan 3 kriteria
+    table.sort(rawCards, function(a, b)
+        -- PRIORITAS 1: ChanceValue (Menurun)
+        if a.ChanceValue ~= b.ChanceValue then
+            return a.ChanceValue > b.ChanceValue
+        end
+        
+        -- PRIORITAS 2: ItemId (Menaik/Alfabetis)
+        if a.ItemId ~= b.ItemId then
+            return a.ItemId < b.ItemId
+        end
+
+        -- PRIORITAS 3: Category (Menaik/Alfabetis)
+        return a.Category < b.Category
+    end)
+    
+    -- Memindahkan data yang sudah disortir ke rewardCards dan membersihkan field sementara
+    for _, card in ipairs(rawCards) do
+        table.insert(rewardCards, {
+            Image = card.Image,
+            Gradient = card.Gradient,
+            Quantity = card.Quantity,
+            Title = card.Title
+        })
+    end
+
     return rewardCards
 end
 
@@ -621,6 +673,7 @@ local function RefreshEnemyData()
                 -- Hindari duplikasi musuh
                 if not added[displayName] then
                     added[displayName] = true
+                    data.ChanceReward["Materials.AvatarToken.5"] = 5
                     
                     local rewardImages = GenerateCardRewards(data.ChanceReward)
 
@@ -1284,6 +1337,8 @@ local FM_CategoryDescriptions = {
     ["Zone Farming"] = "Auto farm enemies per zone and specific targets",
     ["GameModes"] = "Auto Join & Farm Dungeons/Raids by Time",
     ["Vault"] = "Auto Equipped Best Vault for battle/lobby",
+    ["Avatar Level"] = "Upgrade Avatar Level, view stats and costs",
+    ["Heroes Stats"] = "Reroll Heroes Stats, view stats and costs",
     ["Exchange"] = "Exchange materials, preview tokens and calculate amounts",
     ["Crate Roll"] = "Auto roll various gachas and monitor material stock",
     ["Upgrade: Yen"] = "Upgrade Yen buff along with cost and effects",
@@ -1346,6 +1401,8 @@ local FM_Category = FarmTab:Category({
         {Title="Zone Farming", Icon="swords"},
         {Title="GameModes", Icon="rbxassetid://109634928579023"},
         {Title="Vault", Icon="rbxassetid://90798559571883"},
+        {Title="Avatar Level", Icon=GetAvatarTokenIcon()},
+        {Title="Heroes Stats", Icon="rbxassetid://127892390350003"},
         {Title="Exchange", Icon="rbxassetid://101595095661272"},
         {Title="Crate Roll", Icon="package"},
         {Title="Upgrade: Yen", Icon=GetYenIcon()},
@@ -1432,8 +1489,7 @@ local function LogicGamemodes()
         local currentMap = GetCurrentMapStatus();
         local inLobbyZone = false;
         
-        -- Cek Lobby Dungeon (Tempat spawn setelah match selesai)
-        -- HANYA BERLAKU UNTUK DUNGEON/RAID, Mode lain spawn di map biasa
+        -- Cek Lobby Dungeon
         if Workspace:FindFirstChild("Zones") and Workspace.Zones:FindFirstChild("Dungeon") then
             if isPlayerInZone(Workspace.Zones.Dungeon) then
                 inLobbyZone = true;
@@ -1450,10 +1506,7 @@ local function LogicGamemodes()
         elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
         end
 
-        -- [PERBAIKAN 1: LOGIKA PENYIMPANAN MAP TERAKHIR]
-        -- Kita simpan LastZone hanya jika kita SEDANG TIDAK di Gamemode/Lobby
-        -- DAN kita tidak sedang dalam status 'pulang' (wasInGamemode == false)
-        -- Ini mencegah script menganggap "OnePiece2" atau "Paradis" sebagai LastZone saat baru selesai mode.
+        -- Update LastZone jika kita di map biasa (bukan gamemode)
         if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") and not wasInGamemode then
             LastZone = getgenv().PlayerData.Attributes.LastZone
         end
@@ -1463,7 +1516,7 @@ local function LogicGamemodes()
                 -- [A. SEDANG BERTARUNG]
                 wasInGamemode = true;
 
-                -- Lock Target Logic
+                -- Lock Target Logic (Sama seperti sebelumnya)
                 local isTargetStillAlive = false
                 if currentTargetObj then
                     if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
@@ -1548,121 +1601,136 @@ local function LogicGamemodes()
                 end
                 task.wait()
 
-            -- [PERBAIKAN 2: SELESAI MATCH / KEMBALI KE LOBBY]
-            -- Kita HAPUS syarat 'inLobbyZone' disini.
-            -- Karena PirateTower/Defense baliknya ke map biasa (bukan Lobby khusus).
-            -- Asalkan 'wasInGamemode' true dan kita sudah TIDAK di fighting zone, berarti waktunya pulang.
             elseif wasInGamemode and (not isFightingZone) then
-                
+                -- [B. SELESAI MATCH / KEMBALI KE LOBBY]
                 currentTargetObj = nil;
                 hasTeleportedToBossInRaid = false;
                 
-                -- Pengecekan LastZone sebelum teleport
                 if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
                     Notify("Mode Finished", "Returning to " .. LastZone, "map-pin");
                     if Reliable then
                         pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end);
                     end;
-                    wasInGamemode = false; -- Reset status
-                    task.wait(6); -- Tunggu teleport selesai
+                    wasInGamemode = false; 
+                    task.wait(6);
                 else
-                    -- Jika LastZone tidak valid, reset status saja tanpa teleport
                     wasInGamemode = false;
                 end;
 
             else
-                -- [C. AUTO JOIN / SCANNING]
-                local t = os.date("*t");
-                local currentMinute = t.min;
-                local targetString, targetName = nil, "";
-
-                -- 1. KEY MODES (Pirate & Shadow)
-                local function CheckAndSetKeyMode(modeName, keyName, configTable)
-                    if not targetString and configTable and #configTable > 0 then
+                -- [C. AUTO JOIN / SCANNING (DIPERBARUI)]
+                -- Fungsi Helper Universal untuk Cek Joinable & Key
+                local function ProcessGameMode(prefix, dbList, selectedList, requiredKey)
+                    if not selectedList or #selectedList == 0 then return false end
+                    
+                    -- Jika dbList nil (Pirate/Shadow), anggap single mode
+                    if not dbList then
+                        -- Single Mode (Pirate/Shadow)
+                        local modeID = prefix -- Contoh "PirateTower"
                         local isOpen = false
+                        
+                        -- 1. Cek IsJoinable
                         if MainController and MainController.IsJoinable then
-                            isOpen = MainController.IsJoinable(modeName)
+                            isOpen = MainController.IsJoinable(modeID)
                         end
 
                         if isOpen then
-                            targetString = modeName
-                            targetName = modeName .. " (Public/Open)"
-                        else
-                            local pData = getgenv().PlayerData
-                            local keyCount = (pData and pData.Materials and pData.Materials[keyName]) or 0
-                            
-                            if keyCount > 0 then
-                                if Reliable then
-                                    pcall(function()
-                                        Reliable:FireServer("Open Gamemode", { modeName });
-                                    end)
+                            -- 2. Cek IsOpened (Sudah bayar key?)
+                            local isAlreadyPaid = false
+                            if MainController and MainController.IsOpened then
+                                isAlreadyPaid = MainController.IsOpened(modeID)
+                            end
+
+                            if isAlreadyPaid then
+                                Notify("Auto Join", "Joining " .. prefix, "swords")
+                                if Reliable then Reliable:FireServer("Join Gamemode", { modeID }) end
+                                return true
+                            else
+                                -- 3. Cek Kunci & Bayar
+                                local pData = getgenv().PlayerData
+                                local keyCount = (pData and pData.Materials and pData.Materials[requiredKey]) or 0
+                                
+                                if keyCount > 0 then
+                                    Notify("Auto Open", "Using Key for " .. prefix, "key")
+                                    if Reliable then Reliable:FireServer("Open Gamemode", { modeID }) end
+                                    return true
+                                else
+                                    -- Notify("Auto Mode", "No Key for " .. prefix, "x")
                                 end
-                                targetString = modeName
-                                targetName = modeName .. " (New Session)"
+                            end
+                        end
+                    else
+                        -- Multi Phase Mode (Dungeon/Raid/Defense)
+                        for _, selectedName in pairs(selectedList) do
+                            local modeData = dbList[selectedName]
+                            
+                            if modeData then
+                                local modeID = prefix .. ":" .. tostring(modeData.ID) -- Contoh "Raid:1"
+                                
+                                -- 1. Cek IsJoinable
+                                local isOpen = false
+                                if MainController and MainController.IsJoinable then
+                                    isOpen = MainController.IsJoinable(modeID)
+                                end
+                                
+                                if isOpen then
+                                    -- 2. Cek IsOpened (Sudah bayar key?)
+                                    local isAlreadyPaid = false
+                                    if MainController and MainController.IsOpened then
+                                        isAlreadyPaid = MainController.IsOpened(modeID)
+                                    end
+
+                                    if isAlreadyPaid then
+                                        Notify("Auto Join", "Joining " .. selectedName, "swords")
+                                        if Reliable then Reliable:FireServer("Join Gamemode", { modeID }) end
+                                        return true
+                                    else
+                                        -- 3. Cek Kunci (Jika butuh) & Bayar
+                                        -- Jika requiredKey nil, anggap gratis (langsung Open/Join)
+                                        if not requiredKey then
+                                            Notify("Auto Join", "Joining " .. selectedName, "swords")
+                                            if Reliable then Reliable:FireServer("Join Gamemode", { modeID }) end
+                                            return true
+                                        else
+                                            local pData = getgenv().PlayerData
+                                            local keyCount = (pData and pData.Materials and pData.Materials[requiredKey]) or 0
+                                            
+                                            if keyCount > 0 then
+                                                Notify("Auto Open", "Using Key for " .. selectedName, "key")
+                                                if Reliable then Reliable:FireServer("Open Gamemode", { modeID }) end
+                                                return true
+                                            end
+                                        end
+                                    end
+                                end
                             end
                         end
                     end
+                    return false
                 end
 
-                CheckAndSetKeyMode("PirateTower", "PirateTowerModeKey", Config.TargetPirateTower)
-                CheckAndSetKeyMode("ShadowGate", "ShadowPortalModeKey", Config.TargetShadowGate)
+                -- Eksekusi Pengecekan Berurutan
+                local actionTaken = false
 
-                -- 2. TIME MODES
-                if not targetString and Config.TargetDungeon then
-                    for _, dName in pairs(Config.TargetDungeon) do
-                        local data = dungeonDB[dName];
-                        if data and currentMinute == data.Time then
-                            targetString = "Dungeon:" .. tostring(data.ID);
-                            targetName = dName;
-                            break;
-                        end;
-                    end;
-                end;
+                -- 1. Key Modes (Single)
+                if not actionTaken then actionTaken = ProcessGameMode("PirateTower", nil, Config.TargetPirateTower, "PirateTowerModeKey") end
+                if not actionTaken then actionTaken = ProcessGameMode("ShadowGate", nil, Config.TargetShadowGate, "ShadowPortalModeKey") end
+                
+                -- 2. Phase Modes (Dungeon/Raid/Defense)
+                -- Dungeon biasanya gratis, jadi Key nil
+                if not actionTaken then actionTaken = ProcessGameMode("Dungeon", dungeonDB, Config.TargetDungeon, nil) end
+                
+                -- Raid butuh RaidModeKey
+                if not actionTaken then actionTaken = ProcessGameMode("Raid", raidDB, Config.TargetRaid, "RaidModeKey") end
+                
+                -- Defense butuh DefenseModeKey
+                if not actionTaken then actionTaken = ProcessGameMode("Defense", defenseDB, Config.TargetDefense, "DefenseModeKey") end
 
-                if not targetString and Config.TargetRaid then
-                    for _, rName in pairs(Config.TargetRaid) do
-                        local data = raidDB[rName];
-                        if data and data.Times then
-                            for _, timeVal in ipairs(data.Times) do
-                                if currentMinute == timeVal then
-                                    targetString = "Raid:" .. tostring(data.ID);
-                                    targetName = rName;
-                                    break;
-                                end;
-                            end;
-                        end;
-                        if targetString then break end;
-                    end;
-                end;
-
-                if not targetString and Config.TargetDefense then
-                    for _, dName in pairs(Config.TargetDefense) do
-                        local data = defenseDB[dName];
-                        if data and data.Times then
-                            for _, timeVal in ipairs(data.Times) do
-                                if currentMinute == timeVal then
-                                    targetString = "Defense:" .. tostring(data.ID);
-                                    targetName = dName;
-                                    break;
-                                end;
-                            end;
-                        end;
-                        if targetString then break end;
-                    end;
-                end;
-
-                -- 3. EKSEKUSI JOIN
-                if targetString then
-                    Notify("Auto Mode", "Joining " .. targetName, "swords");
-                    
-                    if Reliable then
-                        pcall(function()
-                            Reliable:FireServer("Join Gamemode", { targetString });
-                        end);
-                    end
-                    task.wait(5); 
-                end;
-                task.wait(1);
+                if actionTaken then
+                    task.wait(5) -- Tunggu proses loading
+                else
+                    task.wait(1)
+                end
             end;
         else
             task.wait(1);
@@ -1722,25 +1790,27 @@ local function LoadDungeonData()
     if success and module and module.PHASES then
         dungeonList, dungeonDB = {}, {};
         for id, phase in ipairs(module.PHASES) do
-            local dName = phase.Name;
+            local rName = phase.Name;
             local hpCalc = math.floor((phase.HealthBase or 0) / 50);
             
-            -- [OPTIMASI: Tampilkan Jadwal Statis, bukan Timer bergerak]
-            local scheduleInfo = "Min: " .. (phase.START_MINUTE or 0)
-            local desc = "HP: " .. UtilsModule.ToText(hpCalc) .. " | " .. scheduleInfo;
+            -- [OPTIMASI: Format Jadwal agar rapi]
+            local times = phase.START_TIMES or {}
+            table.sort(times)
+            local timeStr = table.concat(times, ", ")
+            local desc = "HP: " .. UtilsModule.ToText(hpCalc) .. " | Mins: " .. timeStr;
             
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
             table.insert(dungeonList, {
-                Title = dName,
+                Title = rName,
                 Desc = desc,
-                Value = dName,
+                Value = rName,
                 Images = rewardCards
             });
-            dungeonDB[dName] = {
+            dungeonDB[rName] = {
                 ID = id,
-                Time = phase.START_MINUTE,
-                BaseDesc = desc -- Tidak dipakai lagi untuk update loop
+                Times = phase.START_TIMES,
+                BaseDesc = desc
             };
         end;
     end;
@@ -2119,9 +2189,11 @@ task.spawn(function()
                 local maxCanBuy = math.floor(tradeTokenCount / ratio)
                 outputDisplay = math.floor(maxCanBuy * ExchangePercent) -- Berapa Material yang didapat
                 inputDisplay = outputDisplay * ratio -- Berapa Trade Token yang dibayar
-                
+                if ratio < 500 then
+                    outputDisplay = outputDisplay/10
+                end                
                 -- Update Teks UI
-                MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay/10)))
+                MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay)))
                 TradePreview:SetDesc(string.format("Stock: %s | -%s (Pay)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(inputDisplay)))
             else
                 -- MODE JUAL (Sell): Material -> Trade Token
@@ -2207,6 +2279,7 @@ task.spawn(function()
 
                 local tokenKey = config.MaterialKey or (rollType .. "Token")
                 local displayName = MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Template
+                local tokenName = MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display
                 local currentCount = pData.Materials[tokenKey] or 0
                 
                 -- [PERBAIKAN LOGIKA PENCARIAN ITEM TERTINGGI]
@@ -2249,7 +2322,7 @@ task.spawn(function()
                 
                 -- Update Text Jumlah Token (Selalu cek)
                 if lastState.Count ~= currentCount then
-                    pcall(function() toggle:SetDesc(GetIcon(displayName) .. ":" .. UtilsModule.ToText(currentCount)) end)
+                    pcall(function() toggle:SetDesc(GetIcon(displayName) .. tokenName .. ":" .. UtilsModule.ToText(currentCount)) end)
                 end
 
                 -- Update Gambar Utama (SetMainImage) HANYA jika visual berubah
@@ -2705,18 +2778,20 @@ task.spawn(function()
                                     local myAmt = pData.Materials[matName] or 0
                                     
                                     -- Logic Gambar/Nama Material
-                                    local displayPart = matName 
+                                    local displayPart = matName
+                                    local displayName = matName
                                     if MaterialsModule[matName] then
                                         local matInfo = MaterialsModule[matName]
                                         if matInfo.Template then
                                             displayPart = GetIcon(matInfo.Template)
-                                        elseif matInfo.Display then
-                                            displayPart = matInfo.Display
+                                        end
+                                        if matInfo.Display then
+                                            displayName = matInfo.Display
                                         end
                                     end
 
                                     -- Format String
-                                    local line = string.format("%s  %s / %s", displayPart, UtilsModule.ToText(myAmt), UtilsModule.ToText(reqAmt))
+                                    local line = string.format("%s%s %s/%s", displayPart,displayName, UtilsModule.ToText(reqAmt), UtilsModule.ToText(myAmt))
                                     table.insert(parts, line)
                                 end
                                 costStr = table.concat(parts, "\n")
@@ -3023,8 +3098,12 @@ task.spawn(function()
                 local currentMat = pData.Materials[tokenKey] or 0
                 
                 local matDisplayName = tokenKey
+                local matDisplayIcon = tokenKey
                 if MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Template then
-                    matDisplayName = GetIcon(MaterialsModule[tokenKey].Template)
+                    matDisplayIcon = GetIcon(MaterialsModule[tokenKey].Template)
+                end
+                if MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display then
+                    matDisplayName = MaterialsModule[tokenKey].Display
                 end
 
                 pcall(function()
@@ -3046,9 +3125,10 @@ task.spawn(function()
                             end
                             
                             newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
-                            newDesc = string.format("Cost: %s%s\n%s: %s", 
+                            newDesc = string.format("Cost: %s%s\n%s%s: %s", 
                                 UtilsModule.ToText(cost), 
-                                chanceTxt, 
+                                chanceTxt,
+                                matDisplayIcon,
                                 matDisplayName,
                                 UtilsModule.ToText(currentMat)
                             )
@@ -3431,6 +3511,340 @@ task.spawn(function()
             WasVisible = IsVisible
         end
         task.wait(0.5)
+    end
+end)
+-- File: AnimeWeapons.lua (Ganti bagian SECTION: UPGRADE AVATAR LEVEL)
+
+local AvatarStatusPara = FarmTab:Paragraph({
+    Title = "Avatar Level Status",
+    Desc = "Waiting for Player Data...",
+    Image = GetAvatarTokenIcon(),
+    ImageSize = 40
+})
+FM_Add("Avatar Level", AvatarStatusPara)
+
+-- Tombol Manual Dikelompokkan (Sesuai permintaan: :Group)
+local ManualUpgradeGroup = FarmTab:Group({Title = "Manual Upgrade"})
+FM_Add("Avatar Level", ManualUpgradeGroup)
+
+ManualUpgradeGroup:Button({
+    Title = "Level Up (Single)",
+    Desc = "Send server request to upgrade the current avatar by 1 level.",
+    Icon = "arrow-up",
+    Callback = function()
+        if Reliable then
+            pcall(function()
+                local pData = (getgenv()).PlayerData
+                local currentAvatar = pData and pData.Attributes and pData.Attributes.Avatar
+                local avatarDisplayName = currentAvatar
+                
+                -- Mencari Display Name untuk Notifikasi
+                if currentAvatar and EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
+                    avatarDisplayName = EnemiesConfig[currentAvatar].Display
+                end
+
+                -- Menggunakan event dari decompile pertama: shared.Reply.To("Avatar Upgrade")
+                Reliable:FireServer("Avatar Upgrade") 
+                Notify("Avatar", string.format("Sending 'Avatar Upgrade' request for %s.", avatarDisplayName), "arrow-up")
+            end)
+        end
+    end
+})
+ManualUpgradeGroup:Button({
+    Title = "Level Up (MAX)",
+    Desc = "Send server request to upgrade the current avatar to Max Level.",
+    Icon = "chevrons-up",
+    Callback = function()
+        if Reliable then
+            pcall(function()
+                local pData = (getgenv()).PlayerData
+                local currentAvatar = pData and pData.Attributes and pData.Attributes.Avatar
+                local avatarDisplayName = currentAvatar
+
+                -- Mencari Display Name untuk Notifikasi
+                if currentAvatar and EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
+                    avatarDisplayName = EnemiesConfig[currentAvatar].Display
+                end
+                
+                -- Menggunakan event dari decompile pertama: shared.Reply.To("Avatar Max Upgrade")
+                Reliable:FireServer("Avatar Max Upgrade")
+                Notify("Avatar", string.format("Sending 'Avatar Max Upgrade' request for %s.", avatarDisplayName), "chevrons-up")
+            end)
+        end
+    end
+})
+
+-- Toggle Auto
+local AvatarLevelToggle = FarmTab:Toggle({
+    Title = "Auto Avatar Level Up",
+    Flag = "AutoAvatarLevelUp_Cfg",
+    Callback = function(val)
+        Config.AutoAvatarLevelUp = val
+    end
+})
+FM_Add("Avatar Level", AvatarLevelToggle)
+local function SendAvatarUpgradeWebhook(avatarDisplayName, newLevel, maxLevel, buffPercentage)
+    -- Asumsi variabel global/lokal: Config, HttpService, LocalPlayer, CensorText, dan httpRequest tersedia di scope ini.
+    
+    task.spawn(function()
+        local httpRequest = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
+        if not httpRequest then return end
+
+        local censoredName = CensorText(LocalPlayer.DisplayName)
+        local censoredID = CensorText(LocalPlayer.UserId)
+        
+        local embedData = {
+            ["username"] = "ANHub - Anime Weapons",
+            ["embeds"] = {{
+                ["title"] = "🟢 Avatar Level Up Success!",
+                ["description"] = string.format("Upgrade Avatar **%s** success!", avatarDisplayName),
+                ["color"] = 10038562,
+                ["fields"] = {
+                    { ["name"] = "Avatar", ["value"] = avatarDisplayName, ["inline"] = true },
+                    { ["name"] = "New Level", ["value"] = string.format("Lv. **%d** / %d", newLevel, maxLevel), ["inline"] = true },
+                    { ["name"] = "Total Buff", ["value"] = string.format("+%.1f%%", buffPercentage), ["inline"] = true },
+                    { ["name"] = "Player Info", ["value"] = "Name: ||" .. censoredName .. "||\nID: ||" .. censoredID .. "||", ["inline"] = false }
+                },
+                ["footer"] = { ["text"] = "ANHub Script • " .. os.date("%H:%M:%S") }
+            }}
+        }
+
+        httpRequest({
+            Url = WebhookURL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode(embedData)
+        })
+    end)
+end
+-- // LOGIC LOOP: AVATAR LEVEL //
+task.spawn(function()
+    while not Window.Destroyed do
+        local pData = (getgenv()).PlayerData
+        if pData and pData.Attributes and pData.AvatarLevels and pData.Materials and AvatarLevelsModule then
+            
+            -- [1. AMBIL DATA AVATAR]
+            local currentAvatar = pData.Attributes.Avatar
+            local isAvatarSelected = currentAvatar and currentAvatar ~= ""
+
+            -- Ambil Level & Token
+            local currentLevel = pData.AvatarLevels[currentAvatar] or 0
+            local maxLevel = AvatarLevelsModule.MaxLevel or 100
+            local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
+            local myTokens = pData.Materials[tokenKey] or 0
+            
+            -- [2. UPDATE VISUAL UI]
+            local avatarDisplayName = currentAvatar
+            local tokenDisplayName = tokenKey 
+
+            pcall(function()
+                local newTitle = "No Avatar Selected"
+                local newDesc = "Select an avatar in the game's interface to begin."
+                
+                if isAvatarSelected then
+                    -- 1. Ambil Nama Asli Avatar (Cari di EnemiesConfig)
+                    if EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
+                        avatarDisplayName = EnemiesConfig[currentAvatar].Display
+                    end
+
+                    -- 2. Ambil Nama Asli Token (Cari di MaterialsModule)
+                    if MaterialsModule and MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display then
+                        tokenDisplayName = MaterialsModule[tokenKey].Display
+                    end
+
+                    local nextLevel = currentLevel + 1
+                    local isMaxed = currentLevel >= maxLevel
+                    
+                    local currentBuff = AvatarLevelsModule.GetBuff(currentLevel)
+                    local nextBuff = isMaxed and currentBuff or AvatarLevelsModule.GetBuff(nextLevel)
+                    local cost = isMaxed and 0 or AvatarLevelsModule.GetCost(currentLevel)
+                    
+                    local costStr = UtilsModule.ToText(cost, 0)
+                    local tokenCountStr = UtilsModule.ToText(myTokens, 0)
+                    
+                    -- Update Title menggunakan avatarDisplayName
+                    newTitle = string.format("%s (Lv. %d / %d)", avatarDisplayName, currentLevel, maxLevel)
+                    
+                    if isMaxed then
+                        newDesc = string.format("<b>MAX Level Reached!</b>\n\nBuff: +%s%%\n%s %s", 
+                            UtilsModule.ToText(currentBuff),GetAvatarTokenIcon(), tokenCountStr)
+                        AvatarLevelToggle:Lock()
+                        AvatarLevelToggle:SetTitle("Auto Avatar Level Up [MAX]")
+                        Config.AutoAvatarLevelUp = false
+                        AvatarLevelToggle:Set(false)
+                    else
+                        -- Update Desc menggunakan tokenDisplayName
+                        newDesc = string.format("<b>Current Buff: +%s%%</b>\nNext Buff: +%s%%\n\nCost: %s / %s (%s %s)",
+                            UtilsModule.ToText(currentBuff), UtilsModule.ToText(nextBuff),
+                            costStr, tokenCountStr,GetAvatarTokenIcon(), tokenDisplayName)
+                        AvatarLevelToggle:Unlock()
+                        AvatarLevelToggle:SetTitle("Auto Avatar Level Up")
+                    end
+                else
+                    Config.AutoAvatarLevelUp = false
+                    AvatarLevelToggle:Set(false)
+                    AvatarLevelToggle:Lock()
+                end
+
+                if not Window.Closed then
+                    AvatarStatusPara:SetTitle(newTitle)
+                    AvatarStatusPara:SetDesc(newDesc)
+                end
+            end)
+
+            -- [3. LOGIC AUTO UPGRADE]
+            if Config.AutoAvatarLevelUp and isAvatarSelected and currentLevel < maxLevel then
+                local cost = AvatarLevelsModule.GetCost(currentLevel)
+                
+                if myTokens >= cost then
+                    if Reliable then
+                        local s = pcall(function()
+                            Reliable:FireServer("Avatar Upgrade")
+                        end)
+                        
+                        if s then
+                            -- Gunakan avatarDisplayName untuk Notify
+                            Notify("Avatar", string.format("Auto Level Up: %s to Lv. %d", avatarDisplayName, currentLevel + 1), "arrow-up")
+                            local now = os.time()
+                            if not LastWebhookTime["AvatarLevels"] or (now - LastWebhookTime["AvatarLevels"]) >= 10 then
+                                local newLevel = currentLevel + 1
+                                local max = AvatarLevelsModule.MaxLevel or 100 -- Mengambil maxLevel dari config
+                                local buffPercentage = AvatarLevelsModule.GetBuff(newLevel)
+                                SendAvatarUpgradeWebhook(avatarDisplayName, newLevel, max, buffPercentage)
+                                LastWebhookTime["AvatarLevels"] = now
+                            end                            
+                            -- Tunggu sinkronisasi data dari server
+                            task.wait(1.5)  
+                        end
+                    end
+                end
+            end
+        else
+            -- Jika data belum dimuat, pastikan toggle mati dan terkunci
+            pcall(function()
+                if AvatarLevelToggle and not AvatarLevelToggle.Locked then
+                    AvatarLevelToggle:Lock()
+                    AvatarLevelToggle:SetTitle("Auto Avatar Level Up [Waiting Data]")
+                    Config.AutoAvatarLevelUp = false
+                    AvatarLevelToggle:Set(false)
+                end
+            end)
+        end
+        
+        task.wait(1)
+    end
+end)
+-- File: AnimeWeapons.lua (Add this below the existing UI Sections, e.g., after FarmTab)
+
+-- // SECTION: HEROES STATS //
+local HeroesStatsSection = FarmTab:Section({
+    Title = "Heroes Stats",
+    Icon = "award",
+    Opened = true
+})
+FM_Add("Heroes Stats", HeroesStatsSection)
+
+-- Main Auto Roll Toggle
+HeroesStatsSection:Toggle({
+    Title = "Auto Roll Equipped Hero Stats",
+    Desc = "Automatically re-rolls the stats of the **currently equipped** hero.",
+    Flag = "AutoRollHeroStats_Cfg",
+    Callback = function(val)
+        Config.AutoRollHeroStats = val
+    end
+})
+FM_Add("Heroes Stats", HeroesStatsSection)
+
+-- Input Stats to Lock (Manual Lock Setup)
+HeroesStatsSection:Input({
+    Title = "Lock Stats (Type & Click Lock)",
+    Desc = "Enter the names of the stats you want to lock, separated by commas (Damage,Range,AttackSpeed).",
+    Placeholder = "Example: Damage,Range",
+    Flag = "HeroesStats_LockStats_Cfg",
+    Callback = function(val)
+        Config.HeroesStats_LockStats = val
+    end
+})
+FM_Add("Heroes Stats", HeroesStatsSection)
+
+-- Lock Execution Button (Mimics the "Lock Hero Stats" remote call)
+HeroesStatsSection:Button({
+    Title = "🔑 Lock Entered Stats",
+    Desc = "Sends a remote call to lock the stats listed above.",
+    Callback = function()
+        local statsToLock = {}
+        if Config.HeroesStats_LockStats and Config.HeroesStats_LockStats ~= "" then
+            -- Split the string into a table of stats
+            for statName in string.gmatch(Config.HeroesStats_LockStats, "([^,]+)") do
+                table.insert(statsToLock, string.trim(statName))
+            end
+        end
+
+        if #statsToLock > 0 and Reliable then
+            for _, statName in ipairs(statsToLock) do
+                -- Remote call found in HeroesStats.c
+                shared.Reply.To("Lock Hero Stats", statName) 
+                task.wait(0.05) -- Short delay to avoid spamming
+            end
+            Notify("Heroes Stats", string.format("Attempting to lock %d stats: %s", #statsToLock, Config.HeroesStats_LockStats), "check")
+        else
+            Notify("Heroes Stats", "No stats entered or remote not ready.", "warn")
+        end
+    end
+})
+FM_Add("Heroes Stats", HeroesStatsSection)
+-- File: AnimeWeapons.lua (Add this at the bottom of the script)
+
+-- // LOGIC LOOP: HEROES STATS //
+task.spawn(function()
+    while not Window.Destroyed do
+        task.wait(2) -- Main cooldown
+
+        if Config.AutoRollHeroStats and Reliable then
+            local pData = (getgenv()).PlayerData
+            
+            if not pData or not pData.Materials or not pData.Data or not pData.Data.HeroesEquipped or not pData.Data.Heroes then
+                task.wait(5)
+                continue
+            end
+            
+            local equippedHeroUID = nil
+            -- Get the UID of the first Equipped Hero
+            for uid, isEquipped in pairs(pData.Data.HeroesEquipped) do
+                if isEquipped == true and pData.Data.Heroes[uid] then
+                    equippedHeroUID = uid
+                    break
+                end
+            end
+
+            -- Check if a hero is equipped
+            if not equippedHeroUID then
+                Notify("Heroes Stats", "No Hero is currently Equipped. Turning off Auto Roll.", "warn")
+                Config.AutoRollHeroStats = false
+                task.wait(10)
+                continue
+            end
+            
+            local heroesStatsAmount = pData.Materials.HeroesStats or 0
+            
+            -- Check currency
+            if heroesStatsAmount > 0 then
+                
+                -- Attempt Roll. Uses the automatically found UID.
+                shared.Reply.To("Roll Hero Stats", equippedHeroUID, true) 
+
+                -- Notification
+                local heroData = pData.Data.Heroes[equippedHeroUID]
+                local heroConfig = heroData and shared.Heroes[heroData.Index]
+                local heroName = heroConfig and heroConfig.Display or equippedHeroUID:sub(1, 8) .. "..."
+                
+                Notify("Heroes Stats", string.format("Auto Rolling stats for %s (Remaining: %s)", heroName, shared.Utils.ToText(heroesStatsAmount - 1, 2)), "sync")
+                
+                task.wait(5) -- Roll cooldown to avoid server blocking
+            else
+                Notify("Heroes Stats", "HeroesStats currency is depleted. Waiting...", "warn")
+            end
+        end
     end
 end)
 local SettingsTab = Window:Tab({
