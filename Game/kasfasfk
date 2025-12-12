@@ -1113,49 +1113,6 @@ local function IsTimeForTrial(modeName)
     return false
 end
 
--- [CHAT LISTENER] Deteksi Event Start (Raid / Eclipse)
-game:GetService("TextChatService").MessageReceived:Connect(function(message)
-    if Window.Destroyed then return end
-    
-    local rawText = message.Text
-    local cleanText = CleanRichText(rawText)
-
-    -- Cek format pesan [GAMEMODE] ... has started
-    if string.find(rawText, "%[GAMEMODE%]") and string.find(rawText, "has started") then
-        if string.find(cleanText, "Eclipse Defense") then
-            ActiveEventsFromChat["EclipseDefense"] = true
-            task.delay(60, function() ActiveEventsFromChat["EclipseDefense"] = nil end)
-        end
-        if string.find(cleanText, "Raid") then
-            ActiveEventsFromChat["Raid"] = true
-            task.delay(60, function() ActiveEventsFromChat["Raid"] = nil end)
-        end
-    end
-
-    -- 2. FITUR DROP WEBHOOK
-    if string.find(cleanText, "You got") then
-        local pName = game.Players.LocalPlayer.Name
-        local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
-        local newText = string.gsub(cleanText, "You", censoredName)
-        SendChatDropWebhook(newText)
-    end
-
-    -- 3. FITUR BOSS HUNT
-    if isAutoBoss then 
-        if IsInGamemode() then return end -- Jangan ganggu Gamemode
-
-        for _, bossName in pairs(selectedBosses) do
-            local data = GlobalBossDB[bossName]
-            if data and data.Map then
-                if string.find(cleanText, bossName) and string.find(cleanText, data.Map) then
-                    TriggerGlobalBoss(bossName, data.Map)
-                    break 
-                end
-            end
-        end
-    end
-end)
-
 -- [2] MAIN GAMEMODE LOOP (CHAT TRIGGER INTEGRATED)
 task.spawn(function()
     while not Window.Destroyed do
@@ -1847,6 +1804,43 @@ task.spawn(function()
             end
         end
         task.wait(1)
+    end
+end)
+
+
+
+-- [CHAT LISTENER] Deteksi Event Start (Raid / Eclipse)
+game:GetService("TextChatService").MessageReceived:Connect(function(message)
+    if Window.Destroyed then return end
+    
+    local rawText = message.Text
+    local cleanText = CleanRichText(rawText)
+
+    -- Cek format pesan [GAMEMODE] ... has started
+    if string.find(rawText, "%[GAMEMODE%]") and string.find(rawText, "has started") then
+        if string.find(cleanText, "Eclipse Defense") then
+            ActiveEventsFromChat["EclipseDefense"] = true
+            task.delay(60, function() ActiveEventsFromChat["EclipseDefense"] = nil end)
+        end
+        if string.find(cleanText, "Raid") then
+            ActiveEventsFromChat["Raid"] = true
+            task.delay(60, function() ActiveEventsFromChat["Raid"] = nil end)
+        end
+    end
+
+    -- 2. FITUR DROP WEBHOOK
+    if string.find(cleanText, "You got") then
+        local pName = game.Players.LocalPlayer.Name
+        local censoredName = "||" .. string.sub(pName, 1, 3) .. string.rep("*", #pName - 3) .. "||"
+        local newText = string.gsub(cleanText, "You", censoredName)
+        SendChatDropWebhook(newText)
+    end
+
+    -- 3. FITUR BOSS HUNT
+    if isAutoBoss then
+        if string.find(cleanText, "Global Bosses spawned")then
+            ExecuteBossSequence()
+        end
     end
 end)
 -- ============================================================================
