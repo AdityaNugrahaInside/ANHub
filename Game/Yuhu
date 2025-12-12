@@ -1943,11 +1943,13 @@ local ExchangeIsBuying = false -- Default Selling (False)
 
 -- Fungsi Helper untuk mengambil Ratio Harga
 local function GetExchangeRatio(tokenKey)
-	local val = 0.1
-    if not tokenKey or not MaterialsModule[tokenKey] then return 1 end
-    -- Mengambil ExchangeRatio dari module, default ke 10 jika tidak ada (sesuai logika game umumnya)
+    local val = nil
     if MaterialsModule[tokenKey].ExchangeRatio then
-    	val = MaterialsModule[tokenKey].ExchangeRatio
+        val = MaterialsModule[tokenKey].ExchangeRatio
+    elseif tokenKey == "TradeToken" then
+        val = 1
+    else
+        val = 0.1
     end
     return val
 end
@@ -2115,7 +2117,7 @@ task.spawn(function()
                 -- Rumus: Max Bisa Beli = TradeToken / Ratio
                 local maxCanBuy = math.floor(tradeTokenCount / ratio)
                 outputDisplay = math.floor(maxCanBuy * ExchangePercent) -- Berapa Material yang didapat
-                inputDisplay = outputDisplay * 1 -- Berapa Trade Token yang dibayar
+                inputDisplay = outputDisplay * ratio -- Berapa Trade Token yang dibayar
                 
                 -- Update Teks UI
                 MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay)))
