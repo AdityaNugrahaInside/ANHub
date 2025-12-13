@@ -3661,7 +3661,7 @@ function Optimizer.Update_Heroes_Logic(pData)
                     end
                 end
                 
-                if safeToRoll then
+                if safeToRoll and currency > 8 then
                     local anyUnlocked = false
                     for _, sName in ipairs(ValidStatsList) do if not lStats[sName] then anyUnlocked = true; break end end
                     if anyUnlocked then Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, true}) end
