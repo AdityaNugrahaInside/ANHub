@@ -3590,37 +3590,116 @@ function Optimizer.Update_Vault_Logic(pData)
 end
 
 function Optimizer.Update_Avatar_Logic(pData)
-    if not pData.AvatarLevels then return end
-    local currentAvatar = pData.Attributes.Avatar
-    local isSelected = currentAvatar and currentAvatar ~= ""
-    
-    if isSelected then
-        local displayName = (EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display) or currentAvatar
-        local currentLvl = pData.AvatarLevels[currentAvatar] or 0
-        local maxLvl = AvatarLevelsModule.MaxLevel or 100
-        local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
-        local myTokens = pData.Materials[tokenKey] or 0
-        local tokenName = (MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display) or tokenKey
-        
-        local isMaxed = currentLvl >= maxLvl
-        local curBuff = AvatarLevelsModule.GetBuff(currentLvl)
-        local newTitle = string.format("%s (Lv. %d / %d)", displayName, currentLvl, maxLvl)
-        local newDesc = ""
-        
-        if isMaxed then
-            newDesc = string.format("<b>MAX Level Reached!</b>\n\nBuff: +%s%%\n%s %s", UtilsModule.ToText(curBuff), GetAvatarTokenIcon(), UtilsModule.ToText(myTokens))
-            if not AvatarLevelToggle.Locked then AvatarLevelToggle:Lock(); AvatarLevelToggle:SetTitle("Auto Avatar Level Up [MAX]"); Config.AutoAvatarLevelUp = false; AvatarLevelToggle:Set(false) end
+        if not pData.AvatarLevels then return end
+        if pData and pData.Attributes and pData.AvatarLevels and pData.Materials and AvatarLevelsModule then
+            
+            -- [1. AMBIL DATA AVATAR]
+            local currentAvatar = pData.Attributes.Avatar
+            local isAvatarSelected = currentAvatar and currentAvatar ~= ""
+
+            -- Ambil Level & Token
+            local currentLevel = pData.AvatarLevels[currentAvatar] or 0
+            local maxLevel = AvatarLevelsModule.MaxLevel or 100
+            local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
+            local myTokens = pData.Materials[tokenKey] or 0
+            
+            -- [2. UPDATE VISUAL UI]
+            local avatarDisplayName = currentAvatar
+            local tokenDisplayName = tokenKey 
+
+            pcall(function()
+                local newTitle = "No Avatar Selected"
+                local newDesc = "Select an avatar in the game's interface to begin."
+                
+                if isAvatarSelected then
+                    -- 1. Ambil Nama Asli Avatar (Cari di EnemiesConfig)
+                    if EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
+                        avatarDisplayName = EnemiesConfig[currentAvatar].Display
+                    end
+
+                    -- 2. Ambil Nama Asli Token (Cari di MaterialsModule)
+                    if MaterialsModule and MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display then
+                        tokenDisplayName = MaterialsModule[tokenKey].Display
+                    end
+
+                    local nextLevel = currentLevel + 1
+                    local isMaxed = currentLevel >= maxLevel
+                    
+                    local currentBuff = AvatarLevelsModule.GetBuff(currentLevel)
+                    local nextBuff = isMaxed and currentBuff or AvatarLevelsModule.GetBuff(nextLevel)
+                    local cost = isMaxed and 0 or AvatarLevelsModule.GetCost(currentLevel)
+                    
+                    local costStr = UtilsModule.ToText(cost, 0)
+                    local tokenCountStr = UtilsModule.ToText(myTokens, 0)
+                    
+                    -- Update Title menggunakan avatarDisplayName
+                    newTitle = string.format("%s (Lv. %d / %d)", avatarDisplayName, currentLevel, maxLevel)
+                    
+                    if isMaxed then
+                        newDesc = string.format("<b>MAX Level Reached!</b>\n\nBuff: +%s%%\n%s %s", 
+                            UtilsModule.ToText(currentBuff),GetAvatarTokenIcon(), tokenCountStr)
+                        AvatarLevelToggle:Lock()
+                        AvatarLevelToggle:SetTitle("Auto Avatar Level Up [MAX]")
+                        Config.AutoAvatarLevelUp = false
+                        AvatarLevelToggle:Set(false)
+                    else
+                        -- Update Desc menggunakan tokenDisplayName
+                        newDesc = string.format("<b>Current Buff: +%s%%</b>\nNext Buff: +%s%%\n\nCost: %s / %s (%s %s)",
+                            UtilsModule.ToText(currentBuff), UtilsModule.ToText(nextBuff),
+                            costStr, tokenCountStr,GetAvatarTokenIcon(), tokenDisplayName)
+                        AvatarLevelToggle:Unlock()
+                        AvatarLevelToggle:SetTitle("Auto Avatar Level Up")
+                    end
+                else
+                    Config.AutoAvatarLevelUp = false
+                    AvatarLevelToggle:Set(false)
+                    AvatarLevelToggle:Lock()
+                end
+
+                if not Window.Closed then
+                    AvatarStatusPara:SetTitle(newTitle)
+                    AvatarStatusPara:SetDesc(newDesc)
+                end
+            end)
+
+            -- [3. LOGIC AUTO UPGRADE]
+            if Config.AutoAvatarLevelUp and isAvatarSelected and currentLevel < maxLevel then
+                local cost = AvatarLevelsModule.GetCost(currentLevel)
+                
+                if myTokens >= cost then
+                    if Reliable then
+                        local s = pcall(function()
+                            Reliable:FireServer("Avatar Upgrade")
+                        end)
+                        
+                        if s then
+                            -- Gunakan avatarDisplayName untuk Notify
+                            Notify("Avatar", string.format("Auto Level Up: %s to Lv. %d", avatarDisplayName, currentLevel + 1), "arrow-up")
+                            local now = os.time()
+                            if not LastWebhookTime["AvatarLevels"] or (now - LastWebhookTime["AvatarLevels"]) >= 10 then
+                                local newLevel = currentLevel + 1
+                                local max = AvatarLevelsModule.MaxLevel or 100 -- Mengambil maxLevel dari config
+                                local buffPercentage = AvatarLevelsModule.GetBuff(newLevel)
+                                SendAvatarUpgradeWebhook(avatarDisplayName, newLevel, max, buffPercentage)
+                                LastWebhookTime["AvatarLevels"] = now
+                            end                            
+                            -- Tunggu sinkronisasi data dari server
+                            task.wait(1.5)  
+                        end
+                    end
+                end
+            end
         else
-            local nextBuff = AvatarLevelsModule.GetBuff(currentLvl + 1)
-            local cost = AvatarLevelsModule.GetCost(currentLvl)
-            newDesc = string.format("<b>Current Buff: +%s%%</b>\nNext Buff: +%s%%\n\nCost: %s / %s (%s %s)", UtilsModule.ToText(curBuff), UtilsModule.ToText(nextBuff), UtilsModule.ToText(cost), UtilsModule.ToText(myTokens), GetAvatarTokenIcon(), tokenName)
-            if AvatarLevelToggle.Locked then AvatarLevelToggle:Unlock(); AvatarLevelToggle:SetTitle("Auto Avatar Level Up") end
+            -- Jika data belum dimuat, pastikan toggle mati dan terkunci
+            pcall(function()
+                if AvatarLevelToggle and not AvatarLevelToggle.Locked then
+                    AvatarLevelToggle:Lock()
+                    AvatarLevelToggle:SetTitle("Auto Avatar Level Up [Waiting Data]")
+                    Config.AutoAvatarLevelUp = false
+                    AvatarLevelToggle:Set(false)
+                end
+            end)
         end
-        AvatarStatusPara:SetTitle(newTitle); AvatarStatusPara:SetDesc(newDesc)
-    else
-        AvatarStatusPara:SetTitle("No Avatar Selected"); AvatarStatusPara:SetDesc("Select an avatar.")
-        if not AvatarLevelToggle.Locked then AvatarLevelToggle:Lock(); AvatarLevelToggle:Set(false) end
-    end
 end
 
 function Optimizer.Update_Heroes_Logic(pData)
