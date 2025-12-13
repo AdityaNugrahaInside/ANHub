@@ -667,13 +667,11 @@ local function resetEnemiesList()
         if UI.EnemyDD then
             task.spawn(function()
                 local savedEnemy = MapSelections[CurrentMapName]
-                local primaryValue = nil
                 local foundItems = {}
                 if type(savedEnemy) == "string" then
                     for _, item in ipairs(nameList) do
                         if item.Value == savedEnemy then
                             table.insert(foundItems, item)
-                            primaryValue = savedEnemy
                             break
                         end
                     end
@@ -682,9 +680,6 @@ local function resetEnemiesList()
                         for _, item in ipairs(nameList) do
                             if item.Value == name then
                                 table.insert(foundItems, item)
-                                if not primaryValue then
-                                    primaryValue = name
-                                end
                                 break
                             end
                         end
@@ -699,7 +694,7 @@ local function resetEnemiesList()
                     end
 
                     local mainItem = foundItems[1]
-                    UI.EnemyDD.Value = mainItem
+                    UI.EnemyDD.Value = foundItems
                     Notify("System", "Auto-Selected: " .. mainItem.Value, "check")
 
                     if mainItem.Icon then
@@ -707,7 +702,7 @@ local function resetEnemiesList()
                         UI.EnemyDD:SetDesc(mainItem.Value)
                     end
                 else
-                    UI.EnemyDD.Value = nil
+                    UI.EnemyDD.Value = {}
                     UI.EnemyDD:SetValueImage("rbxassetid://84366761557806")
                     UI.EnemyDD:SetMainImage("rbxassetid://84366761557806")
                 end
@@ -1534,8 +1529,7 @@ UI.EnemyDD = MainTab:Dropdown({
             if not isUpdatingUI and not isTransitioning then
                 local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
                 if currentMap then
-                    local name = primaryItem.Value or primaryItem.Title
-                    SaveMapSelection(currentMap, name)
+                    SaveMapSelection(currentMap, table.clone(targetList))
                 end
             end
         else
@@ -1544,7 +1538,7 @@ UI.EnemyDD = MainTab:Dropdown({
             if not isUpdatingUI and not isTransitioning then
                 local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
                 if currentMap then
-                    SaveMapSelection(currentMap, nil)
+                    SaveMapSelection(currentMap, {})
                 end
             end
         end
