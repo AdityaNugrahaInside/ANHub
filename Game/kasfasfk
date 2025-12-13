@@ -666,53 +666,52 @@ local function resetEnemiesList()
         -- Kita set targetnya DULUAN sebelum Refresh, jadi tidak perlu panggil Select()
         if UI.EnemyDD then
             task.spawn(function()
-                -- 1. Cari musuh yang harus dipilih berdasarkan Save Data
                 local savedEnemy = MapSelections[CurrentMapName]
-                local foundItem = nil
-                
-                if savedEnemy then
-                    for _, item in ipairs(nameList) do 
-                        if item.Value == savedEnemy then foundItem = item break end 
+                local primaryValue = nil
+                local foundItems = {}
+                if type(savedEnemy) == "string" then
+                    for _, item in ipairs(nameList) do
+                        if item.Value == savedEnemy then
+                            table.insert(foundItems, item)
+                            primaryValue = savedEnemy
+                            break
+                        end
+                    end
+                elseif type(savedEnemy) == "table" then
+                    for _, name in ipairs(savedEnemy) do
+                        for _, item in ipairs(nameList) do
+                            if item.Value == name then
+                                table.insert(foundItems, item)
+                                if not primaryValue then
+                                    primaryValue = name
+                                end
+                                break
+                            end
+                        end
                     end
                 end
-                
-                -- 2. Inject Value langsung ke Library
-                if foundItem then
-                    UI.EnemyDD.Value = foundItem 
-                    
-                    table.clear(targetList)
-                    table.insert(targetList, foundItem.Value)
-                    Notify("System", "Auto-Selected: " .. foundItem.Value, "check")
 
-                    -- [BARU] Set Image saat Auto Select
-                    -- [MULAI BAGIAN YANG DIUBAH/DITAMBAHKAN]
-                    if foundItem.Icon then
-                        -- Set Icon untuk Text Value (Kanan)
-                        UI.EnemyDD:SetValueImage(foundItem.Icon)
-                        UI.EnemyDD:SetDesc(foundItem.Value)
+                table.clear(targetList)
 
-                        -- Set Icon untuk Main Button (Kiri) - Mengikuti gaya Card/Gradient jika ada
-                        -- if foundItem.Gradient then
-                        --      UI.EnemyDD:SetMainImage({
-                        --          Image = foundItem.Icon,      -- ID Gambar
-                        --          Quantity = "",              -- Kosongkan text quantity agar bersih
-                        --          Gradient = foundItem.Gradient -- Gradient Object
-                        --      }, 40)
-                        -- else
-                        --      -- Fallback ke icon biasa jika tidak ada gradient
-                        --      UI.EnemyDD:SetMainImage(foundItem.Icon)
-                        -- end
+                if #foundItems > 0 then
+                    for _, item in ipairs(foundItems) do
+                        table.insert(targetList, item.Value)
                     end
-                    -- [SELESAI BAGIAN YANG DIUBAH/DITAMBAHKAN]
+
+                    local mainItem = foundItems[1]
+                    UI.EnemyDD.Value = mainItem
+                    Notify("System", "Auto-Selected: " .. mainItem.Value, "check")
+
+                    if mainItem.Icon then
+                        UI.EnemyDD:SetValueImage(mainItem.Icon)
+                        UI.EnemyDD:SetDesc(mainItem.Value)
+                    end
                 else
-                    UI.EnemyDD.Value = nil -- Reset jika tidak ada save
-                    table.clear(targetList)
-                    -- [BARU] Reset Image ke Default
+                    UI.EnemyDD.Value = nil
                     UI.EnemyDD:SetValueImage("rbxassetid://84366761557806")
                     UI.EnemyDD:SetMainImage("rbxassetid://84366761557806")
                 end
 
-                -- 3. Refresh UI SEKALI SAJA
                 pcall(function() 
                     UI.EnemyDD:Refresh(nameList) 
                 end)
@@ -777,41 +776,37 @@ local function FarmServerEnemies()
     local pData = getgenv().PlayerData
     local currentMap = pData and pData.Map
     
-    -- Validasi dasar
-    if not currentMap or not hrp or not targetList[1] then return end
+    if not currentMap or not hrp or #targetList == 0 then return end
     
-    local targetName = targetList[1]
-    
-    -- Path: workspace.Server.Enemies.World[Map][EnemyName]
     local WorldFolder = workspace:FindFirstChild("Server") and workspace.Server:FindFirstChild("Enemies") and workspace.Server.Enemies:FindFirstChild("World")
     if not WorldFolder then return end
 
     local MapFolder = WorldFolder:FindFirstChild(currentMap)
     if not MapFolder then return end
 
-    -- [SETUP CONSTANT] Jarak mundur dari musuh
     local ATTACK_DISTANCE = 5 
 
     for _, mob in pairs(MapFolder:GetChildren()) do
-        -- [LOGIKA 1] Hanya proses jika nama musuh SESUAI dengan Dropdown (targetList[1])
-        if mob.Name == targetName then
-            
-            -- [LOGIKA 2] Hitung tinggi badan kita (Agar kaki napak tanah)
+        local isTarget = false
+        for _, name in ipairs(targetList) do
+            if mob.Name == name then
+                isTarget = true
+                break
+            end
+        end
+        if isTarget then
             local myHip = humanoid.HipHeight
-            if myHip < 1.5 then myHip = 2 end -- Default jika gagal baca
+            if myHip < 1.5 then myHip = 2 end
             local myHeightFromGround = myHip + (hrp.Size.Y / 2)
 
-            while mob.Name == targetList[1] and not Window.Destroyed do
-                -- Cek HP Musuh
+            while not Window.Destroyed do
                 if (mob:GetAttribute("Health") or 0) <= 0 then
                     break 
                 end
                 
-                -- Cek Kondisi Stop Farm
                 if not isFarm1 or isGlobalBossActive or isTransitioning or IsInGamemode() then break end
                 if not hrp or not humanoid or humanoid.Health <= 0 then break end
 
-                -- [LOGIKA 3] Ambil CFrame Target (Bisa Model atau BasePart)
                 local targetCFrame = nil
                 if mob:IsA("BasePart") then
                     targetCFrame = mob.CFrame
@@ -820,14 +815,11 @@ local function FarmServerEnemies()
                 end
 
                 if targetCFrame then
-                    -- A. Cari Lantai Musuh (Y Axis paling bawah)
                     local enemyFloorY = targetCFrame.Y 
                     
                     if mob:IsA("BasePart") then
-                        -- Jika Hitbox Kotak: Center - Setengah Tinggi
                         enemyFloorY = targetCFrame.Y - (mob.Size.Y / 2)
                     elseif mob:IsA("Model") then
-                         -- Jika Model: Cari Kaki atau BoundingBox
                         local leg = mob:FindFirstChild("Left Leg") or mob:FindFirstChild("Right Leg") or 
                                     mob:FindFirstChild("LeftFoot") or mob:FindFirstChild("RightFoot") or
                                     mob:FindFirstChild("LeftLowerLeg") or mob:FindFirstChild("RightLowerLeg")
@@ -839,19 +831,14 @@ local function FarmServerEnemies()
                         end
                     end
 
-                    -- B. Tentukan Posisi Berdiri Kita (Lantai Musuh + Tinggi Badan Kita)
                     local finalY = enemyFloorY + myHeightFromGround
 
-                    -- C. Posisi X/Z (Mundur ke belakang musuh sejauh ATTACK_DISTANCE)
                     local backPos = targetCFrame * CFrame.new(0, 0, ATTACK_DISTANCE)
                     
-                    -- D. Gabungkan (X/Z Belakang, Y Sesuai Tanah)
                     local attackPos = Vector3.new(backPos.X, finalY, backPos.Z)
                     
-                    -- E. Hadap ke Musuh (Tapi kunci Y agar kamera tidak mendongak)
                     local lookAtPos = Vector3.new(targetCFrame.X, finalY, targetCFrame.Z)
                     
-                    -- TELEPORT
                     hrp.CFrame = CFrame.new(attackPos, lookAtPos)
                 end
                 
@@ -1171,6 +1158,19 @@ local function IsTimeForTrial(modeName)
     return false
 end
 
+local function IsTimeForSwordsman()
+    local t = os.date("*t")
+    local m = t.min
+    local s = t.sec
+    if (m == 0 or m == 30) and s < 10 then
+        return true, string.format("%02d:%02d", t.hour, m)
+    end
+    return false, nil
+end
+
+local SwordsmanStartTime = nil
+local SwordsmanLastTriggerKey = nil
+
 -- [2] MAIN GAMEMODE LOOP (CHAT TRIGGER INTEGRATED)
 task.spawn(function()
     while not Window.Destroyed do
@@ -1182,8 +1182,7 @@ task.spawn(function()
         local detectedWave = GetCurrentWave()
 
         for modeName, settings in pairs(GamemodeSettings) do
-            -- SYARAT PERTAMA: Auto Toggle (Switch) harus ON
-            if settings.Active then
+            if settings.Active and modeName ~= "SwordsmanInvasion" then
                 local dbData = GlobalGamemodeDB[modeName]
                 
                 local isSwordsmanInvading = (modeName == "SwordsmanInvasion" and GetTargetFolder("SwordsmanInvasion") and #GetTargetFolder("SwordsmanInvasion"):GetChildren() > 0)
@@ -1290,6 +1289,80 @@ task.spawn(function()
                     end
                 end
             end
+        end
+        task.wait(1)
+    end
+end)
+
+task.spawn(function()
+    local requiredMap = "World of Aincrad"
+    while not Window.Destroyed do
+        local settings = GamemodeSettings["SwordsmanInvasion"]
+        if settings and settings.Active and not isTransitioning and not isGlobalBossActive then
+            local pData = getgenv().PlayerData
+            local currentMap = pData and pData.Map
+            local folder = GetTargetFolder("SwordsmanInvasion")
+            local hasEnemies = folder and #folder:GetChildren() > 0
+
+            if hasEnemies then
+                if not SwordsmanStartTime then
+                    SwordsmanStartTime = os.time()
+                end
+
+                if currentMap ~= requiredMap and currentMap ~= "None" and currentMap ~= "Loading" then
+                    if not savedPreviousMap or savedPreviousMap == "None" then
+                        savedPreviousMap = currentMap
+                    end
+                    SmartTeleport(requiredMap)
+                end
+
+                GamemodeKiller(function()
+                    local f = GetTargetFolder("SwordsmanInvasion")
+                    local alive = f and #f:GetChildren() > 0
+                    local elapsed = SwordsmanStartTime and (os.time() - SwordsmanStartTime) or 0
+                    return settings.Active and alive and elapsed < 300 and not isTransitioning
+                end, "SwordsmanInvasion")
+
+                local f = GetTargetFolder("SwordsmanInvasion")
+                local stillEnemies = f and #f:GetChildren() > 0
+                local elapsed = SwordsmanStartTime and (os.time() - SwordsmanStartTime) or 0
+
+                if stillEnemies and elapsed >= 300 then
+                    if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= requiredMap then
+                        Notify("SwordsmanInvasion", "Time limit reached, returning to previous map.", "clock")
+                        isTransitioning = false
+                        SmartTeleport(savedPreviousMap)
+                        savedPreviousMap = nil
+                    end
+                    SwordsmanStartTime = nil
+                elseif not stillEnemies then
+                    if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= requiredMap then
+                        Notify("SwordsmanInvasion", "Invasion cleared, returning to previous map.", "check")
+                        isTransitioning = false
+                        SmartTeleport(savedPreviousMap)
+                        savedPreviousMap = nil
+                    end
+                    SwordsmanStartTime = nil
+                end
+            else
+                local ok, key = IsTimeForSwordsman()
+                if ok and currentMap and currentMap ~= "None" and currentMap ~= "Loading" then
+                    if SwordsmanLastTriggerKey ~= key then
+                        if currentMap ~= requiredMap then
+                            savedPreviousMap = currentMap
+                            Notify("SwordsmanInvasion", "Teleporting for invasion timer.", "map")
+                            SmartTeleport(requiredMap)
+                        end
+                        SwordsmanLastTriggerKey = key
+                    end
+                end
+                if not ok then
+                    SwordsmanLastTriggerKey = nil
+                end
+                SwordsmanStartTime = nil
+            end
+        else
+            SwordsmanStartTime = nil
         end
         task.wait(1)
     end
@@ -1419,36 +1492,62 @@ local FarmToggleUI = nil
 UI.EnemyDD = MainTab:Dropdown({
     Title = "Select Enemies", 
     Values = nameList, 
-    Multi = false, -- Single Select
+    Multi = true,
     AllowNone = true, 
     Value = nil, 
     Flag = "TargetEnemies_Cfg",
     Image = "rbxassetid://84366761557806", 
     ImageSize = 50, 
-    Callback = function(v) 
-        -- (Isi callback Anda tetap sama seperti sebelumnya)
-        table.clear(targetList); 
-        if v then 
-             local val = (type(v) == "table" and (v.Value or v.Title)) or v
-             table.insert(targetList, val)
-             if type(v) == "table" and v.Icon then
-                 UI.EnemyDD:SetValueImage(v.Icon)
-                 if v.Gradient then
-                     UI.EnemyDD:SetMainImage({Image = v.Icon, Gradient = v.Gradient}, 50)
-                 end
-             end
-             if not isUpdatingUI and not isTransitioning then
-                 local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-                 if currentMap then SaveMapSelection(currentMap, val) end
-             end
+    Callback = function(v)
+        table.clear(targetList)
+        local primaryItem = nil
+
+        if type(v) == "table" then
+            for _, item in ipairs(v) do
+                local name = (type(item) == "table" and (item.Value or item.Title)) or item
+                if name then
+                    table.insert(targetList, name)
+                    if not primaryItem and type(item) == "table" then
+                        primaryItem = item
+                    end
+                end
+            end
+        elseif v then
+            local name = (type(v) == "table" and (v.Value or v.Title)) or v
+            if name then
+                table.insert(targetList, name)
+            end
+            if type(v) == "table" then
+                primaryItem = v
+            end
+        end
+
+        if primaryItem then
+            if primaryItem.Icon then
+                UI.EnemyDD:SetValueImage(primaryItem.Icon)
+                if primaryItem.Gradient then
+                    UI.EnemyDD:SetMainImage({Image = primaryItem.Icon, Gradient = primaryItem.Gradient}, 50)
+                else
+                    UI.EnemyDD:SetMainImage(primaryItem.Icon)
+                end
+            end
+            if not isUpdatingUI and not isTransitioning then
+                local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
+                if currentMap then
+                    local name = primaryItem.Value or primaryItem.Title
+                    SaveMapSelection(currentMap, name)
+                end
+            end
         else
-             UI.EnemyDD:SetValueImage("rbxassetid://84366761557806")
-             UI.EnemyDD:SetMainImage("rbxassetid://84366761557806")
-             if not isUpdatingUI and not isTransitioning then
-                 local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
-                 if currentMap then SaveMapSelection(currentMap, nil) end
-             end
-        end 
+            UI.EnemyDD:SetValueImage("rbxassetid://84366761557806")
+            UI.EnemyDD:SetMainImage("rbxassetid://84366761557806")
+            if not isUpdatingUI and not isTransitioning then
+                local currentMap = getgenv().PlayerData and getgenv().PlayerData.Map
+                if currentMap then
+                    SaveMapSelection(currentMap, nil)
+                end
+            end
+        end
     end
 })
 FM_Add("Farm", UI.EnemyDD)
@@ -1721,45 +1820,107 @@ end)
 
 isBossRotationActive = false
 
--- [1] FUNGSI UNTUK MEMBUNUH BOSS DI MAP SAAT INI
-local function KillCurrentBoss(bossName)
-    local EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Server:FindFirstChild("Enemies") and workspace.Server.Enemies.Gamemodes:FindFirstChild("Global Bosses")
-    if not EnemiesFolder then return false end
+-- Helper Timer
+local function GetBossTimer()
+    local date = os.date("*t")
+    local targetMin = (date.min < 30) and 30 or 60
+    local currentSec = (date.min * 60) + date.sec
+    local targetSec = targetMin * 60
     
-    -- Scan Cepat: Cari apakah boss ada di folder enemies client
-    local targetBoss = nil
+    local diff = targetSec - currentSec
+    if diff < 0 then diff = 0 end
+    
+    local m = math.floor(diff / 60)
+    local s = diff % 60
+    return string.format("%02d:%02d", m, s)
+end
+-- [1] FUNGSI UNTUK MEMBUNUH SEMUA BOSS DI MAP SAAT INI
+local function KillAllCurrentBosses()
+    local EnemiesFolder = GetTargetFolder("Global Bosses")
+    if not EnemiesFolder then
+        EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies") and workspace.Client.Enemies:FindFirstChild("Global Bosses")
+    end
+    if not EnemiesFolder then 
+        Notify("Boss Hunt", "Global Bosses folder not found.", "error")
+        return false 
+    end
+    
+    local bossesToKill = {}
     for _, mob in pairs(EnemiesFolder:GetChildren()) do
-        if mob.Name == bossName and (mob:GetAttribute("Health") or 0) > 0 then 
-            targetBoss = mob 
-            break 
+        local isValid = false
+        if mob:IsA("BasePart") or mob:IsA("Model") then
+            local hp = mob:GetAttribute("Health") or mob:GetAttribute("MaxHealth") or 0
+            if hp > 0 then
+                isValid = true
+            end
+        end
+        if isValid then
+            table.insert(bossesToKill, mob)
         end
     end
     
-    -- LOGIKA: Jika tidak ditemukan, return false (agar loop utama langsung skip ke next boss)
-    if not targetBoss then
-        Notify("Boss Hunt", bossName .. " Not Found/Deads. Skipping...", "fast-forward")
+    if #bossesToKill == 0 then
+        Notify("Boss Hunt", "No active Bosses found in current map. Skipping...", "fast-forward")
         return false
     end
     
-    -- Jika ditemukan, Lakukan Kill
-    if targetBoss then
-        Notify("Boss Hunt", "Found " .. bossName .. "! Killing...", "swords")        
-        while isAutoBoss and targetBoss and targetBoss.Parent and (targetBoss:GetAttribute("Health") or 0) > 0 do
+    Notify("Boss Hunt", "Found " .. #bossesToKill .. " Boss(es)! Killing all...", "swords")
+    local totalKilled = 0
+    
+    for _, targetBoss in ipairs(bossesToKill) do
+        local bossName = targetBoss.Name
+        Notify("Boss Hunt", "Targeting " .. bossName .. "...", "target")
+        
+        while isAutoBoss and targetBoss and targetBoss.Parent do
+            local hp = targetBoss:GetAttribute("Health") or targetBoss:GetAttribute("MaxHealth") or 0
+            if hp <= 0 then break end
             if not hrp or not humanoid or humanoid.Health <= 0 then break end
-            hrp.CFrame = targetBoss.CFrame
+
+            local targetCFrame = nil
+            local enemyFloorY = nil
+
+            if targetBoss:IsA("BasePart") then
+                targetCFrame = targetBoss.CFrame
+                enemyFloorY = targetCFrame.Y - (targetBoss.Size.Y / 2)
+            elseif targetBoss:IsA("Model") then
+                targetCFrame = targetBoss:GetPivot()
+                local leg = targetBoss:FindFirstChild("Left Leg") or targetBoss:FindFirstChild("Right Leg") or 
+                            targetBoss:FindFirstChild("LeftFoot") or targetBoss:FindFirstChild("RightFoot") or
+                            targetBoss:FindFirstChild("LeftLowerLeg") or targetBoss:FindFirstChild("RightLowerLeg")
+                if leg then
+                    enemyFloorY = leg.Position.Y - (leg.Size.Y / 2)
+                else
+                    local _, size = targetBoss:GetBoundingBox()
+                    enemyFloorY = targetCFrame.Y - (size.Y / 2)
+                end
+            end
+
+            if targetCFrame and enemyFloorY then
+                local myHip = humanoid.HipHeight
+                if myHip < 1.5 then myHip = 2 end
+                local myHeightFromGround = myHip + (hrp.Size.Y / 2)
+                local finalY = enemyFloorY + myHeightFromGround
+
+                local attackPos = Vector3.new(targetCFrame.X, finalY, targetCFrame.Z)
+                local lookAtPos = Vector3.new(targetCFrame.X, finalY, targetCFrame.Z)
+                hrp.CFrame = CFrame.new(attackPos, lookAtPos)
+            end
             
             task.wait()
-            -- Cek integritas (jika boss despawn tiba-tiba)
-            if targetBoss:GetAttribute("Health") <= 0 then break end
         end
         
-        Notify("Boss Hunt", bossName .. " Defeated.", "check")
-        return true
+        local hp = targetBoss:GetAttribute("Health") or targetBoss:GetAttribute("MaxHealth") or 0
+        if hp <= 0 or not targetBoss.Parent then
+            Notify("Boss Hunt", bossName .. " Defeated.", "check")
+            totalKilled = totalKilled + 1
+        end
+        task.wait(0.5)
     end
-    return false
+    
+    Notify("Boss Hunt", "Boss Kill Sequence Finished. Total: " .. totalKilled .. " defeated.", "star")
+    return true
 end
 
--- [2] FUNGSI UTAMA ROTASI BOSS (SEQUENCE)
 local function ExecuteBossSequence()
     if isBossRotationActive then return end
     isBossRotationActive = true
@@ -1774,25 +1935,28 @@ local function ExecuteBossSequence()
     
     Notify("Boss Hunt", "Starting Boss Rotation...", "map")
 
-    -- B. Loop semua Boss yang dipilih di Dropdown
+    -- B. Loop semua Map dari Boss yang dipilih di Dropdown (HANYA MAPNYA)
+    local uniqueMaps = {}
     for _, bossName in ipairs(selectedBosses) do
+        local bossData = GlobalBossDB[bossName]
+        if bossData and bossData.Map and not uniqueMaps[bossData.Map] then
+            uniqueMaps[bossData.Map] = true -- Tandai map sudah di-proses
+        end
+    end
+
+    for targetMap, _ in pairs(uniqueMaps) do
         if not isAutoBoss then break end -- Stop jika toggle dimatikan manual
         
-        local bossData = GlobalBossDB[bossName]
-        if bossData and bossData.Map then
-            local targetMap = bossData.Map
-            
-            -- Cek Map: Jika kita belum di map boss, Teleport dulu
-            if getgenv().PlayerData.Map ~= targetMap then
-                Notify("Boss Hunt", "Warping to " .. targetMap .. " for " .. bossName, "map")
-                SmartTeleport(targetMap)
-                task.wait(1.5) -- Tunggu loading sebentar
-            end
-            
-            -- Coba Kill Boss (Jika tidak ada, fungsi ini langsung return false dan loop lanjut)
-            KillCurrentBoss(bossName)
-            task.wait(0.5)
+        -- Cek Map: Jika kita belum di map boss, Teleport dulu
+        if getgenv().PlayerData.Map ~= targetMap then
+            Notify("Boss Hunt", "Warping to " .. targetMap .. " to hunt all Bosses...", "map")
+            SmartTeleport(targetMap)
+            task.wait(1.5) -- Tunggu loading sebentar
         end
+        
+        -- Coba Kill SEMUA Boss di map ini
+        KillAllCurrentBosses() 
+        task.wait(0.5)
     end
     
     -- C. Kembali ke Map Awal (Home)
@@ -1809,21 +1973,6 @@ local function ExecuteBossSequence()
     isGlobalBossActive = false
 end
 
--- Helper Timer
-local function GetBossTimer()
-    local date = os.date("*t")
-    local targetMin = (date.min < 30) and 30 or 60
-    local currentSec = (date.min * 60) + date.sec
-    local targetSec = targetMin * 60
-    
-    local diff = targetSec - currentSec
-    if diff < 0 then diff = 0 end
-    
-    local m = math.floor(diff / 60)
-    local s = diff % 60
-    return string.format("%02d:%02d", m, s)
-end
-
 -- [3] LOOP PENGECEKAN WAKTU SPAWN
 task.spawn(function()
     local waitingForSpawn = false
@@ -1836,9 +1985,9 @@ task.spawn(function()
             -- Trigger: Jika waktu hitung mundur habis (00:00), artinya Boss Spawn
             if timerText == "00:00" and not waitingForSpawn then
                 waitingForSpawn = true
-                Notify("Boss Hunt", "Boss Spawned! Waiting 60s to ensure spawn...", "clock")
+                Notify("Boss Hunt", "Boss Spawned! Waiting 10s to ensure spawn...", "clock")
                 
-                -- [PERMINTAAN ANDA] Tunggu 1 Menit (60 detik)
+                -- [PERMINTAAN ANDA] Tunggu 10 Detik
                 local countdown = 10
                 repeat
                     if not isAutoBoss then break end
@@ -3819,7 +3968,14 @@ task.spawn(function()
                             SmartTeleport(targetMap)
                         end
                     else
-                        if targetList[1] ~= targetName then
+                        local hasTarget = false
+                        for _, name in ipairs(targetList) do
+                            if name == targetName then
+                                hasTarget = true
+                                break
+                            end
+                        end
+                        if not hasTarget then
                             table.clear(targetList)
                             table.insert(targetList, targetName)
                         end
