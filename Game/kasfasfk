@@ -1844,6 +1844,16 @@ local function KillAllCurrentBosses()
         Notify("Boss Hunt", "Global Bosses folder not found.", "error")
         return false 
     end
+
+    if #selectedBosses == 0 then
+        Notify("Boss Hunt", "No boss selected in dropdown. Please select at least one.", "alert-circle")
+        return false
+    end
+
+    local selectedSet = {}
+    for _, name in ipairs(selectedBosses) do
+        selectedSet[name] = true
+    end
     
     local bossesToKill = {}
     for _, mob in pairs(EnemiesFolder:GetChildren()) do
@@ -1855,7 +1865,9 @@ local function KillAllCurrentBosses()
             end
         end
         if isValid then
-            table.insert(bossesToKill, mob)
+            if selectedSet[mob.Name] then
+                table.insert(bossesToKill, mob)
+            end
         end
     end
     
