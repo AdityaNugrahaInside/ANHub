@@ -1838,7 +1838,7 @@ end
 local function KillAllCurrentBosses()
     local EnemiesFolder = GetTargetFolder("Global Bosses")
     if not EnemiesFolder then
-        EnemiesFolder = workspace:FindFirstChild("Client") and workspace.Client:FindFirstChild("Enemies") and workspace.Client.Enemies:FindFirstChild("Global Bosses")
+        EnemiesFolder = workspace:FindFirstChild("Server") and workspace.Server:FindFirstChild("Enemies") and workspace.Server.Enemies.Gamemodes:FindFirstChild("Global Bosses")
     end
     if not EnemiesFolder then 
         Notify("Boss Hunt", "Global Bosses folder not found.", "error")
@@ -1881,31 +1881,8 @@ local function KillAllCurrentBosses()
 
             if targetBoss:IsA("BasePart") then
                 targetCFrame = targetBoss.CFrame
-                enemyFloorY = targetCFrame.Y - (targetBoss.Size.Y / 2)
-            elseif targetBoss:IsA("Model") then
-                targetCFrame = targetBoss:GetPivot()
-                local leg = targetBoss:FindFirstChild("Left Leg") or targetBoss:FindFirstChild("Right Leg") or 
-                            targetBoss:FindFirstChild("LeftFoot") or targetBoss:FindFirstChild("RightFoot") or
-                            targetBoss:FindFirstChild("LeftLowerLeg") or targetBoss:FindFirstChild("RightLowerLeg")
-                if leg then
-                    enemyFloorY = leg.Position.Y - (leg.Size.Y / 2)
-                else
-                    local _, size = targetBoss:GetBoundingBox()
-                    enemyFloorY = targetCFrame.Y - (size.Y / 2)
-                end
+                hrp.CFrame = targetCFrame
             end
-
-            if targetCFrame and enemyFloorY then
-                local myHip = humanoid.HipHeight
-                if myHip < 1.5 then myHip = 2 end
-                local myHeightFromGround = myHip + (hrp.Size.Y / 2)
-                local finalY = enemyFloorY + myHeightFromGround
-
-                local attackPos = Vector3.new(targetCFrame.X, finalY, targetCFrame.Z)
-                local lookAtPos = Vector3.new(targetCFrame.X, finalY, targetCFrame.Z)
-                hrp.CFrame = CFrame.new(attackPos, lookAtPos)
-            end
-            
             task.wait()
         end
         
