@@ -680,51 +680,60 @@ local function RefreshEnemyData()
     return uiList
 end
 getgenv().Controller = MainController
+-- [[ OPTIMIZED ENEMY DATA HANDLER ]] --
+
 local function UpdateLiveEnemies()
-    -- Reset map
-    local newMap = {}
+    -- OPTIMASI: Gunakan table.clear() daripada membuat table baru ({}) setiap detik.
+    -- Ini mencegah "Memory Leak" dan mengurangi kerja Garbage Collector.
+    table.clear(GlobalEnemyMap) 
     
     if MainController and MainController.Enemies then
         for uid, enemyData in pairs(MainController.Enemies) do
-            -- Validasi dasar: Pastikan musuh hidup dan memiliki Data/Config
-            if enemyData.Alive and enemyData.Data and enemyData.Config and enemyData.Root then
+            -- Validasi Cepat: Pastikan musuh ada datanya
+            if enemyData.Alive and enemyData.Root then
+                local config = enemyData.Config
+                local data = enemyData.Data
                 
-                -- Ambil kunci identifikasi (Nama Tampilan atau Index Internal)
-                local display = enemyData.Config.Display -- Contoh: "Blind"
-                local index = enemyData.Data.Index -- Contoh: "ParadisEnemy4"
-                
-                -- Masukkan ke dalam map berdasarkan Display Name (untuk yang dipilih via Dropdown)
-                if display then
-                    if not newMap[display] then newMap[display] = {} end
-                    table.insert(newMap[display], enemyData)
-                end
+                if config and data then
+                    -- Ambil Key (Nama Musuh)
+                    local display = config.Display
+                    local index = data.Index
+                    
+                    -- Masukkan ke Map berdasarkan Display Name
+                    if display then
+                        if not GlobalEnemyMap[display] then GlobalEnemyMap[display] = {} end
+                        table.insert(GlobalEnemyMap[display], enemyData)
+                    end
 
-                -- Masukkan juga berdasarkan Index (backup jika nama display sama)
-                if index and index ~= display then
-                    if not newMap[index] then newMap[index] = {} end
-                    table.insert(newMap[index], enemyData)
+                    -- Masukkan juga berdasarkan Index (Backup)
+                    if index and index ~= display then
+                        if not GlobalEnemyMap[index] then GlobalEnemyMap[index] = {} end
+                        table.insert(GlobalEnemyMap[index], enemyData)
+                    end
                 end
             end
         end
     end
-    
-    GlobalEnemyMap = newMap
 end
 
+-- UI Animation (Keep this)
 task.delay(1.0, function()
-    Window:CollapseSidebar()
+    if Window then Window:CollapseSidebar() end
 end)
 
 task.delay(3.0, function()
-    Window:ExpandSidebar()
+    if Window then Window:ExpandSidebar() end
 end)
+
+-- Loop Pembaruan Data (Diperlambat sedikit agar ringan)
 task.spawn(function()
     task.wait(1)
     while Window and not Window.Destroyed do
+        -- Hanya update data jika fitur Farm aktif ATAU Menu sedang dibuka
         if Config.AutoFarm or Config.AutoGamemode or (Window and not Window.Closed) then
             pcall(UpdateLiveEnemies)
         end
-        task.wait(1)
+        task.wait(1.5) -- Ubah dari 1s ke 1.5s (Data musuh tidak perlu realtime milidetik)
     end
 end)
 
@@ -2077,78 +2086,6 @@ local ExchangeButton = GeneralManagerSection:Button({
 })
 FM_Add("Exchange", ExchangeButton)
 
--- [LOOP UPDATE VISUAL UI (REAL-TIME CALCULATION)]
-task.spawn(function()
-    while not Window.Destroyed do
-        local pData = (getgenv()).PlayerData
-        
-        -- Refresh List jika inventory berubah (misal item baru didapat)
-        local digest = GetMaterialsDigest()
-        if digest ~= PrevMaterialsDigest then
-            MatPreview:Refresh(BuildExchangeValues())
-            PrevMaterialsDigest = digest
-        end
-
-        -- [LOGIKA KALKULASI JUMLAH]
-        local tradeTokenCount = (pData and pData.Materials and pData.Materials["TradeToken"]) or 0
-        local materialCount = (SelectedExToken and pData and pData.Materials and pData.Materials[SelectedExToken]) or 0
-        local ratio = GetExchangeRatio(SelectedExToken)
-
-        local inputDisplay = 0
-        local outputDisplay = 0
-
-        if SelectedExToken then
-            if ExchangeIsBuying then
-                -- MODE BELI (Buy): Trade Token -> Material
-                -- Rumus: Max Bisa Beli = TradeToken / Ratio
-                local maxCanBuy = math.floor(tradeTokenCount / ratio)
-                outputDisplay = math.floor(maxCanBuy * ExchangePercent) -- Berapa Material yang didapat
-                inputDisplay = outputDisplay * ratio -- Berapa Trade Token yang dibayar
-                if ratio < 500 then
-                    outputDisplay = outputDisplay/10
-                end                
-                -- Update Teks UI
-                MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay)))
-                TradePreview:SetDesc(string.format("Stock: %s | -%s (Pay)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(inputDisplay)))
-            else
-                -- MODE JUAL (Sell): Material -> Trade Token
-                -- Rumus: Input = Material * Persen
-                inputDisplay = math.floor(materialCount * ExchangePercent) -- Berapa Material yang dijual
-                outputDisplay = inputDisplay * ratio -- Berapa Trade Token yang didapat
-                
-                -- Update Teks UI
-                MatPreview:SetDesc(string.format("Stock: %s | -%s (Sell)", UtilsModule.ToText(materialCount), UtilsModule.ToText(inputDisplay)))
-                TradePreview:SetDesc(string.format("Stock: %s | +%s (Get)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(outputDisplay)))
-            end
-            
-            -- [UPDATE VISUAL GAMBAR GRADIENT SECARA REALTIME]
-            local info = MaterialsModule[SelectedExToken]
-            if info then
-                local rarity = info.Rarity or "Common"
-                local gradient = GetGameGradient(rarity)
-                local icon = SelectedExIcon or (info.Template and GetIcon(info.Template))
-                
-                if MatPreview.SetMainImage and icon then
-                    MatPreview:SetMainImage({
-                        Image = icon,
-                        Gradient = gradient,
-                        Quantity = rarity,
-                        Title = info.Display
-                    }, 50)
-                end
-            end
-            
-        else
-            -- Jika belum ada yang dipilih
-            MatPreview:SetTitle("Select Token")
-            MatPreview:SetDesc("None Selected")
-            TradePreview:SetDesc("Waiting...")
-        end
-        
-        task.wait(0.5)
-    end
-end)
-
 local _rollGroup;
 local _rollCount = 0;
 for _, rollType in ipairs(AllRollTypes) do
@@ -2173,141 +2110,6 @@ for _, rollType in ipairs(AllRollTypes) do
     RollToggleUI[rollType] = myToggle;
     _rollCount = _rollCount + 1;
 end;
-
--- [UPDATED: LOGIKA UI ROLL & SETMAINIMAGE OTOMATIS (SUPPORTS VAULT DATA)]
-local RollStateCache = {} 
-
-task.spawn(function()
-    while not Window.Destroyed do
-        local pData = (getgenv()).PlayerData
-        
-        -- Pastikan Data Player dan Config sudah siap
-        if pData and pData.Materials and pData.Vault and AllRollTypes then
-            
-            for rollType, toggle in pairs(RollToggleUI) do
-                local config = RollConfigs[rollType]
-                
-                -- Fallback jika config gagal load
-                if not config then 
-                    config = { Cost = 1, MaterialKey = rollType.."Token", List = {} }
-                end
-
-                local tokenKey = config.MaterialKey or (rollType .. "Token")
-                local displayName = MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Template
-                local tokenName = MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display
-                local currentCount = pData.Materials[tokenKey] or 0
-                
-                -- [PERBAIKAN LOGIKA PENCARIAN ITEM TERTINGGI]
-                local currentImage = GetRollIconAsset(rollType) -- Default Icon
-                local currentRarity = nil 
-                local currentItemName = nil
-                local foundBestIndex = 0
-
-                -- 1. Scan Vault secara langsung untuk mencari Index Tertinggi yang dimiliki
-                -- (Kita scan semua key di Vault user untuk mencari angka terbesar, misal: 7)
-                if pData.Vault[rollType] then
-                    for k, v in pairs(pData.Vault[rollType]) do
-                        if v == true then
-                            local idx = tonumber(k)
-                            if idx and idx > foundBestIndex then
-                                foundBestIndex = idx
-                            end
-                        end
-                    end
-                end
-
-                -- 2. Ambil Data Visual dari Config berdasarkan Index Tertinggi yang ditemukan
-                if foundBestIndex > 0 and config.List and config.List[foundBestIndex] then
-                    local itemData = config.List[foundBestIndex]
-                    if itemData then
-                        if itemData.Template then
-                            currentImage = GetIcon(itemData.Template)
-                        end
-                        if itemData.Rarity then
-                            currentRarity = itemData.Rarity
-                        end
-                        if itemData.Display then
-                            currentItemName = itemData.Display
-                        end
-                    end
-                end
-
-                -- [LOGIKA 2: CEK PERUBAHAN & UPDATE UI]
-                local lastState = RollStateCache[rollType] or {}
-                
-                -- Update Text Jumlah Token (Selalu cek)
-                if lastState.Count ~= currentCount then
-                    pcall(function() toggle:SetDesc(GetIcon(displayName) .. tokenName .. ":" .. UtilsModule.ToText(currentCount)) end)
-                end
-
-                -- Update Gambar Utama (SetMainImage) HANYA jika visual berubah
-                local isVisualChanged = (lastState.Image ~= currentImage) or (lastState.Rarity ~= currentRarity)
-                
-                if isVisualChanged then
-                    pcall(function()
-                        if not Window.Closed and toggle.SetMainImage then
-                            -- Pastikan ada nama item, jika tidak pakai default
-                            local titleToShow = currentItemName ~= "" and currentItemName or rollType
-                            local qtyToShow = currentRarity
-                            local gradToShow = GetGameGradient(qtyToShow)
-                            if qtyToShow then
-                                toggle:SetMainImage({
-                                    Image = currentImage,
-                                    Quantity = qtyToShow, -- Menampilkan teks Rarity (Rare, Legendary, dsb)
-                                    Title =  titleToShow,
-                                    Gradient = gradToShow -- Warna background mengikuti rarity
-                                }, 50)
-                            end
-                        end
-                    end)
-
-                    -- Simpan ke cache agar tidak lag
-                    RollStateCache[rollType] = {
-                        Image = currentImage,
-                        Rarity = currentRarity,
-                        Count = currentCount,
-                        IsMaxed = lastState.IsMaxed -- Pertahankan status maxed lama sementara
-                    }
-                else
-                    -- Update cache count saja jika visual tidak berubah
-                    lastState.Count = currentCount
-                    RollStateCache[rollType] = lastState
-                end
-
-                -- [LOGIKA 3: CEK MAXED OUT]
-                -- Cek apakah item terakhir dari Config list sudah dimiliki?
-                local totalInConfig = (config.List and #config.List) or 0
-                local isMaxed = false
-                
-                -- Jika item tertinggi yang kita punya >= total item yang ada di Config, berarti MAX
-                if totalInConfig > 0 and foundBestIndex >= totalInConfig then
-                    isMaxed = true
-                end
-
-                if isMaxed then
-                    pcall(function()
-                        if not lastState.IsMaxed then
-                            if not Window.Closed then
-                                toggle:Lock()
-                                toggle:SetTitle(rollType .. " [MAX]")
-                            end
-                            local cache = RollStateCache[rollType] or {}
-                            cache.IsMaxed = true
-                            RollStateCache[rollType] = cache
-                        end
-                        
-                        -- Matikan Toggle Auto Roll jika sudah Max
-                        if Config["AutoRoll" .. rollType] then
-                            Config["AutoRoll" .. rollType] = false
-                            toggle:Set(false)
-                        end
-                    end)
-                end
-            end
-        end
-        task.wait(1) -- Cek setiap 1 detik
-    end
-end)
 
 GeneralTab:Toggle({
     Title = "Auto Fuse Weapons",
@@ -2646,151 +2448,6 @@ for _, id in ipairs(SortedCraftIDs) do
     }
 end
 
--- [VARIEBEL CACHE BARU] Simpan status terakhir agar tidak spam update
-local CraftUICache = {} 
-
--- Logic Loop: Update Visual UI & Eksekusi Auto Craft
-task.spawn(function()
-    while not Window.Destroyed do
-        local pData = (getgenv()).PlayerData
-        if pData and pData.Materials then
-            
-            for id, info in pairs(CraftToggles) do
-                local data = info.Data
-                local toggle = info.UI
-                
-                local currentLvl = GetPlayerCraftLevel(id)
-                local maxLvl = data.MaxLevel
-                local nextLvl = currentLvl + 1
-                
-                -- [UPDATE VISUAL UI DENGAN CACHE]
-                pcall(function()
-                    if not Window.Closed then
-                        -- 1. HITUNG STRING BARU (JANGAN SET UI DULU)
-                        local newTitle = ""
-                        local newDesc = ""
-                        local isMaxed = false
-                        
-                        local curBonus = (data.Bonuses and data.Bonuses[currentLvl]) or nil
-                        local curBonusStr = FormatBonusString(curBonus)
-
-                        if currentLvl >= maxLvl then
-                            -- KONDISI MAX
-                            isMaxed = true
-                            newTitle = data.Display .. " [MAX]"
-                            newDesc = string.format("<b>Max Level Reached</b>\n\nActive Bonus:\n%s", curBonusStr)
-                        else
-                            -- KONDISI BELUM MAX (Hitung Cost)
-                            local nextBonus = (data.Bonuses and data.Bonuses[nextLvl]) or nil
-                            local nextBonusStr = FormatBonusString(nextBonus)
-                            
-                            local costStr = "None"
-                            local costData = data.Costs[nextLvl]
-                            
-                            if costData then
-                                local parts = {}
-                                for matName, reqAmt in pairs(costData) do
-                                    local myAmt = pData.Materials[matName] or 0
-                                    
-                                    -- Logic Gambar/Nama Material
-                                    local displayPart = matName
-                                    local displayName = matName
-                                    if MaterialsModule[matName] then
-                                        local matInfo = MaterialsModule[matName]
-                                        if matInfo.Template then
-                                            displayPart = GetIcon(matInfo.Template)
-                                        end
-                                        if matInfo.Display then
-                                            displayName = matInfo.Display
-                                        end
-                                    end
-
-                                    -- Format String
-                                    local line = string.format("%s%s %s/%s", displayPart,displayName, UtilsModule.ToText(reqAmt), UtilsModule.ToText(myAmt))
-                                    table.insert(parts, line)
-                                end
-                                costStr = table.concat(parts, "\n")
-                            end
-                            
-                            newTitle = string.format("%s [Lv %d -> %d]", data.Display, currentLvl, nextLvl)
-                            newDesc = string.format(
-                                "%s\n\nCurrent [Lv %d]: %s\nNext [Lv %d]: %s", 
-                                costStr, 
-                                currentLvl, curBonusStr, 
-                                nextLvl, nextBonusStr
-                            )
-                        end
-
-                        -- 2. CEK CACHE: Apakah data berubah dibanding frame sebelumnya?
-                        -- Ambil data lama dari cache, atau tabel kosong jika belum ada
-                        local lastState = CraftUICache[id] or {}
-
-                        -- Cek Perubahan Title
-                        if lastState.Title ~= newTitle then
-                            toggle:SetTitle(newTitle)
-                        end
-
-                        -- Cek Perubahan Deskripsi (Ini yang paling berat, jadi penting dicek)
-                        if lastState.Desc ~= newDesc then
-                            toggle:SetDesc(newDesc)
-                        end
-                        
-                        -- Cek Perubahan Status Max (Untuk update gambar utama sekali saja)
-                        if isMaxed and not lastState.IsMaxed and toggle.SetMainImage then
-                             toggle:SetMainImage({
-                                Image = "rbxassetid://"..tostring(data.Template),
-                                Quantity = "MAX",
-                                Title = data.Display,
-                                Gradient = GetGameGradient(data.Rarity)
-                            }, 50)
-                        end
-
-                        -- 3. SIMPAN KE CACHE (Hanya jika ada perubahan nilai)
-                        if lastState.Title ~= newTitle or lastState.Desc ~= newDesc or lastState.IsMaxed ~= isMaxed then
-                            CraftUICache[id] = {
-                                Title = newTitle,
-                                Desc = newDesc,
-                                IsMaxed = isMaxed
-                            }
-                        end
-                        
-                        -- Matikan Toggle otomatis jika sudah MAX
-                        if isMaxed and Config["AutoCraft_"..id] then
-                            Config["AutoCraft_"..id] = false
-                            toggle:Set(false)
-                        end
-                    end
-                end)
-                
-                -- [EKSEKUSI AUTO UPGRADE] (Logika tetap sama)
-                if Config["AutoCraft_"..id] then
-                    if currentLvl < maxLvl then
-                        if CanAffordCraft(id, nextLvl) then
-                            if Reliable then
-                                local s = pcall(function()
-                                    Reliable:FireServer("Upgrade Craft", { tostring(id) })
-                                end)
-                                
-                                if s then
-                                    local now = os.time()
-                                    local hookKey = "Craft_"..id
-                                    -- Webhook debounce
-                                    if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 3 then
-                                        SendUpgradeWebhook("Trainer", "Craft: "..data.Display, nextLvl, 0)
-                                        LastWebhookTime[hookKey] = now
-                                    end
-                                    task.wait(1)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        task.wait(1) -- Cek setiap 1 detik
-    end
-end)
-
 -- =========================================================================
 -- [DYNAMIC UPGRADE SYSTEM (TRAINER + GACHA UPGRADES) WITH WEBHOOK & CACHE]
 -- =========================================================================
@@ -2968,137 +2625,6 @@ end
 for _, name in ipairs(UpgradeSortedNames) do
     CreateUpgradeToggle(name, UpgradeModules[name], true)
 end
-
--- 3. UI Updater Loop (Real-time Info with Cache)
-task.spawn(function()
-    while not Window.Destroyed do
-        local pData = getgenv().PlayerData
-        if pData and pData.Materials then
-            
-            for name, data in pairs(CombinedToggleUI) do
-                local toggle = data.Toggle
-                local mod = data.Mod
-                local isGacha = data.IsGacha
-                
-                local currentLvl = 0
-                local maxLvl = mod.MAX_LEVEL or mod.MaxLevel or 100
-                local tokenKey = isGacha and (mod.UpgradeMaterial or name.."Token") or (mod.TOKEN_NAME or name.."Token")
-                
-                local currentImage = "rbxassetid://84366761557806"
-                local currentRarity = "Common"
-                local itemName = mod.Display or name
-
-                if isGacha then
-                    if pData.Attributes and pData.GachaLevel then
-                        local equippedIndex = pData.Attributes[name]
-                        if equippedIndex then
-                            if mod.List and mod.List[equippedIndex] then
-                                local iData = mod.List[equippedIndex]
-                                itemName = iData.Display
-                                currentRarity = iData.Rarity
-                                if iData.Template then currentImage = GetIcon(iData.Template) end
-                            end
-                            currentLvl = pData.GachaLevel[name][tostring(equippedIndex)] or 0
-                        end
-                    end
-                    if currentLvl == 0 then currentLvl = 1 end
-                else
-                    if pData.CrateUpgrades then
-                        currentLvl = pData.CrateUpgrades[name] or 0
-                    end
-                    if mod.ImageId then currentImage = GetIcon(mod.ImageId) end
-                end
-
-                local cost = mod.GetCost(currentLvl)
-                local currentMat = pData.Materials[tokenKey] or 0
-                
-                local matDisplayName = tokenKey
-                local matDisplayIcon = tokenKey
-                if MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Template then
-                    matDisplayIcon = GetIcon(MaterialsModule[tokenKey].Template)
-                end
-                if MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display then
-                    matDisplayName = MaterialsModule[tokenKey].Display
-                end
-
-                pcall(function()
-                    if not Window.Closed then
-                        -- [LAG FIX: Calculate strings first]
-                        local newTitle = ""
-                        local newDesc = ""
-                        local isMaxed = false
-                        
-                        if currentLvl >= maxLvl then
-                            isMaxed = true
-                            newTitle = itemName .. " [MAX]"
-                            newDesc = "Max Level Reached"
-                        else
-                            local chanceTxt = ""
-                            if not isGacha and mod.GetChance then
-                                local c = math.floor(mod.GetChance(currentLvl) * 10) / 10
-                                chanceTxt = " | Chance: " .. c .. "%"
-                            end
-                            
-                            newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
-                            newDesc = string.format("Cost: %s%s\n%s%s: %s", 
-                                UtilsModule.ToText(cost), 
-                                chanceTxt,
-                                matDisplayIcon,
-                                matDisplayName,
-                                UtilsModule.ToText(currentMat)
-                            )
-                        end
-
-                        -- [LAG FIX: Check against Cache]
-                        local cache = UpgradeUICache[name] or {}
-                        
-                        -- Only update Title if changed
-                        if cache.Title ~= newTitle then
-                            toggle:SetTitle(newTitle)
-                        end
-                        
-                        -- Only update Desc if changed
-                        if cache.Desc ~= newDesc then
-                            toggle:SetDesc(newDesc)
-                        end
-                        
-                        -- Handle Max State
-                        if isMaxed and not cache.IsMaxed then
-                            toggle:Lock()
-                            local cfgKey = isGacha and ("AutoUpgrade_"..name) or ("AutoChance_"..name)
-                            if Config[cfgKey] then
-                                Config[cfgKey] = false
-                                toggle:Set(false)
-                            end
-                        end
-                        
-                        -- Handle Main Image (only for Gacha types, once per rarity/image change)
-                        if isGacha and toggle.SetMainImage then
-                             if cache.Image ~= currentImage or cache.Rarity ~= currentRarity then
-                                toggle:SetMainImage({
-                                    Image = currentImage,
-                                    Quantity = currentRarity,
-                                    Title = itemName,
-                                    Gradient = GetGameGradient(currentRarity)
-                                }, 50)
-                            end
-                        end
-
-                        -- Update Cache
-                        UpgradeUICache[name] = {
-                            Title = newTitle,
-                            Desc = newDesc,
-                            IsMaxed = isMaxed,
-                            Image = currentImage,
-                            Rarity = currentRarity
-                        }
-                    end
-                end)
-            end
-        end
-        task.wait(1)
-    end
-end)
 -- ============================================================================
 -- [SHARED HELPERS - DIBUTUHKAN OLEH VAULT & INVENTORY]
 -- ============================================================================
@@ -3373,63 +2899,6 @@ local function RefreshVaultUI()
     VaultParagraph.ParagraphFrame.UIElements.Main.Parent = VaultGroup.GroupFrame
 end
 
--- [LOGIKA BARU: OPTIMIZED AUTO REFRESH - HANYA MONITOR BAGIAN VAULT]
-task.spawn(function()
-    local LastVaultHash = ""
-    local WasVisible = false -- Status visibilitas sebelumnya
-
-    -- Fungsi Helper: Hanya mengambil data Attributes yang berhubungan dengan Vault/Accessory
-    local function GetVaultSnapshot(pData)
-        if not pData or not pData.Attributes or not pData.Vault then return "" end
-        
-        local snapshot = {}
-        
-        -- 1. Ambil data equip dari setiap kategori Vault yang ada
-        for catName, _ in pairs(pData.Vault) do
-            -- Kita hanya peduli value Attributes yang kuncinya sama dengan nama Category Vault
-            if pData.Attributes[catName] then
-                snapshot[catName] = pData.Attributes[catName]
-            end
-        end
-
-        -- 2. Ambil data Accessory
-        if pData.Attributes.Accessory then
-            snapshot["Accessory"] = pData.Attributes.Accessory
-        end
-
-        -- Encode table kecil ini menjadi string untuk perbandingan
-        return HttpService:JSONEncode(snapshot)
-    end
-
-    while not Window.Destroyed do
-        local pData = (getgenv()).PlayerData
-        
-        if pData and pData.Attributes and pData.Vault then
-            -- 1. Cek apakah Tab Vault sedang terlihat
-            local IsVisible = VaultGroup and VaultGroup.GroupFrame and VaultGroup.GroupFrame.Visible
-            
-            -- 2. Buat Snapshot KHUSUS bagian Vault & Accessory saja
-            local CurrentVaultHash = GetVaultSnapshot(pData)
-            local DataChanged = (CurrentVaultHash ~= LastVaultHash)
-
-            if DataChanged then
-                LastVaultHash = CurrentVaultHash -- Update hash agar sinkron
-            end
-
-            -- 3. Eksekusi Refresh:
-            -- A. Jika Data VAULT Berubah DAN Tab sedang dibuka (Realtime update)
-            -- B. ATAU Jika Tab baru saja dibuka (IsVisible true, tapi sebelumnya false) agar data tidak basi
-            if (DataChanged and IsVisible) or (IsVisible and not WasVisible) then
-                RefreshVaultUI()
-            end
-
-            WasVisible = IsVisible
-        end
-        task.wait(0.5)
-    end
-end)
--- File: AnimeWeapons.lua (Ganti bagian SECTION: UPGRADE AVATAR LEVEL)
-
 local AvatarStatusPara = FarmTab:Paragraph({
     Title = "Avatar Level Status",
     Desc = "Waiting for Player Data...",
@@ -3532,123 +3001,6 @@ local function SendAvatarUpgradeWebhook(avatarDisplayName, newLevel, maxLevel, b
         })
     end)
 end
--- // LOGIC LOOP: AVATAR LEVEL //
-task.spawn(function()
-    while not Window.Destroyed do
-        local pData = (getgenv()).PlayerData
-        if pData and pData.Attributes and pData.AvatarLevels and pData.Materials and AvatarLevelsModule then
-            
-            -- [1. AMBIL DATA AVATAR]
-            local currentAvatar = pData.Attributes.Avatar
-            local isAvatarSelected = currentAvatar and currentAvatar ~= ""
-
-            -- Ambil Level & Token
-            local currentLevel = pData.AvatarLevels[currentAvatar] or 0
-            local maxLevel = AvatarLevelsModule.MaxLevel or 100
-            local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
-            local myTokens = pData.Materials[tokenKey] or 0
-            
-            -- [2. UPDATE VISUAL UI]
-            local avatarDisplayName = currentAvatar
-            local tokenDisplayName = tokenKey 
-
-            pcall(function()
-                local newTitle = "No Avatar Selected"
-                local newDesc = "Select an avatar in the game's interface to begin."
-                
-                if isAvatarSelected then
-                    -- 1. Ambil Nama Asli Avatar (Cari di EnemiesConfig)
-                    if EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
-                        avatarDisplayName = EnemiesConfig[currentAvatar].Display
-                    end
-
-                    -- 2. Ambil Nama Asli Token (Cari di MaterialsModule)
-                    if MaterialsModule and MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display then
-                        tokenDisplayName = MaterialsModule[tokenKey].Display
-                    end
-
-                    local nextLevel = currentLevel + 1
-                    local isMaxed = currentLevel >= maxLevel
-                    
-                    local currentBuff = AvatarLevelsModule.GetBuff(currentLevel)
-                    local nextBuff = isMaxed and currentBuff or AvatarLevelsModule.GetBuff(nextLevel)
-                    local cost = isMaxed and 0 or AvatarLevelsModule.GetCost(currentLevel)
-                    
-                    local costStr = UtilsModule.ToText(cost, 0)
-                    local tokenCountStr = UtilsModule.ToText(myTokens, 0)
-                    
-                    -- Update Title menggunakan avatarDisplayName
-                    newTitle = string.format("%s (Lv. %d / %d)", avatarDisplayName, currentLevel, maxLevel)
-                    
-                    if isMaxed then
-                        newDesc = string.format("<b>MAX Level Reached!</b>\n\nBuff: +%s%%\n%s %s", 
-                            UtilsModule.ToText(currentBuff),GetAvatarTokenIcon(), tokenCountStr)
-                        AvatarLevelToggle:Lock()
-                        AvatarLevelToggle:SetTitle("Auto Avatar Level Up [MAX]")
-                        Config.AutoAvatarLevelUp = false
-                        AvatarLevelToggle:Set(false)
-                    else
-                        -- Update Desc menggunakan tokenDisplayName
-                        newDesc = string.format("<b>Current Buff: +%s%%</b>\nNext Buff: +%s%%\n\nCost: %s / %s (%s %s)",
-                            UtilsModule.ToText(currentBuff), UtilsModule.ToText(nextBuff),
-                            costStr, tokenCountStr,GetAvatarTokenIcon(), tokenDisplayName)
-                        AvatarLevelToggle:Unlock()
-                        AvatarLevelToggle:SetTitle("Auto Avatar Level Up")
-                    end
-                else
-                    Config.AutoAvatarLevelUp = false
-                    AvatarLevelToggle:Set(false)
-                    AvatarLevelToggle:Lock()
-                end
-
-                if not Window.Closed then
-                    AvatarStatusPara:SetTitle(newTitle)
-                    AvatarStatusPara:SetDesc(newDesc)
-                end
-            end)
-
-            -- [3. LOGIC AUTO UPGRADE]
-            if Config.AutoAvatarLevelUp and isAvatarSelected and currentLevel < maxLevel then
-                local cost = AvatarLevelsModule.GetCost(currentLevel)
-                
-                if myTokens >= cost then
-                    if Reliable then
-                        local s = pcall(function()
-                            Reliable:FireServer("Avatar Upgrade")
-                        end)
-                        
-                        if s then
-                            -- Gunakan avatarDisplayName untuk Notify
-                            Notify("Avatar", string.format("Auto Level Up: %s to Lv. %d", avatarDisplayName, currentLevel + 1), "arrow-up")
-                            local now = os.time()
-                            if not LastWebhookTime["AvatarLevels"] or (now - LastWebhookTime["AvatarLevels"]) >= 10 then
-                                local newLevel = currentLevel + 1
-                                local max = AvatarLevelsModule.MaxLevel or 100 -- Mengambil maxLevel dari config
-                                local buffPercentage = AvatarLevelsModule.GetBuff(newLevel)
-                                SendAvatarUpgradeWebhook(avatarDisplayName, newLevel, max, buffPercentage)
-                                LastWebhookTime["AvatarLevels"] = now
-                            end                            
-                            -- Tunggu sinkronisasi data dari server
-                            task.wait(1.5)  
-                        end
-                    end
-                end
-            end
-        else
-            -- Jika data belum dimuat, pastikan toggle mati dan terkunci
-            pcall(function()
-                if AvatarLevelToggle and not AvatarLevelToggle.Locked then
-                    AvatarLevelToggle:Lock()
-                    AvatarLevelToggle:SetTitle("Auto Avatar Level Up [Waiting Data]")
-                    Config.AutoAvatarLevelUp = false
-                    AvatarLevelToggle:Set(false)
-                end
-            end)
-        end
-        
-        task.wait(1)
-    end
-end)
 
 -- Global Config Variables
 local HeroesStatsModule = nil
@@ -3799,112 +3151,6 @@ local AutoRollToggle = FarmTab:Toggle({
 })
 FM_Add("Heroes Stats", AutoRollToggle)
 
--- ============================================================================
--- // LOGIC LOOP: HEROES STATS (MODULAR + FireServer)
--- ============================================================================
-task.spawn(function()
-    while not Window.Destroyed do
-        local pData = (getgenv()).PlayerData
-        
-        if not pData or not pData.Materials or not pData.EquippedHeroes or not pData.Heroes or not HeroesStatsModule or not Reliable or not HeroesConfigModule then
-            task.wait(1)
-            continue
-        end
-
-        -- 1. Cari Hero yang Sedang Dipakai
-        local equippedHeroUID = nil
-        for uid, isEquipped in pairs(pData.EquippedHeroes) do
-            if isEquipped == true and pData.Heroes[uid] then
-                equippedHeroUID = uid
-                break
-            end
-        end
-
-        if not equippedHeroUID then
-            if not Window.Closed then
-                HeroStatsInfo:SetTitle("No Hero Equipped")
-                HeroStatsInfo:SetDesc("Please equip a hero first.")
-            end
-            task.wait(2)
-            continue
-        end
-
-        -- 2. Ambil Data
-        local heroData = pData.Heroes[equippedHeroUID]
-        local currentStats = heroData.Stats or {} 
-        local lockedStats = pData.LockedHeroesStats or {} 
-        
-        -- 3. Update UI Visual
-        pcall(function()
-            if not Window.Closed then
-                local descLines = ""
-                
-                local heroConfig = HeroesConfigModule[heroData.Index]
-                local heroName = heroConfig and heroConfig.Display or "Unknown Hero"
-                
-                for _, statName in ipairs(ValidStatsList) do
-                    local statIndex = currentStats[statName] or 1
-                    local displayTier = RarityIndexMap[statIndex] or "?"
-                    local colorHex = GetModularColor(statIndex)
-                    
-                    local lockIcon = lockedStats[statName] and "🔒" or "🔓"
-                    local buffPercent = GetClassBuffPercentage(statName, statIndex)
-
-                    descLines = descLines .. string.format(
-                        '<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n',
-                        colorHex, displayTier, statName, buffPercent, lockIcon
-                    )
-                end
-                
-                local currency = pData.Materials.HeroesStats or 0
-                HeroStatsInfo:SetTitle(heroName .. " (Shards: " .. UtilsModule.ToText(currency) .. ")")
-                HeroStatsInfo:SetDesc(descLines)
-            end
-        end)
-
-        -- 4. Logika Auto Lock & Roll
-        if Config.AutoRollHeroStats then
-            local currency = pData.Materials.HeroesStats or 0
-            local safeToRoll = true
-            
-            -- [LOGIKA AUTO LOCK]
-            if Config.EnableAutoLock then
-                local targetIndex = RarityMap[TargetLockTier] or 999
-                
-                for _, statName in ipairs(ValidStatsList) do
-                    local currentIndex = currentStats[statName] or 1
-                    local isLocked = lockedStats[statName] == true
-                    
-                    -- Jika Stat sekarang >= Target DAN Belum dikunci
-                    if currentIndex >= targetIndex and not isLocked then
-                        -- Stat ini layak dikunci
-                        Reliable:FireServer("Lock Hero Stats", {statName})
-                        if Notify then Notify("Auto Lock", "Locking " .. statName .. " [" .. (RarityIndexMap[currentIndex] or "?") .. "]", "lock") end
-                        safeToRoll = false
-                        task.wait(0.3)
-                    end
-                end
-            end
-            
-            -- [LOGIKA AUTO ROLL]
-            if safeToRoll and currency > 0 then
-                local anyUnlocked = false
-                for _, statName in ipairs(ValidStatsList) do
-                    if lockedStats[statName] ~= true then
-                        anyUnlocked = true
-                        break
-                    end
-                end
-
-                if anyUnlocked then
-                    Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, true})
-                end
-            end
-        end
-        
-        task.wait(0.5)
-    end
-end)
 local SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -4081,147 +3327,6 @@ task.spawn(function()
     end;
 end);
 
--- [MAIN LOOP UPDATE DATA & AUTO UPGRADE]
-local LastMorphCount = 0;
-local LastEquippedAvatar = "";
-
-task.spawn(function()
-    while not Window.Destroyed do
-        if not (getgenv()).PlayerData then
-            ScanPlayerData();
-        end;
-        local Data = (getgenv()).PlayerData;
-        
-        if Data and Data.Attributes then
-            -- [1. LOGIKA RANK UP + WEBHOOK]
-            local currentRank = Data.Attributes.Rank or 0;
-            local currentMastery = Data.Attributes.Mastery or 0;
-            local req = RankModule.GetRequirement(currentRank);
-            local currentBuff = RankModule.GetBuff(currentRank);
-            local nextBuff = RankModule.GetBuff(currentRank + 1);
-            
-            if RankProgressUI and not Window.Closed then
-                local percent = req > 0 and math.clamp(currentMastery / req, 0, 1) or 0;
-                local barText = string.rep("█", math.floor(percent * 10)) .. string.rep("▒", 10 - math.floor(percent * 10));
-                local buffText = currentRank >= RankModule.MAX and "Buff: " .. UtilsModule.ToText(currentBuff) .. "% (MAX)" or "Buff: " .. UtilsModule.ToText(currentBuff) .. "% >> " .. UtilsModule.ToText(nextBuff) .. "%";
-                RankProgressUI:SetTitle(string.format("Rank %d", currentRank));
-                RankProgressUI:SetDesc(string.format("%s\n[%s] %d%%\n%s / %s", buffText, barText, math.floor(percent * 100), UtilsModule.ToText(currentMastery), UtilsModule.ToText(req)));
-            end;
-            
-            if Config.AutoRankUp and currentMastery >= req and currentRank < RankModule.MAX then
-                if Reliable then
-                    local s = pcall(function()
-                        Reliable:FireServer("RankUp");
-                    end);
-                    
-                    -- Webhook Rank Up
-                    if s then
-                        local now = os.time()
-                        -- Debounce 10 detik untuk Rank agar tidak double post saat lag
-                        if not LastWebhookTime["Rank"] or (now - LastWebhookTime["Rank"]) >= 10 then
-                            SendUpgradeWebhook("Rank", "Rank " .. (currentRank + 1), currentRank + 1, req)
-                            LastWebhookTime["Rank"] = now
-                        end
-                    end
-                end;
-            end;
-
-            -- [2. LOGIKA YEN UPGRADE + WEBHOOK]
-            if Data.YenUpgrades then
-                local currentYen = Data.Attributes.Yen or 0;
-                for name, configData in pairs(YenUpgradeConfig) do
-                    local lvl = Data.YenUpgrades[name] or 0;
-                    local cost = YenModule.GetUpgradeCost(lvl, name);
-                    local toggle = YenUpgradeToggleUI[name];
-                    
-                    if toggle and toggle.SetTitle and toggle.SetDesc then
-                        local maxLvl = configData.MaxLevel or 20;
-                        if lvl >= maxLvl then
-                            if not Window.Closed then
-                                toggle:SetTitle(name .. " [MAX]");
-                                toggle:Lock();
-                                toggle:Set(false)
-                                toggle:SetDesc(string.format("Maxed Out (Buff: +%s%%)", UtilsModule.ToText(YenModule.GetUpgradeBuff(name, lvl))));
-                            end
-                        else
-                            if not Window.Closed then
-                                toggle:SetTitle(name .. " [" .. lvl .. "/" .. maxLvl .. "]");
-                                toggle:SetDesc(string.format("Cost: %s | Buff: +%s%%", UtilsModule.ToText(cost), UtilsModule.ToText(YenModule.GetUpgradeBuff(name, lvl))));
-                            end
-                            
-                            if Config["AutoYen_" .. name] and currentYen >= cost then
-                                if Reliable then
-                                    local s = pcall(function()
-                                        Reliable:FireServer("Yen Upgrade", { name });
-                                    end);
-                                    
-                                    -- Webhook Yen
-                                    if s then
-                                        local now = os.time()
-                                        local hookKey = "Yen_" .. name
-                                        if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 3 then
-                                            SendUpgradeWebhook("Yen", name, lvl + 1, cost)
-                                            LastWebhookTime[hookKey] = now
-                                        end
-                                    end
-                                end;
-                            end;
-                        end;
-                    end;
-                end;
-            end;
-
-            -- [3. LOGIKA TOKEN UPGRADE + WEBHOOK]
-            if Data.TokenUpgrades then
-                local currentToken = Data.Materials.UpgradeToken or 0;
-                for name, configData in pairs(TokenUpgradeConfig) do
-                    local lvl = Data.TokenUpgrades[name] or 0;
-                    local cost = TokenModule.GetUpgradeCost(lvl,name);
-                    local toggle = TokenUpgradeToggleUI[name];
-                    
-                    if toggle and toggle.SetTitle and toggle.SetDesc then
-                        local maxLvl = configData.MaxLevel or 999;
-                        if lvl >= maxLvl then
-                            if not Window.Closed then
-                                toggle:Lock();
-                                toggle:SetTitle(name .. " [MAX]");
-                                toggle:SetDesc(string.format("Maxed Out (Buff: +%s%%)", UtilsModule.ToText(TokenModule.GetUpgradeBuff(name, lvl))));
-                            end
-                        else
-                            if not Window.Closed then
-                                toggle:SetTitle(name .. " [" .. lvl .. "/" .. maxLvl .. "]");
-                                toggle:SetDesc(string.format("Cost: %s | Buff: +%s%%\nUpgrade Shard: %s", UtilsModule.ToText(cost), UtilsModule.ToText(TokenModule.GetUpgradeBuff(name, lvl)), UtilsModule.ToText(currentToken)));
-                            end
-                            
-                            if Config["AutoToken_" .. name] and currentToken >= cost then
-                                if Reliable then
-                                    local s = pcall(function()
-                                        Reliable:FireServer("Token Upgrade", { name });
-                                    end);
-
-                                    -- Webhook Token
-                                    if s then
-                                        local now = os.time()
-                                        local hookKey = "Token_" .. name
-                                        if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 3 then
-                                            SendUpgradeWebhook("Token", name, lvl + 1, cost)
-                                            LastWebhookTime[hookKey] = now
-                                        end
-                                    end
-                                end;
-                            end;
-                        end;
-                    end;
-                end;
-            end;
-
-        elseif RankProgressUI then
-            RankProgressUI:SetDesc("Scanning Data...");
-        end;
-        task.wait(1);
-    end;
-end);
-
 task.spawn(MaintainAutoStatus);
 task.spawn(function()
     task.wait(1.5);
@@ -4274,6 +3379,372 @@ task.spawn(function()
     end
     if SecuritySection and SecuritySection.Opened then
         SecuritySection:Open()
+    end
+end)
+-- [[ FIXED OPTIMIZED GLOBAL UI LOOP ]] --
+-- Paste ini di bagian paling bawah script, sebelum Window:SelectTab
+
+-- Kita gunakan Table "Optimizer" agar tidak memakan batas limit local variable Lua (Limit 200)
+local Optimizer = {
+    Cache = {
+        Roll = {},
+        Craft = {},
+        Upgrade = {},
+        VaultHash = "",
+        VaultWasVisible = false
+    }
+}
+
+-- Definisi Fungsi dimasukkan ke dalam Table (Bukan local function terpisah)
+function Optimizer.Update_Exchange_Logic(pData)
+    local digest = GetMaterialsDigest()
+    if digest ~= PrevMaterialsDigest then
+        MatPreview:Refresh(BuildExchangeValues())
+        PrevMaterialsDigest = digest
+    end
+    
+    local tradeTokenCount = (pData.Materials and pData.Materials["TradeToken"]) or 0
+    local materialCount = (SelectedExToken and pData.Materials and pData.Materials[SelectedExToken]) or 0
+    local ratio = GetExchangeRatio(SelectedExToken)
+    local inputDisplay, outputDisplay = 0, 0
+
+    if SelectedExToken then
+        if ExchangeIsBuying then
+            local maxCanBuy = math.floor(tradeTokenCount / ratio)
+            outputDisplay = math.floor(maxCanBuy * ExchangePercent)
+            inputDisplay = outputDisplay * ratio
+            if ratio < 500 then outputDisplay = outputDisplay/10 end
+            MatPreview:SetDesc(string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay)))
+            TradePreview:SetDesc(string.format("Stock: %s | -%s (Pay)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(inputDisplay)))
+        else
+            inputDisplay = math.floor(materialCount * ExchangePercent)
+            outputDisplay = inputDisplay * ratio
+            MatPreview:SetDesc(string.format("Stock: %s | -%s (Sell)", UtilsModule.ToText(materialCount), UtilsModule.ToText(inputDisplay)))
+            TradePreview:SetDesc(string.format("Stock: %s | +%s (Get)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(outputDisplay)))
+        end
+        local info = MaterialsModule[SelectedExToken]
+        if info and MatPreview.SetMainImage then
+            MatPreview:SetMainImage({ Image = SelectedExIcon or (info.Template and GetIcon(info.Template)), Gradient = GetGameGradient(info.Rarity or "Common"), Quantity = info.Rarity or "Common", Title = info.Display }, 50)
+        end
+    else
+        MatPreview:SetTitle("Select Token"); MatPreview:SetDesc("None Selected"); TradePreview:SetDesc("Waiting...")
+    end
+end
+
+function Optimizer.Update_Roll_Logic(pData)
+    if not pData.Vault then return end
+    for rollType, toggle in pairs(RollToggleUI) do
+        local config = RollConfigs[rollType] or { Cost = 1, MaterialKey = rollType.."Token", List = {} }
+        local tokenKey = config.MaterialKey or (rollType .. "Token")
+        local currentCount = pData.Materials[tokenKey] or 0
+        
+        -- Logic Visual
+        local currentImage, currentRarity, currentItemName = GetRollIconAsset(rollType), nil, nil
+        local foundBestIndex = 0
+        if pData.Vault[rollType] then
+            for k, v in pairs(pData.Vault[rollType]) do
+                local idx = tonumber(k)
+                if v == true and idx and idx > foundBestIndex then foundBestIndex = idx end
+            end
+        end
+        if foundBestIndex > 0 and config.List and config.List[foundBestIndex] then
+            local itemData = config.List[foundBestIndex]
+            if itemData then
+                if itemData.Template then currentImage = GetIcon(itemData.Template) end
+                currentRarity = itemData.Rarity
+                currentItemName = itemData.Display
+            end
+        end
+
+        local lastState = Optimizer.Cache.Roll[rollType] or {}
+        if lastState.Count ~= currentCount then pcall(function() toggle:SetDesc(GetIcon(MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Template) .. (MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display) .. ":" .. UtilsModule.ToText(currentCount)) end) end
+        
+        if (lastState.Image ~= currentImage) or (lastState.Rarity ~= currentRarity) then
+            pcall(function() if not Window.Closed and toggle.SetMainImage and currentRarity then toggle:SetMainImage({ Image = currentImage, Quantity = currentRarity, Title = currentItemName or rollType, Gradient = GetGameGradient(currentRarity) }, 50) end end)
+            Optimizer.Cache.Roll[rollType] = { Image = currentImage, Rarity = currentRarity, Count = currentCount, IsMaxed = lastState.IsMaxed }
+        else
+            lastState.Count = currentCount
+            Optimizer.Cache.Roll[rollType] = lastState
+        end
+
+        local isMaxed = (config.List and #config.List > 0 and foundBestIndex >= #config.List)
+        if isMaxed and not lastState.IsMaxed then
+            pcall(function() toggle:Lock(); toggle:SetTitle(rollType .. " [MAX]"); if Config["AutoRoll" .. rollType] then Config["AutoRoll" .. rollType] = false; toggle:Set(false) end end)
+            local c = Optimizer.Cache.Roll[rollType] or {}; c.IsMaxed = true; Optimizer.Cache.Roll[rollType] = c
+        end
+    end
+end
+
+function Optimizer.Update_Craft_Logic(pData)
+    for id, info in pairs(CraftToggles) do
+        local data, toggle = info.Data, info.UI
+        local currentLvl = (pData.Crafts and pData.Crafts[id]) or 0
+        local maxLvl, nextLvl = data.MaxLevel, currentLvl + 1
+        
+        local newTitle, newDesc, isMaxed = "", "", false
+        local curBonusStr = FormatBonusString(data.Bonuses and data.Bonuses[currentLvl])
+
+        if currentLvl >= maxLvl then
+            isMaxed = true; newTitle = data.Display .. " [MAX]"; newDesc = string.format("<b>Max Level Reached</b>\n\nActive Bonus:\n%s", curBonusStr)
+        else
+            local nextBonusStr = FormatBonusString(data.Bonuses and data.Bonuses[nextLvl])
+            local costStr = "None"
+            if data.Costs[nextLvl] then
+                local parts = {}
+                for matName, reqAmt in pairs(data.Costs[nextLvl]) do
+                    local myAmt = pData.Materials[matName] or 0
+                    local dName, dIcon = matName, ""
+                    if MaterialsModule[matName] then dName = MaterialsModule[matName].Display; if MaterialsModule[matName].Template then dIcon = GetIcon(MaterialsModule[matName].Template) end end
+                    table.insert(parts, string.format("%s%s %s/%s", dIcon, dName, UtilsModule.ToText(reqAmt), UtilsModule.ToText(myAmt)))
+                end
+                costStr = table.concat(parts, "\n")
+            end
+            newTitle = string.format("%s [Lv %d -> %d]", data.Display, currentLvl, nextLvl)
+            newDesc = string.format("%s\n\nCurrent [Lv %d]: %s\nNext [Lv %d]: %s", costStr, currentLvl, curBonusStr, nextLvl, nextBonusStr)
+        end
+
+        local lastState = Optimizer.Cache.Craft[id] or {}
+        if lastState.Title ~= newTitle then toggle:SetTitle(newTitle) end
+        if lastState.Desc ~= newDesc then toggle:SetDesc(newDesc) end
+        if isMaxed and not lastState.IsMaxed and toggle.SetMainImage then toggle:SetMainImage({ Image = "rbxassetid://"..tostring(data.Template), Quantity = "MAX", Title = data.Display, Gradient = GetGameGradient(data.Rarity) }, 50) end
+        if lastState.Title ~= newTitle or lastState.Desc ~= newDesc or lastState.IsMaxed ~= isMaxed then Optimizer.Cache.Craft[id] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed } end
+        
+        if isMaxed and Config["AutoCraft_"..id] then Config["AutoCraft_"..id] = false; toggle:Set(false) end
+        
+        if Config["AutoCraft_"..id] and not isMaxed and CanAffordCraft(id, nextLvl) then
+            if Reliable then 
+                local s = pcall(function() Reliable:FireServer("Upgrade Craft", { tostring(id) }) end) 
+                if s then 
+                    local now, hk = os.time(), "Craft_"..id
+                    if not LastWebhookTime[hk] or (now - LastWebhookTime[hk]) >= 3 then SendUpgradeWebhook("Trainer", "Craft: "..data.Display, nextLvl, 0); LastWebhookTime[hk] = now end
+                end
+            end
+        end
+    end
+end
+
+function Optimizer.Update_Trainer_Logic(pData)
+    for name, data in pairs(CombinedToggleUI) do
+        local toggle, mod, isGacha = data.Toggle, data.Mod, data.IsGacha
+        local currentLvl, tokenKey = 0, ""
+        local itemName, currentImage, currentRarity = (mod.Display or name), "rbxassetid://84366761557806", "Common"
+
+        if isGacha then
+            if pData.Attributes and pData.GachaLevel and pData.Attributes[name] then
+                local equippedIndex = pData.Attributes[name]
+                if mod.List and mod.List[equippedIndex] then
+                    local iData = mod.List[equippedIndex]
+                    itemName, currentRarity = iData.Display, iData.Rarity
+                    if iData.Template then currentImage = GetIcon(iData.Template) end
+                end
+                currentLvl = pData.GachaLevel[name][tostring(equippedIndex)] or 0
+            end
+            if currentLvl == 0 then currentLvl = 1 end
+            tokenKey = mod.UpgradeMaterial or (name.."Token")
+        else
+            currentLvl = (pData.CrateUpgrades and pData.CrateUpgrades[name]) or 0
+            if mod.ImageId then currentImage = GetIcon(mod.ImageId) end
+            tokenKey = mod.TOKEN_NAME or (name.."Token")
+        end
+
+        local cost, maxLvl = mod.GetCost(currentLvl), (mod.MAX_LEVEL or mod.MaxLevel or 100)
+        local currentMat = pData.Materials[tokenKey] or 0
+        local matInfo = MaterialsModule[tokenKey]
+        local matDisplay = string.format("%s%s", (matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""), (matInfo and matInfo.Display or tokenKey))
+
+        local newTitle, newDesc, isMaxed = "", "", false
+        if currentLvl >= maxLvl then
+            isMaxed = true; newTitle = itemName .. " [MAX]"; newDesc = "Max Level Reached"
+        else
+            local chanceTxt = (not isGacha and mod.GetChance) and (" | Chance: " .. (math.floor(mod.GetChance(currentLvl) * 10) / 10) .. "%") or ""
+            newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
+            newDesc = string.format("Cost: %s%s\n%s: %s", UtilsModule.ToText(cost), chanceTxt, matDisplay, UtilsModule.ToText(currentMat))
+        end
+
+        local cache = Optimizer.Cache.Upgrade[name] or {}
+        if cache.Title ~= newTitle then toggle:SetTitle(newTitle) end
+        if cache.Desc ~= newDesc then toggle:SetDesc(newDesc) end
+        if isMaxed and not cache.IsMaxed then toggle:Lock(); local k = isGacha and ("AutoUpgrade_"..name) or ("AutoChance_"..name); if Config[k] then Config[k] = false; toggle:Set(false) end end
+        if isGacha and toggle.SetMainImage and (cache.Image ~= currentImage or cache.Rarity ~= currentRarity) then toggle:SetMainImage({ Image = currentImage, Quantity = currentRarity, Title = itemName, Gradient = GetGameGradient(currentRarity) }, 50) end
+        
+        Optimizer.Cache.Upgrade[name] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed, Image = currentImage, Rarity = currentRarity }
+    end
+end
+
+function Optimizer.Update_Vault_Logic(pData)
+    local function GetVaultSnapshot(pd)
+        if not pd.Attributes or not pd.Vault then return "" end
+        local s = {}
+        for c, _ in pairs(pd.Vault) do if pd.Attributes[c] then s[c] = pd.Attributes[c] end end
+        if pd.Attributes.Accessory then s["Accessory"] = pd.Attributes.Accessory end
+        return HttpService:JSONEncode(s)
+    end
+    
+    local IsVisible = VaultGroup and VaultGroup.GroupFrame and VaultGroup.GroupFrame.Visible
+    local CurrentHash = GetVaultSnapshot(pData)
+    local DataChanged = (CurrentHash ~= Optimizer.Cache.VaultHash)
+    
+    if DataChanged then Optimizer.Cache.VaultHash = CurrentHash end
+    if (DataChanged and IsVisible) or (IsVisible and not Optimizer.Cache.VaultWasVisible) then RefreshVaultUI() end
+    Optimizer.Cache.VaultWasVisible = IsVisible
+end
+
+function Optimizer.Update_Avatar_Logic(pData)
+    if not pData.AvatarLevels then return end
+    local currentAvatar = pData.Attributes.Avatar
+    local isSelected = currentAvatar and currentAvatar ~= ""
+    
+    if isSelected then
+        local displayName = (EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display) or currentAvatar
+        local currentLvl = pData.AvatarLevels[currentAvatar] or 0
+        local maxLvl = AvatarLevelsModule.MaxLevel or 100
+        local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
+        local myTokens = pData.Materials[tokenKey] or 0
+        local tokenName = (MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display) or tokenKey
+        
+        local isMaxed = currentLvl >= maxLvl
+        local curBuff = AvatarLevelsModule.GetBuff(currentLvl)
+        local newTitle = string.format("%s (Lv. %d / %d)", displayName, currentLvl, maxLvl)
+        local newDesc = ""
+        
+        if isMaxed then
+            newDesc = string.format("<b>MAX Level Reached!</b>\n\nBuff: +%s%%\n%s %s", UtilsModule.ToText(curBuff), GetAvatarTokenIcon(), UtilsModule.ToText(myTokens))
+            if not AvatarLevelToggle.Locked then AvatarLevelToggle:Lock(); AvatarLevelToggle:SetTitle("Auto Avatar Level Up [MAX]"); Config.AutoAvatarLevelUp = false; AvatarLevelToggle:Set(false) end
+        else
+            local nextBuff = AvatarLevelsModule.GetBuff(currentLvl + 1)
+            local cost = AvatarLevelsModule.GetCost(currentLvl)
+            newDesc = string.format("<b>Current Buff: +%s%%</b>\nNext Buff: +%s%%\n\nCost: %s / %s (%s %s)", UtilsModule.ToText(curBuff), UtilsModule.ToText(nextBuff), UtilsModule.ToText(cost), UtilsModule.ToText(myTokens), GetAvatarTokenIcon(), tokenName)
+            if AvatarLevelToggle.Locked then AvatarLevelToggle:Unlock(); AvatarLevelToggle:SetTitle("Auto Avatar Level Up") end
+        end
+        AvatarStatusPara:SetTitle(newTitle); AvatarStatusPara:SetDesc(newDesc)
+    else
+        AvatarStatusPara:SetTitle("No Avatar Selected"); AvatarStatusPara:SetDesc("Select an avatar.")
+        if not AvatarLevelToggle.Locked then AvatarLevelToggle:Lock(); AvatarLevelToggle:Set(false) end
+    end
+end
+
+function Optimizer.Update_Heroes_Logic(pData)
+    if not HeroesStatsModule or not Reliable or not pData.EquippedHeroes or not pData.Heroes then return end
+    
+    local equippedHeroUID = nil
+    for uid, isEquipped in pairs(pData.EquippedHeroes) do if isEquipped == true and pData.Heroes[uid] then equippedHeroUID = uid; break end end
+    
+    if equippedHeroUID then
+        local hData = pData.Heroes[equippedHeroUID]
+        local hStats = hData.Stats or {}
+        local lStats = pData.LockedHeroesStats or {}
+        local hName = (HeroesConfigModule[hData.Index] and HeroesConfigModule[hData.Index].Display) or "Unknown Hero"
+        
+        -- Visual
+        if not Window.Closed then
+            local lines = ""
+            for _, sName in ipairs(ValidStatsList) do
+                local sIdx = hStats[sName] or 1
+                lines = lines .. string.format('<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n', GetModularColor(sIdx), (RarityIndexMap[sIdx] or "?"), sName, GetClassBuffPercentage(sName, sIdx), (lStats[sName] and "🔒" or "🔓"))
+            end
+            HeroStatsInfo:SetTitle(hName .. " (Shards: " .. UtilsModule.ToText(pData.Materials.HeroesStats or 0) .. ")"); HeroStatsInfo:SetDesc(lines)
+        end
+        
+        -- Auto Logic
+        if Config.AutoRollHeroStats then
+            local currency = pData.Materials.HeroesStats or 0
+            if currency > 0 then
+                local safeToRoll = true
+                if Config.EnableAutoLock then
+                    local targetIdx = RarityMap[TargetLockTier] or 999
+                    for _, sName in ipairs(ValidStatsList) do
+                        if (hStats[sName] or 1) >= targetIdx and not lStats[sName] then
+                            Reliable:FireServer("Lock Hero Stats", {sName})
+                            if Notify then Notify("Auto Lock", "Locking "..sName, "lock") end
+                            safeToRoll = false; task.wait(0.2)
+                        end
+                    end
+                end
+                
+                if safeToRoll then
+                    local anyUnlocked = false
+                    for _, sName in ipairs(ValidStatsList) do if not lStats[sName] then anyUnlocked = true; break end end
+                    if anyUnlocked then Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, true}) end
+                end
+            end
+        end
+    else
+        HeroStatsInfo:SetTitle("No Hero Equipped"); HeroStatsInfo:SetDesc("Please equip a hero.")
+    end
+end
+
+function Optimizer.Update_Main_Data_Logic(pData)
+    -- Rank
+    local cRank, cMastery = (pData.Attributes.Rank or 0), (pData.Attributes.Mastery or 0)
+    local req, cBuff, nBuff = RankModule.GetRequirement(cRank), RankModule.GetBuff(cRank), RankModule.GetBuff(cRank+1)
+    
+    if RankProgressUI and not Window.Closed then
+        local pct = req>0 and math.clamp(cMastery/req,0,1) or 0
+        local bar = string.rep("█", math.floor(pct*10)) .. string.rep("▒", 10-math.floor(pct*10))
+        local bt = (cRank>=RankModule.MAX) and ("Buff: "..UtilsModule.ToText(cBuff).."% (MAX)") or ("Buff: "..UtilsModule.ToText(cBuff).."% >> "..UtilsModule.ToText(nBuff).."%")
+        RankProgressUI:SetTitle("Rank "..cRank); RankProgressUI:SetDesc(string.format("%s\n[%s] %d%%\n%s / %s", bt, bar, math.floor(pct*100), UtilsModule.ToText(cMastery), UtilsModule.ToText(req)))
+    end
+    if Config.AutoRankUp and cMastery >= req and cRank < RankModule.MAX then
+         if Reliable then pcall(function() Reliable:FireServer("RankUp") end) end
+    end
+
+    -- Yen
+    if pData.YenUpgrades then
+        local cYen = pData.Attributes.Yen or 0
+        for name, cfg in pairs(YenUpgradeConfig) do
+            local lvl = pData.YenUpgrades[name] or 0
+            local cost, buff = YenModule.GetUpgradeCost(lvl, name), YenModule.GetUpgradeBuff(name, lvl)
+            local toggle = YenUpgradeToggleUI[name]
+            local max = cfg.MaxLevel or 20
+            
+            if toggle and not Window.Closed then
+                if lvl >= max then toggle:SetTitle(name.." [MAX]"); toggle:SetDesc("Maxed (Buff: +"..UtilsModule.ToText(buff).."%)"); if not toggle.Locked then toggle:Lock(); toggle:Set(false) end
+                else toggle:SetTitle(name.." ["..lvl.."/"..max.."]"); toggle:SetDesc("Cost: "..UtilsModule.ToText(cost).." | Buff: +"..UtilsModule.ToText(buff).."%") end
+            end
+            if Config["AutoYen_"..name] and cYen >= cost and lvl < max and Reliable then
+                 pcall(function() Reliable:FireServer("Yen Upgrade", {name}) end)
+            end
+        end
+    end
+    
+    -- Token
+    if pData.TokenUpgrades then
+        local cTok = pData.Materials.UpgradeToken or 0
+        for name, cfg in pairs(TokenUpgradeConfig) do
+            local lvl = pData.TokenUpgrades[name] or 0
+            local cost, buff = TokenModule.GetUpgradeCost(lvl, name), TokenModule.GetUpgradeBuff(name, lvl)
+            local toggle = TokenUpgradeToggleUI[name]
+            local max = cfg.MaxLevel or 999
+            
+            if toggle and not Window.Closed then
+                 if lvl >= max then toggle:SetTitle(name.." [MAX]"); toggle:SetDesc("Maxed (Buff: +"..UtilsModule.ToText(buff).."%)"); if not toggle.Locked then toggle:Lock() end
+                 else toggle:SetTitle(name.." ["..lvl.."/"..max.."]"); toggle:SetDesc("Cost: "..UtilsModule.ToText(cost).." | Buff: +"..UtilsModule.ToText(buff).."%\nShard: "..UtilsModule.ToText(cTok)) end
+            end
+            if Config["AutoToken_"..name] and cTok >= cost and lvl < max and Reliable then
+                 pcall(function() Reliable:FireServer("Token Upgrade", {name}) end)
+            end
+        end
+    end
+end
+
+-- MAIN GLOBAL LOOP TRIGGER
+task.spawn(function()
+    while not Window.Destroyed do
+        local pData = (getgenv()).PlayerData
+        if not pData then 
+            ScanPlayerData() 
+        else
+            -- Jalankan semua update UI dalam satu frame (Protected Call agar error satu tidak mematikan yg lain)
+            pcall(Optimizer.Update_Exchange_Logic, pData)
+            pcall(Optimizer.Update_Roll_Logic, pData)
+            pcall(Optimizer.Update_Craft_Logic, pData)
+            pcall(Optimizer.Update_Trainer_Logic, pData)
+            pcall(Optimizer.Update_Vault_Logic, pData)
+            pcall(Optimizer.Update_Avatar_Logic, pData)
+            pcall(Optimizer.Update_Heroes_Logic, pData)
+            pcall(Optimizer.Update_Main_Data_Logic, pData)
+        end
+        task.wait(1) -- GLOBAL THROTTLE (1 DETIK)
     end
 end)
 Window:SelectTab(FarmTab.Index);
