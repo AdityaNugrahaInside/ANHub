@@ -1545,12 +1545,20 @@ local function LogicGamemodes()
                     local modesToCheck = {}
                     if not dbList then
                         -- Single Mode (Pirate/Shadow)
-                        table.insert(modesToCheck, {ID = prefix, Name = prefix})
+                        -- Phase di-set nil karena mode ini tidak punya sub-phase angka
+                        table.insert(modesToCheck, {ID = prefix, Name = prefix, RawPrefix = prefix, Phase = nil})
                     else
-                        -- Multi Mode (Dungeon/Raid)
+                        -- Multi Mode (Dungeon/Raid/Defense)
                         for _, selectedName in pairs(selectedList) do
                             if dbList[selectedName] then
-                                table.insert(modesToCheck, {ID = prefix .. ":" .. tostring(dbList[selectedName].ID), Name = selectedName})
+                                -- ID: String gabungan untuk cek status Join (Contoh: "Raid:1")
+                                -- Phase: Angka murni untuk request Open (Contoh: 1)
+                                table.insert(modesToCheck, {
+                                    ID = prefix .. ":" .. tostring(dbList[selectedName].ID), 
+                                    Name = selectedName,
+                                    RawPrefix = prefix,
+                                    Phase = dbList[selectedName].ID
+                                })
                             end
                         end
                     end
@@ -1579,7 +1587,18 @@ local function LogicGamemodes()
                             
                             if not isOpened and keyCount > 0 then
                                 Notify("Auto Open", "Creating " .. modeName .. " (Using Key)", "key")
-                                if Reliable then Reliable:FireServer("Open Gamemode", { modeID }) end
+                                if Reliable then 
+                                    -- [PERBAIKAN LOGIC OPEN DISINI]
+                                    if modeData.Phase then
+                                        -- Jika Mode Ber-Phase (Raid/Defense), Kirim Nama & Phase terpisah
+                                        -- Contoh payload: {"Raid", 1}
+                                        Reliable:FireServer("Open Gamemode", { modeData.RawPrefix, modeData.Phase }) 
+                                    else
+                                        -- Jika Mode Single (ShadowGate), Kirim ID utuh
+                                        -- Contoh payload: {"ShadowGate"}
+                                        Reliable:FireServer("Open Gamemode", { modeID }) 
+                                    end
+                                end
                                 return true
                             end
                         end
