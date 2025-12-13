@@ -1471,6 +1471,7 @@ local MeteorToggle = FarmTab:Toggle({
     end
 })
 FM_Add("Zone Farming", MeteorToggle)
+
 local function LogicGamemodes()
     local wasInGamemode = false;
     local currentTargetObj = nil;
@@ -1489,7 +1490,8 @@ local function LogicGamemodes()
         local currentMap = GetCurrentMapStatus();
         local inLobbyZone = false;
         
-        -- Cek Lobby Dungeon
+        -- Cek Lobby Dungeon (Tempat spawn setelah match selesai)
+        -- HANYA BERLAKU UNTUK DUNGEON/RAID, Mode lain spawn di map biasa
         if Workspace:FindFirstChild("Zones") and Workspace.Zones:FindFirstChild("Dungeon") then
             if isPlayerInZone(Workspace.Zones.Dungeon) then
                 inLobbyZone = true;
@@ -1506,7 +1508,10 @@ local function LogicGamemodes()
         elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
         end
 
-        -- Update LastZone jika kita di map biasa (bukan gamemode)
+        -- [PERBAIKAN 1: LOGIKA PENYIMPANAN MAP TERAKHIR]
+        -- Kita simpan LastZone hanya jika kita SEDANG TIDAK di Gamemode/Lobby
+        -- DAN kita tidak sedang dalam status 'pulang' (wasInGamemode == false)
+        -- Ini mencegah script menganggap "OnePiece2" atau "Paradis" sebagai LastZone saat baru selesai mode.
         if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") and not wasInGamemode then
             LastZone = getgenv().PlayerData.Attributes.LastZone
         end
@@ -1516,7 +1521,7 @@ local function LogicGamemodes()
                 -- [A. SEDANG BERTARUNG]
                 wasInGamemode = true;
 
-                -- Lock Target Logic (Sama seperti sebelumnya)
+                -- Lock Target Logic
                 local isTargetStillAlive = false
                 if currentTargetObj then
                     if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
@@ -1601,136 +1606,123 @@ local function LogicGamemodes()
                 end
                 task.wait()
 
+            -- [PERBAIKAN 2: SELESAI MATCH / KEMBALI KE LOBBY]
+            -- Kita HAPUS syarat 'inLobbyZone' disini.
+            -- Karena PirateTower/Defense baliknya ke map biasa (bukan Lobby khusus).
+            -- Asalkan 'wasInGamemode' true dan kita sudah TIDAK di fighting zone, berarti waktunya pulang.
             elseif wasInGamemode and (not isFightingZone) then
-                -- [B. SELESAI MATCH / KEMBALI KE LOBBY]
+                
                 currentTargetObj = nil;
                 hasTeleportedToBossInRaid = false;
                 
+                -- Pengecekan LastZone sebelum teleport
                 if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
                     Notify("Mode Finished", "Returning to " .. LastZone, "map-pin");
                     if Reliable then
                         pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end);
                     end;
-                    wasInGamemode = false; 
-                    task.wait(6);
+                    wasInGamemode = false; -- Reset status
+                    task.wait(6); -- Tunggu teleport selesai
                 else
+                    -- Jika LastZone tidak valid, reset status saja tanpa teleport
                     wasInGamemode = false;
                 end;
 
             else
-                -- [C. AUTO JOIN / SCANNING (DIPERBARUI)]
-                -- Fungsi Helper Universal untuk Cek Joinable & Key
-                local function ProcessGameMode(prefix, dbList, selectedList, requiredKey)
-                    if not selectedList or #selectedList == 0 then return false end
-                    
-                    -- Jika dbList nil (Pirate/Shadow), anggap single mode
-                    if not dbList then
-                        -- Single Mode (Pirate/Shadow)
-                        local modeID = prefix -- Contoh "PirateTower"
+                -- [C. AUTO JOIN / SCANNING]
+                local t = os.date("*t");
+                local currentMinute = t.min;
+                local targetString, targetName = nil, "";
+
+                -- 1. KEY MODES (Pirate & Shadow)
+                local function CheckAndSetKeyMode(modeName, keyName, configTable)
+                    if not targetString and configTable and #configTable > 0 then
                         local isOpen = false
-                        
-                        -- 1. Cek IsJoinable
                         if MainController and MainController.IsJoinable then
-                            isOpen = MainController.IsJoinable(modeID)
+                            isOpen = MainController.IsJoinable(modeName)
                         end
 
                         if isOpen then
-                            -- 2. Cek IsOpened (Sudah bayar key?)
-                            local isAlreadyPaid = false
-                            if MainController and MainController.IsOpened then
-                                isAlreadyPaid = MainController.IsOpened(modeID)
-                            end
-
-                            if isAlreadyPaid then
-                                Notify("Auto Join", "Joining " .. prefix, "swords")
-                                if Reliable then Reliable:FireServer("Join Gamemode", { modeID }) end
-                                return true
-                            else
-                                -- 3. Cek Kunci & Bayar
-                                local pData = getgenv().PlayerData
-                                local keyCount = (pData and pData.Materials and pData.Materials[requiredKey]) or 0
-                                
-                                if keyCount > 0 then
-                                    Notify("Auto Open", "Using Key for " .. prefix, "key")
-                                    if Reliable then Reliable:FireServer("Open Gamemode", { modeID }) end
-                                    return true
-                                else
-                                    -- Notify("Auto Mode", "No Key for " .. prefix, "x")
-                                end
-                            end
-                        end
-                    else
-                        -- Multi Phase Mode (Dungeon/Raid/Defense)
-                        for _, selectedName in pairs(selectedList) do
-                            local modeData = dbList[selectedName]
+                            targetString = modeName
+                            targetName = modeName .. " (Public/Open)"
+                        else
+                            local pData = getgenv().PlayerData
+                            local keyCount = (pData and pData.Materials and pData.Materials[keyName]) or 0
                             
-                            if modeData then
-                                local modeID = prefix .. ":" .. tostring(modeData.ID) -- Contoh "Raid:1"
-                                
-                                -- 1. Cek IsJoinable
-                                local isOpen = false
-                                if MainController and MainController.IsJoinable then
-                                    isOpen = MainController.IsJoinable(modeID)
+                            if keyCount > 0 then
+                                if Reliable then
+                                    pcall(function()
+                                        Reliable:FireServer("Open Gamemode", { modeName });
+                                    end)
                                 end
-                                
-                                if isOpen then
-                                    -- 2. Cek IsOpened (Sudah bayar key?)
-                                    local isAlreadyPaid = false
-                                    if MainController and MainController.IsOpened then
-                                        isAlreadyPaid = MainController.IsOpened(modeID)
-                                    end
-
-                                    if isAlreadyPaid then
-                                        Notify("Auto Join", "Joining " .. selectedName, "swords")
-                                        if Reliable then Reliable:FireServer("Join Gamemode", { modeID }) end
-                                        return true
-                                    else
-                                        -- 3. Cek Kunci (Jika butuh) & Bayar
-                                        -- Jika requiredKey nil, anggap gratis (langsung Open/Join)
-                                        if not requiredKey then
-                                            Notify("Auto Join", "Joining " .. selectedName, "swords")
-                                            if Reliable then Reliable:FireServer("Join Gamemode", { modeID }) end
-                                            return true
-                                        else
-                                            local pData = getgenv().PlayerData
-                                            local keyCount = (pData and pData.Materials and pData.Materials[requiredKey]) or 0
-                                            
-                                            if keyCount > 0 then
-                                                Notify("Auto Open", "Using Key for " .. selectedName, "key")
-                                                if Reliable then Reliable:FireServer("Open Gamemode", { modeID }) end
-                                                return true
-                                            end
-                                        end
-                                    end
-                                end
+                                targetString = modeName
+                                targetName = modeName .. " (New Session)"
                             end
                         end
                     end
-                    return false
                 end
 
-                -- Eksekusi Pengecekan Berurutan
-                local actionTaken = false
+                CheckAndSetKeyMode("PirateTower", "PirateTowerModeKey", Config.TargetPirateTower)
+                CheckAndSetKeyMode("Raid", "RaidModeKey", Config.TargetRaid)
+                CheckAndSetKeyMode("ShadowGate", "ShadowPortalModeKey", Config.TargetShadowGate)
+                CheckAndSetKeyMode("Defense", "DefenseModeKey", Config.TargetDefense)
 
-                -- 1. Key Modes (Single)
-                if not actionTaken then actionTaken = ProcessGameMode("PirateTower", nil, Config.TargetPirateTower, "PirateTowerModeKey") end
-                if not actionTaken then actionTaken = ProcessGameMode("ShadowGate", nil, Config.TargetShadowGate, "ShadowPortalModeKey") end
-                
-                -- 2. Phase Modes (Dungeon/Raid/Defense)
-                -- Dungeon biasanya gratis, jadi Key nil
-                if not actionTaken then actionTaken = ProcessGameMode("Dungeon", dungeonDB, Config.TargetDungeon, nil) end
-                
-                -- Raid butuh RaidModeKey
-                if not actionTaken then actionTaken = ProcessGameMode("Raid", raidDB, Config.TargetRaid, "RaidModeKey") end
-                
-                -- Defense butuh DefenseModeKey
-                if not actionTaken then actionTaken = ProcessGameMode("Defense", defenseDB, Config.TargetDefense, "DefenseModeKey") end
+                -- 2. TIME MODES
+                if not targetString and Config.TargetDungeon then
+                    for _, dName in pairs(Config.TargetDungeon) do
+                        local data = dungeonDB[dName];
+                        if data and currentMinute == data.Time then
+                            targetString = "Dungeon:" .. tostring(data.ID);
+                            targetName = dName;
+                            break;
+                        end;
+                    end;
+                end;
 
-                if actionTaken then
-                    task.wait(5) -- Tunggu proses loading
-                else
-                    task.wait(1)
-                end
+                if not targetString and Config.TargetRaid then
+                    for _, rName in pairs(Config.TargetRaid) do
+                        local data = raidDB[rName];
+                        if data and data.Times then
+                            for _, timeVal in ipairs(data.Times) do
+                                if currentMinute == timeVal then
+                                    targetString = "Raid:" .. tostring(data.ID);
+                                    targetName = rName;
+                                    break;
+                                end;
+                            end;
+                        end;
+                        if targetString then break end;
+                    end;
+                end;
+
+                if not targetString and Config.TargetDefense then
+                    for _, dName in pairs(Config.TargetDefense) do
+                        local data = defenseDB[dName];
+                        if data and data.Times then
+                            for _, timeVal in ipairs(data.Times) do
+                                if currentMinute == timeVal then
+                                    targetString = "Defense:" .. tostring(data.ID);
+                                    targetName = dName;
+                                    break;
+                                end;
+                            end;
+                        end;
+                        if targetString then break end;
+                    end;
+                end;
+
+                -- 3. EKSEKUSI JOIN
+                if targetString then
+                    Notify("Auto Mode", "Joining " .. targetName, "swords");
+                    
+                    if Reliable then
+                        pcall(function()
+                            Reliable:FireServer("Join Gamemode", { targetString });
+                        end);
+                    end
+                    task.wait(5); 
+                end;
+                task.wait(1);
             end;
         else
             task.wait(1);
