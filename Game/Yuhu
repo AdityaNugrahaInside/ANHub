@@ -100,7 +100,10 @@ local Config = {
     AutoJoinDefense = false,
     AutoJoinRaid = false,
     AutoRollHeroStats = false,
-    HeroesStats_LockStats = ""
+    HeroesStats_LockStats = "",
+    GM_AutoJoin = false,
+    GM_AutoKill = false,
+    GM_AutoCreate = false
 }
 
 -- // UI Variables //
@@ -218,23 +221,6 @@ local function LoadChanceModules()
     table.sort(ChanceSortedNames)
 end
 LoadChanceModules()
-
-local function JSONPretty(val, indent)
-    indent = indent or 0
-    local valType = type(val)
-    if valType == "table" then
-        local s = "{\n"
-        for k, v in pairs(val) do
-            local formattedKey = type(k) == "number" and tostring(k) or "\"" .. tostring(k) .. "\""
-            s = s .. string.rep("    ", indent + 1) .. formattedKey .. ": " .. JSONPretty(v, indent + 1) .. ",\n"
-        end
-        return s .. string.rep("    ", indent) .. "}"
-    elseif valType == "string" then
-        return "\"" .. val .. "\""
-    else
-        return tostring(val)
-    end
-end
 
 local function ScanPlayerData()
     if (getgenv()).PlayerData then
@@ -806,6 +792,9 @@ Window:OnDestroy(function()
     Config.AutoYen_Yen = false;
     Config.AutoYen_Mastery = false;
     Config.AutoYen_Critical = false;
+    Config.GM_AutoJoin = false;
+    Config.GM_AutoKill = false;
+    Config.GM_AutoCreate = false;
     if CurrentZoneName ~= "" and Config.SelectedEnemy then
         SaveZoneConfig(CurrentZoneName, Config.SelectedEnemy);
     end;
@@ -1482,7 +1471,6 @@ local function LogicGamemodes()
     while Config.AutoDungeon do
         if Window.Destroyed then break end;
         
-        -- 1. Validasi Karakter
         if not hrp or not hrp.Parent then
              hrp = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
         end
@@ -1490,15 +1478,12 @@ local function LogicGamemodes()
         local currentMap = GetCurrentMapStatus();
         local inLobbyZone = false;
         
-        -- Cek Lobby Dungeon (Tempat spawn setelah match selesai)
-        -- HANYA BERLAKU UNTUK DUNGEON/RAID, Mode lain spawn di map biasa
         if Workspace:FindFirstChild("Zones") and Workspace.Zones:FindFirstChild("Dungeon") then
             if isPlayerInZone(Workspace.Zones.Dungeon) then
                 inLobbyZone = true;
             end;
         end;
 
-        -- Deteksi Mode Bertarung
         local EnemiesFolder = Workspace:FindFirstChild("Enemies")
         local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
         local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
@@ -1508,221 +1493,116 @@ local function LogicGamemodes()
         elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
         end
 
-        -- [PERBAIKAN 1: LOGIKA PENYIMPANAN MAP TERAKHIR]
-        -- Kita simpan LastZone hanya jika kita SEDANG TIDAK di Gamemode/Lobby
-        -- DAN kita tidak sedang dalam status 'pulang' (wasInGamemode == false)
-        -- Ini mencegah script menganggap "OnePiece2" atau "Paradis" sebagai LastZone saat baru selesai mode.
         if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") and not wasInGamemode then
             LastZone = getgenv().PlayerData.Attributes.LastZone
         end
 
         if currentMap ~= "Unknown" then
             if isFightingZone then
-                -- [A. SEDANG BERTARUNG]
                 wasInGamemode = true;
-
-                -- Lock Target Logic
-                local isTargetStillAlive = false
-                if currentTargetObj then
-                    if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
-                        local data = currentTargetObj.Data
-                        local hp = (data and data.Health) or 0
-                        local aliveFlag = currentTargetObj.Alive
-                        if aliveFlag == true and hp > 0 then
-                            isTargetStillAlive = true
-                        end
+                if Config.GM_AutoKill then
+                    local isTargetStillAlive = false
+                    if currentTargetObj and currentTargetObj.Parent and currentTargetObj.Root then
+                        if currentTargetObj.Data and currentTargetObj.Data.Health > 0 then isTargetStillAlive = true end
                     end
-                end
+                    if not isTargetStillAlive then currentTargetObj = nil end
 
-                if not isTargetStillAlive then
-                    currentTargetObj = nil
-                end
-
-                if not currentTargetObj and hrp and MainController and MainController.Enemies then
-                    local isRaid = string.find(currentMap, "Raid")
-                    local isPriorityMode = string.find(currentMap, "Dungeon") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate"
-                    
-                    local validEnemies = {}
-                    local myPos = hrp.Position
-
-                    for _, enemyData in pairs(MainController.Enemies) do
-                        if enemyData.Alive and enemyData.Root and enemyData.Data then
-                            local hp = enemyData.Data.Health or 0
-                            if hp > 0 and (enemyData.Root.Position - myPos).Magnitude < 10000 then
-                                table.insert(validEnemies, enemyData)
-                            end
+                    if not currentTargetObj and MainController and MainController.Enemies then
+                        for _, enemy in pairs(MainController.Enemies) do
+                            if enemy.Alive then currentTargetObj = enemy; break end
                         end
                     end
 
-                    if #validEnemies > 0 then
-                        if isRaid then
-                            -- RAID Logic (Boss First)
-                            local bossFound = nil
-                            for _, enemy in ipairs(validEnemies) do
-                                local config = rawget(enemy, "Config")
-                                if config and config.Difficult == "Emperor" then
-                                    bossFound = enemy
-                                    break
-                                end
-                            end
-                            
-                            if bossFound then
-                                currentTargetObj = bossFound
-                                if not hasTeleportedToBossInRaid then
-                                    pcall(function()
-                                        hrp.CFrame = bossFound.Root.CFrame * CFrame.new(0, 5, 2)
-                                    end)
-                                    hasTeleportedToBossInRaid = true
-                                end
-                            else
-                                table.sort(validEnemies, function(a, b)
-                                    return (a.Root.Position - myPos).Magnitude < (b.Root.Position - myPos).Magnitude
-                                end)
-                                currentTargetObj = validEnemies[1]
-                            end
-
-                        elseif isPriorityMode then
-                            -- OTHERS Logic (Lowest HP First)
-                            table.sort(validEnemies, function(a, b)
-                                local hpA = (a.Data and a.Data.MaxHealth) or math.huge
-                                local hpB = (b.Data and b.Data.MaxHealth) or math.huge
-                                return hpA < hpB
-                            end)
-                            currentTargetObj = validEnemies[1]
-                        end
-                    end
-                end
-
-                -- Attack Execution
-                if currentTargetObj and currentTargetObj.Root then
-                    pcall(function()
-                        local enemyCFrame = currentTargetObj.Root.CFrame
-                        local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
-                        hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
-                        if hrp.AssemblyLinearVelocity.Magnitude > 0 then
+                    if currentTargetObj and currentTargetObj.Root then
+                        pcall(function()
+                            hrp.CFrame = currentTargetObj.Root.CFrame * CFrame.new(0,0,6)
                             hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                        end
-                    end)
+                        end)
+                    end
                 end
                 task.wait()
 
-            -- [PERBAIKAN 2: SELESAI MATCH / KEMBALI KE LOBBY]
-            -- Kita HAPUS syarat 'inLobbyZone' disini.
-            -- Karena PirateTower/Defense baliknya ke map biasa (bukan Lobby khusus).
-            -- Asalkan 'wasInGamemode' true dan kita sudah TIDAK di fighting zone, berarti waktunya pulang.
             elseif wasInGamemode and (not isFightingZone) then
-                
+                -- [B. LOGIKA PULANG (SAMA)]
                 currentTargetObj = nil;
                 hasTeleportedToBossInRaid = false;
                 
-                -- Pengecekan LastZone sebelum teleport
                 if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
                     Notify("Mode Finished", "Returning to " .. LastZone, "map-pin");
-                    if Reliable then
-                        pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end);
-                    end;
-                    wasInGamemode = false; -- Reset status
-                    task.wait(6); -- Tunggu teleport selesai
+                    if Reliable then pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end); end;
+                    wasInGamemode = false; 
+                    task.wait(6);
                 else
-                    -- Jika LastZone tidak valid, reset status saja tanpa teleport
                     wasInGamemode = false;
                 end;
 
             else
-                -- [C. AUTO JOIN / SCANNING]
-                local t = os.date("*t");
-                local currentMinute = t.min;
-                local targetString, targetName = nil, "";
-
-                -- 1. KEY MODES (Pirate & Shadow)
-                local function CheckAndSetKeyMode(modeName, keyName, configTable)
-                    if not targetString and configTable and #configTable > 0 then
-                        local isOpen = false
-                        if MainController and MainController.IsJoinable then
-                            isOpen = MainController.IsJoinable(modeName)
-                        end
-
-                        if isOpen then
-                            targetString = modeName
-                            targetName = modeName .. " (Public/Open)"
-                        else
-                            local pData = getgenv().PlayerData
-                            local keyCount = (pData and pData.Materials and pData.Materials[keyName]) or 0
-                            
-                            if keyCount > 0 then
-                                if Reliable then
-                                    pcall(function()
-                                        Reliable:FireServer("Open Gamemode", { modeName });
-                                    end)
-                                end
-                                targetString = modeName
-                                targetName = modeName .. " (New Session)"
+                local function ProcessGameMode(prefix, dbList, selectedList, requiredKey, allowJoin, allowOpen)
+                    if not selectedList or #selectedList == 0 then return false end
+                    if not allowJoin and not allowOpen then return false end
+                    
+                    -- Siapkan daftar ID yang mau dicek
+                    local modesToCheck = {}
+                    if not dbList then
+                        -- Single Mode (Pirate/Shadow)
+                        table.insert(modesToCheck, {ID = prefix, Name = prefix})
+                    else
+                        -- Multi Mode (Dungeon/Raid)
+                        for _, selectedName in pairs(selectedList) do
+                            if dbList[selectedName] then
+                                table.insert(modesToCheck, {ID = prefix .. ":" .. tostring(dbList[selectedName].ID), Name = selectedName})
                             end
                         end
                     end
+
+                    for _, modeData in ipairs(modesToCheck) do
+                        local modeID = modeData.ID
+                        local modeName = modeData.Name
+                        
+                        local isJoinable = false
+                        local isOpened = false
+
+                        if MainController then
+                            if MainController.IsJoinable then isJoinable = MainController.IsJoinable(modeID) end
+                            if MainController.IsOpened then isOpened = MainController.IsOpened(modeID) end
+                        end
+
+                        if allowJoin and isJoinable and (isOpened or not requiredKey) then
+                            Notify("Auto Join", "Joining " .. modeName, "swords")
+                            if Reliable then Reliable:FireServer("Join Gamemode", { modeID }) end
+                            return true
+                        end
+
+                        if requiredKey and allowOpen then
+                            local pData = getgenv().PlayerData
+                            local keyCount = (pData and pData.Materials and pData.Materials[requiredKey]) or 0
+                            
+                            if not isOpened and keyCount > 0 then
+                                Notify("Auto Open", "Creating " .. modeName .. " (Using Key)", "key")
+                                if Reliable then Reliable:FireServer("Open Gamemode", { modeID }) end
+                                return true
+                            end
+                        end
+                    end
+                    return false
                 end
 
-                CheckAndSetKeyMode("PirateTower", "PirateTowerModeKey", Config.TargetPirateTower)
-                CheckAndSetKeyMode("Raid", "RaidModeKey", Config.TargetRaid)
-                CheckAndSetKeyMode("ShadowGate", "ShadowPortalModeKey", Config.TargetShadowGate)
-                CheckAndSetKeyMode("Defense", "DefenseModeKey", Config.TargetDefense)
+                local actionTaken = false
+                local allowJoin = Config.GM_AutoJoin
+                local allowOpen = Config.GM_AutoCreate
 
-                -- 2. TIME MODES
-                if not targetString and Config.TargetDungeon then
-                    for _, dName in pairs(Config.TargetDungeon) do
-                        local data = dungeonDB[dName];
-                        if data and currentMinute == data.Time then
-                            targetString = "Dungeon:" .. tostring(data.ID);
-                            targetName = dName;
-                            break;
-                        end;
-                    end;
-                end;
+                if not actionTaken then actionTaken = ProcessGameMode("PirateTower", nil, Config.TargetPirateTower, "PirateTowerModeKey", allowJoin, allowOpen) end
+                if not actionTaken then actionTaken = ProcessGameMode("ShadowGate", nil, Config.TargetShadowGate, "ShadowPortalModeKey", allowJoin, allowOpen) end
+                if not actionTaken then actionTaken = ProcessGameMode("Raid", raidDB, Config.TargetRaid, "RaidModeKey", allowJoin, allowOpen) end
+                if not actionTaken then actionTaken = ProcessGameMode("Defense", defenseDB, Config.TargetDefense, "DefenseModeKey", allowJoin, allowOpen) end
+                
+                if not actionTaken then actionTaken = ProcessGameMode("Dungeon", dungeonDB, Config.TargetDungeon, nil, allowJoin, false) end
 
-                if not targetString and Config.TargetRaid then
-                    for _, rName in pairs(Config.TargetRaid) do
-                        local data = raidDB[rName];
-                        if data and data.Times then
-                            for _, timeVal in ipairs(data.Times) do
-                                if currentMinute == timeVal then
-                                    targetString = "Raid:" .. tostring(data.ID);
-                                    targetName = rName;
-                                    break;
-                                end;
-                            end;
-                        end;
-                        if targetString then break end;
-                    end;
-                end;
-
-                if not targetString and Config.TargetDefense then
-                    for _, dName in pairs(Config.TargetDefense) do
-                        local data = defenseDB[dName];
-                        if data and data.Times then
-                            for _, timeVal in ipairs(data.Times) do
-                                if currentMinute == timeVal then
-                                    targetString = "Defense:" .. tostring(data.ID);
-                                    targetName = dName;
-                                    break;
-                                end;
-                            end;
-                        end;
-                        if targetString then break end;
-                    end;
-                end;
-
-                -- 3. EKSEKUSI JOIN
-                if targetString then
-                    Notify("Auto Mode", "Joining " .. targetName, "swords");
-                    
-                    if Reliable then
-                        pcall(function()
-                            Reliable:FireServer("Join Gamemode", { targetString });
-                        end);
-                    end
-                    task.wait(5); 
-                end;
-                task.wait(1);
+                if actionTaken then
+                    task.wait(5)
+                else
+                    task.wait(1)
+                end
             end;
         else
             task.wait(1);
@@ -1966,13 +1846,37 @@ local ShadowGateDrop = FM_Add("GameModes", FarmTab:Dropdown({
 -- [NOTE: Loop Update Raid & Defense DIHAPUS demi performa]
 
 local ModeToggle = FM_Add("GameModes", FarmTab:Toggle({
-    Title = "Auto Join & Kill",
+    Title = "Enable Gamemodes Logic",
     Flag = "AutoDungeon_Cfg",
     Callback = function(val)
         Config.AutoDungeon = val;
         if val then
             task.spawn(LogicGamemodes);
         end;
+    end
+}));
+
+local GMJoinToggle = FM_Add("GameModes", FarmTab:Toggle({
+    Title = "Auto Join Gamemodes",
+    Flag = "GM_AutoJoin_Cfg",
+    Callback = function(val)
+        Config.GM_AutoJoin = val
+    end
+}));
+
+local GMKillToggle = FM_Add("GameModes", FarmTab:Toggle({
+    Title = "Auto Kill In Gamemodes",
+    Flag = "GM_AutoKill_Cfg",
+    Callback = function(val)
+        Config.GM_AutoKill = val
+    end
+}));
+
+local GMCreateToggle = FM_Add("GameModes", FarmTab:Toggle({
+    Title = "Auto Create Gamemodes (Use Keys)",
+    Flag = "GM_AutoCreate_Cfg",
+    Callback = function(val)
+        Config.GM_AutoCreate = val
     end
 }));
 
@@ -3726,117 +3630,260 @@ task.spawn(function()
         task.wait(1)
     end
 end)
--- File: AnimeWeapons.lua (Add this below the existing UI Sections, e.g., after FarmTab)
 
--- // SECTION: HEROES STATS //
-local HeroesStatsSection = FarmTab:Section({
-    Title = "Heroes Stats",
-    Icon = "award",
-    Opened = true
-})
-FM_Add("Heroes Stats", HeroesStatsSection)
+-- Global Config Variables
+local HeroesStatsModule = nil
+local HeroesConfigModule = nil
+local RarityMap = {}
+local RarityIndexMap = {}
+local RarityOptions = {}
+local ValidStatsList = {}
 
--- Main Auto Roll Toggle
-HeroesStatsSection:Toggle({
-    Title = "Auto Roll Equipped Hero Stats",
-    Desc = "Automatically re-rolls the stats of the **currently equipped** hero.",
-    Flag = "AutoRollHeroStats_Cfg",
-    Callback = function(val)
-        Config.AutoRollHeroStats = val
-    end
-})
-FM_Add("Heroes Stats", HeroesStatsSection)
-
--- Input Stats to Lock (Manual Lock Setup)
-HeroesStatsSection:Input({
-    Title = "Lock Stats (Type & Click Lock)",
-    Desc = "Enter the names of the stats you want to lock, separated by commas (Damage,Range,AttackSpeed).",
-    Placeholder = "Example: Damage,Range",
-    Flag = "HeroesStats_LockStats_Cfg",
-    Callback = function(val)
-        Config.HeroesStats_LockStats = val
-    end
-})
-FM_Add("Heroes Stats", HeroesStatsSection)
-
--- Lock Execution Button (Mimics the "Lock Hero Stats" remote call)
-HeroesStatsSection:Button({
-    Title = "🔑 Lock Entered Stats",
-    Desc = "Sends a remote call to lock the stats listed above.",
-    Callback = function()
-        local statsToLock = {}
-        if Config.HeroesStats_LockStats and Config.HeroesStats_LockStats ~= "" then
-            -- Split the string into a table of stats
-            for statName in string.gmatch(Config.HeroesStats_LockStats, "([^,]+)") do
-                table.insert(statsToLock, string.trim(statName))
-            end
+local function LoadHeroesStatsData()
+    -- Load HeroesStats Config (untuk Rarity dan Buffs)
+    local successStats, moduleStats = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.MultipleZones.HeroesStats)
+    end)
+    if successStats and moduleStats then
+        HeroesStatsModule = moduleStats
+        
+        for statKey, _ in pairs(moduleStats.ValidStats) do
+            table.insert(ValidStatsList, statKey)
         end
+        table.sort(ValidStatsList) 
 
-        if #statsToLock > 0 and Reliable then
-            for _, statName in ipairs(statsToLock) do
-                -- Remote call found in HeroesStats.c
-                shared.Reply.To("Lock Hero Stats", statName) 
-                task.wait(0.05) -- Short delay to avoid spamming
+        if moduleStats.Stats then
+            for index, data in ipairs(moduleStats.Stats) do
+                local displayName = data.Display
+                RarityMap[displayName] = index
+                RarityIndexMap[index] = displayName
+                table.insert(RarityOptions, displayName)
             end
-            Notify("Heroes Stats", string.format("Attempting to lock %d stats: %s", #statsToLock, Config.HeroesStats_LockStats), "check")
-        else
-            Notify("Heroes Stats", "No stats entered or remote not ready.", "warn")
+            table.sort(RarityOptions, function(a, b) 
+                return RarityMap[a] > RarityMap[b] 
+            end)
         end
+    else
+        warn("Gagal load HeroesStats Module Game!")
     end
+
+    -- Load Heroes Config (untuk Nama Hero)
+    local successHero, moduleHero = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.MultipleZones.Heroes)
+    end)
+    if successHero and moduleHero then
+        HeroesConfigModule = moduleHero
+    else
+        warn("Gagal load Heroes Config Module Game! Nama hero mungkin tidak tampil.")
+    end
+end
+LoadHeroesStatsData()
+
+-- Helper Warna Dinamis berdasarkan kekuatan (Index)
+local function GetModularColor(index)
+    local maxIndex = #RarityOptions
+    local ratio = math.clamp(index / maxIndex, 0, 1)
+    return Color3.fromHSV((1 - ratio) * 0.15, 0.8, 1):ToHex()
+end
+
+-- Menghitung persentase buff
+local function GetClassBuffPercentage(statName, statIndex)
+    if not HeroesStatsModule or not HeroesStatsModule.Stats[statIndex] then return "" end
+    
+    local statData = HeroesStatsModule.Stats[statIndex]
+    local boostValue = statData[statName]
+    
+    if type(boostValue) == "number" then
+        return string.format("+%s%%", math.round(boostValue * 100))
+    end
+    return ""
+end
+
+-- ============================================================================
+-- // HEROES STATS UI
+-- ============================================================================
+local HeroStatsInfo = FarmTab:Paragraph({
+    Title = "Equipped Hero Stats",
+    Desc = "Waiting for data...",
+    Image = "rbxassetid://127892390350003",
+    ImageSize = 40
 })
-FM_Add("Heroes Stats", HeroesStatsSection)
--- File: AnimeWeapons.lua (Add this at the bottom of the script)
+FM_Add("Heroes Stats", HeroStatsInfo)
 
--- // LOGIC LOOP: HEROES STATS //
-task.spawn(function()
-    while not Window.Destroyed do
-        task.wait(2) -- Main cooldown
+local TargetLockTier = "S"
+if #RarityOptions > 0 then TargetLockTier = RarityOptions[1] end
 
-        if Config.AutoRollHeroStats and Reliable then
-            local pData = (getgenv()).PlayerData
+if #RarityOptions > 0 then
+    local LockDropdown = FarmTab:Dropdown({
+        Title = "Auto Lock Minimum Tier",
+        Desc = "Select the minimum Rarity you want to keep. Changing this will unlock stats that are now below the target.",
+        Values = RarityOptions,
+        Default = TargetLockTier,
+        Flag = "AutoLockTier_Cfg",
+        Callback = function(val)
+            TargetLockTier = val
             
-            if not pData or not pData.Materials or not pData.Data or not pData.Data.HeroesEquipped or not pData.Data.Heroes then
-                task.wait(5)
-                continue
-            end
+            local pData = (getgenv()).PlayerData
+            if not pData or not HeroesStatsModule or not Reliable then return end
+            
+            local newTargetIndex = RarityMap[TargetLockTier] or 999
             
             local equippedHeroUID = nil
-            -- Get the UID of the first Equipped Hero
-            for uid, isEquipped in pairs(pData.Data.HeroesEquipped) do
-                if isEquipped == true and pData.Data.Heroes[uid] then
+            for uid, isEquipped in pairs(pData.EquippedHeroes or {}) do
+                if isEquipped == true and pData.Heroes and pData.Heroes[uid] then
                     equippedHeroUID = uid
                     break
                 end
             end
 
-            -- Check if a hero is equipped
-            if not equippedHeroUID then
-                Notify("Heroes Stats", "No Hero is currently Equipped. Turning off Auto Roll.", "warn")
-                Config.AutoRollHeroStats = false
-                task.wait(10)
-                continue
-            end
-            
-            local heroesStatsAmount = pData.Materials.HeroesStats or 0
-            
-            -- Check currency
-            if heroesStatsAmount > 0 then
-                
-                -- Attempt Roll. Uses the automatically found UID.
-                shared.Reply.To("Roll Hero Stats", equippedHeroUID, true) 
+            if not equippedHeroUID then return end
 
-                -- Notification
-                local heroData = pData.Data.Heroes[equippedHeroUID]
-                local heroConfig = heroData and shared.Heroes[heroData.Index]
-                local heroName = heroConfig and heroConfig.Display or equippedHeroUID:sub(1, 8) .. "..."
+            local heroData = pData.Heroes[equippedHeroUID]
+            local currentStats = (pData.Heroes and pData.Heroes[equippedHeroUID] and pData.Heroes[equippedHeroUID].Stats) or {}
+            local lockedStats = pData.LockedHeroesStats or {}
+            
+            for _, statName in ipairs(ValidStatsList) do
+                local currentIndex = currentStats[statName] or 1
+                local isLocked = lockedStats[statName] == true
                 
-                Notify("Heroes Stats", string.format("Auto Rolling stats for %s (Remaining: %s)", heroName, shared.Utils.ToText(heroesStatsAmount - 1, 2)), "sync")
-                
-                task.wait(5) -- Roll cooldown to avoid server blocking
-            else
-                Notify("Heroes Stats", "HeroesStats currency is depleted. Waiting...", "warn")
+                if isLocked and currentIndex < newTargetIndex then
+                    Reliable:FireServer("Lock Hero Stats", {statName})
+                    if Notify then Notify("Auto Unlock", "Unlocking " .. statName .. " (Below new target: " .. TargetLockTier .. ")", "unlock") end
+                    task.wait(0.1)
+                end
             end
         end
+    })
+    FM_Add("Heroes Stats", LockDropdown)
+else
+    local ErrorParagraph = FarmTab:Paragraph({Title="Error", Desc="Could not load rarity list from game."})
+    FM_Add("Heroes Stats", ErrorParagraph)
+end
+
+local EnableLockToggle = FarmTab:Toggle({
+    Title = "Enable Auto Lock",
+    Desc = "Automatically locks stats that meet the target tier.",
+    Flag = "EnableAutoLock_Cfg",
+    Callback = function(val)
+        Config.EnableAutoLock = val
+    end
+})
+FM_Add("Heroes Stats", EnableLockToggle)
+
+local AutoRollToggle = FarmTab:Toggle({
+    Title = "Auto Roll Stats",
+    Desc = "Rolls if stats are unlocked. Stops if out of shards.",
+    Flag = "AutoRollHeroStats_Cfg",
+    Callback = function(val)
+        Config.AutoRollHeroStats = val
+    end
+})
+FM_Add("Heroes Stats", AutoRollToggle)
+
+-- ============================================================================
+-- // LOGIC LOOP: HEROES STATS (MODULAR + FireServer)
+-- ============================================================================
+task.spawn(function()
+    while not Window.Destroyed do
+        local pData = (getgenv()).PlayerData
+        
+        if not pData or not pData.Materials or not pData.EquippedHeroes or not pData.Heroes or not HeroesStatsModule or not Reliable or not HeroesConfigModule then
+            task.wait(1)
+            continue
+        end
+
+        -- 1. Cari Hero yang Sedang Dipakai
+        local equippedHeroUID = nil
+        for uid, isEquipped in pairs(pData.EquippedHeroes) do
+            if isEquipped == true and pData.Heroes[uid] then
+                equippedHeroUID = uid
+                break
+            end
+        end
+
+        if not equippedHeroUID then
+            if not Window.Closed then
+                HeroStatsInfo:SetTitle("No Hero Equipped")
+                HeroStatsInfo:SetDesc("Please equip a hero first.")
+            end
+            task.wait(2)
+            continue
+        end
+
+        -- 2. Ambil Data
+        local heroData = pData.Heroes[equippedHeroUID]
+        local currentStats = heroData.Stats or {} 
+        local lockedStats = pData.LockedHeroesStats or {} 
+        
+        -- 3. Update UI Visual
+        pcall(function()
+            if not Window.Closed then
+                local descLines = ""
+                
+                local heroConfig = HeroesConfigModule[heroData.Index]
+                local heroName = heroConfig and heroConfig.Display or "Unknown Hero"
+                
+                for _, statName in ipairs(ValidStatsList) do
+                    local statIndex = currentStats[statName] or 1
+                    local displayTier = RarityIndexMap[statIndex] or "?"
+                    local colorHex = GetModularColor(statIndex)
+                    
+                    local lockIcon = lockedStats[statName] and "🔒" or "🔓"
+                    local buffPercent = GetClassBuffPercentage(statName, statIndex)
+
+                    descLines = descLines .. string.format(
+                        '<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n',
+                        colorHex, displayTier, statName, buffPercent, lockIcon
+                    )
+                end
+                
+                local currency = pData.Materials.HeroesStats or 0
+                HeroStatsInfo:SetTitle(heroName .. " (Shards: " .. UtilsModule.ToText(currency) .. ")")
+                HeroStatsInfo:SetDesc(descLines)
+            end
+        end)
+
+        -- 4. Logika Auto Lock & Roll
+        if Config.AutoRollHeroStats then
+            local currency = pData.Materials.HeroesStats or 0
+            local safeToRoll = true
+            
+            -- [LOGIKA AUTO LOCK]
+            if Config.EnableAutoLock then
+                local targetIndex = RarityMap[TargetLockTier] or 999
+                
+                for _, statName in ipairs(ValidStatsList) do
+                    local currentIndex = currentStats[statName] or 1
+                    local isLocked = lockedStats[statName] == true
+                    
+                    -- Jika Stat sekarang >= Target DAN Belum dikunci
+                    if currentIndex >= targetIndex and not isLocked then
+                        -- Stat ini layak dikunci
+                        Reliable:FireServer("Lock Hero Stats", {statName})
+                        if Notify then Notify("Auto Lock", "Locking " .. statName .. " [" .. (RarityIndexMap[currentIndex] or "?") .. "]", "lock") end
+                        safeToRoll = false
+                        task.wait(0.3)
+                    end
+                end
+            end
+            
+            -- [LOGIKA AUTO ROLL]
+            if safeToRoll and currency > 0 then
+                local anyUnlocked = false
+                for _, statName in ipairs(ValidStatsList) do
+                    if lockedStats[statName] ~= true then
+                        anyUnlocked = true
+                        break
+                    end
+                end
+
+                if anyUnlocked then
+                    Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, true})
+                end
+            end
+        end
+        
+        task.wait(0.5)
     end
 end)
 local SettingsTab = Window:Tab({
@@ -4195,18 +4242,19 @@ task.spawn(function()
         end;
     end;
 end);
-local AllSections = {
-    CommunitySection,
-    FarmTab,
-    ConfigSection,
-    SecuritySection
-};
-for _, sec in pairs(AllSections) do
-    task.spawn(function()
-        task.wait(0.1);
-        if sec.Opened then
-            sec:Open();
-        end;
-    end);
-end;
+task.spawn(function()
+    task.wait(0.1)
+    if CommunitySection and CommunitySection.Opened then
+        CommunitySection:Open()
+    end
+    if FarmTab and FarmTab.Opened then
+        FarmTab:Open()
+    end
+    if ConfigSection and ConfigSection.Opened then
+        ConfigSection:Open()
+    end
+    if SecuritySection and SecuritySection.Opened then
+        SecuritySection:Open()
+    end
+end)
 Window:SelectTab(FarmTab.Index);
