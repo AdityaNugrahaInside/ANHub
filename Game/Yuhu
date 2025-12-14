@@ -680,60 +680,51 @@ local function RefreshEnemyData()
     return uiList
 end
 getgenv().Controller = MainController
--- [[ OPTIMIZED ENEMY DATA HANDLER ]] --
-
 local function UpdateLiveEnemies()
-    -- OPTIMASI: Gunakan table.clear() daripada membuat table baru ({}) setiap detik.
-    -- Ini mencegah "Memory Leak" dan mengurangi kerja Garbage Collector.
-    table.clear(GlobalEnemyMap) 
+    -- Reset map
+    local newMap = {}
     
     if MainController and MainController.Enemies then
         for uid, enemyData in pairs(MainController.Enemies) do
-            -- Validasi Cepat: Pastikan musuh ada datanya
-            if enemyData.Alive and enemyData.Root then
-                local config = enemyData.Config
-                local data = enemyData.Data
+            -- Validasi dasar: Pastikan musuh hidup dan memiliki Data/Config
+            if enemyData.Alive and enemyData.Data and enemyData.Config and enemyData.Root then
                 
-                if config and data then
-                    -- Ambil Key (Nama Musuh)
-                    local display = config.Display
-                    local index = data.Index
-                    
-                    -- Masukkan ke Map berdasarkan Display Name
-                    if display then
-                        if not GlobalEnemyMap[display] then GlobalEnemyMap[display] = {} end
-                        table.insert(GlobalEnemyMap[display], enemyData)
-                    end
+                -- Ambil kunci identifikasi (Nama Tampilan atau Index Internal)
+                local display = enemyData.Config.Display -- Contoh: "Blind"
+                local index = enemyData.Data.Index -- Contoh: "ParadisEnemy4"
+                
+                -- Masukkan ke dalam map berdasarkan Display Name (untuk yang dipilih via Dropdown)
+                if display then
+                    if not newMap[display] then newMap[display] = {} end
+                    table.insert(newMap[display], enemyData)
+                end
 
-                    -- Masukkan juga berdasarkan Index (Backup)
-                    if index and index ~= display then
-                        if not GlobalEnemyMap[index] then GlobalEnemyMap[index] = {} end
-                        table.insert(GlobalEnemyMap[index], enemyData)
-                    end
+                -- Masukkan juga berdasarkan Index (backup jika nama display sama)
+                if index and index ~= display then
+                    if not newMap[index] then newMap[index] = {} end
+                    table.insert(newMap[index], enemyData)
                 end
             end
         end
     end
+    
+    GlobalEnemyMap = newMap
 end
 
--- UI Animation (Keep this)
 task.delay(1.0, function()
-    if Window then Window:CollapseSidebar() end
+    Window:CollapseSidebar()
 end)
 
 task.delay(3.0, function()
-    if Window then Window:ExpandSidebar() end
+    Window:ExpandSidebar()
 end)
-
--- Loop Pembaruan Data (Diperlambat sedikit agar ringan)
 task.spawn(function()
     task.wait(1)
     while Window and not Window.Destroyed do
-        -- Hanya update data jika fitur Farm aktif ATAU Menu sedang dibuka
         if Config.AutoFarm or Config.AutoGamemode or (Window and not Window.Closed) then
             pcall(UpdateLiveEnemies)
         end
-        task.wait(1.5) -- Ubah dari 1s ke 1.5s (Data musuh tidak perlu realtime milidetik)
+        task.wait(1)
     end
 end)
 
