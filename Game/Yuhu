@@ -10,57 +10,64 @@ until game:IsLoaded()
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
 -- // Services //
-local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ReplicatedFirst = game:GetService("ReplicatedFirst")
-local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService")
-local VirtualUser = game:GetService("VirtualUser")
+Players = game:GetService("Players")
+Workspace = game:GetService("Workspace")
+ReplicatedStorage = game:GetService("ReplicatedStorage")
+ReplicatedFirst = game:GetService("ReplicatedFirst")
+HttpService = game:GetService("HttpService")
+RunService = game:GetService("RunService")
+VirtualUser = game:GetService("VirtualUser")
 
 -- // Constants & Paths //
-local LocalPlayer = Players.LocalPlayer
-local FolderPath = "ANUI/AnimeWeapons"
-local ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
-local ZoneDBFile = "Zone_Database.json"
+LocalPlayer = Players.LocalPlayer
+FolderPath = "ANUI/AnimeWeapons"
+ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
+ZoneDBFile = "Zone_Database.json"
 
 -- // Network & Remotes //
-local Reliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Reliable")
-local Unreliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Unreliable")
+Reliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Reliable")
+Unreliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Unreliable")
 
 -- // Configs Paths //
-local ConfigsPath = ReplicatedStorage.Scripts.Configs
+ConfigsPath = ReplicatedStorage.Scripts.Configs
 
 -- // Modules //
-local UtilsModule = require(ConfigsPath.Utility.Utils)
-local MaterialsModule = require(ConfigsPath.General.Materials)
-local YenModule = require(ConfigsPath.Machines.YenUpgrades)
-local TokenModule = require(ConfigsPath.Machines.TokenUpgrades)
-local RankModule = require(ConfigsPath.Machines.RankUp)
-local AvatarLevelsModule = require(ConfigsPath.Machines.AvatarLevels) -- DITAMBAHKAN
+UtilsModule = require(ConfigsPath.Utility.Utils)
+MaterialsModule = require(ConfigsPath.General.Materials)
+YenModule = require(ConfigsPath.Machines.YenUpgrades)
+TokenModule = require(ConfigsPath.Machines.TokenUpgrades)
+RankModule = require(ConfigsPath.Machines.RankUp)
+AvatarLevelsModule = require(ConfigsPath.Machines.AvatarLevels) -- DITAMBAHKAN
+LevelUpModule = require(ConfigsPath.General.LevelUp)
+EnchantmentsConfig = require(game:GetService("ReplicatedStorage").Scripts.Configs.Machines.Enchantments)
 -- // Variables //
-local TradeTokenInfo = MaterialsModule.TradeToken
-local YenUpgradeConfig = YenModule.Config
-local TokenUpgradeConfig = TokenModule.Config
+TradeTokenInfo = MaterialsModule.TradeToken
+YenUpgradeConfig = YenModule.Config
+TokenUpgradeConfig = TokenModule.Config
 
-local hrp, humanoid
-local LastZone = nil
-local CurrentZoneName = ""
-local CurrentZoneEnemiesCache = {}
-local IsLoadingConfig = false
-local IsTeleporting = false
-local GlobalEnemyMap = {}
-local RollConfigs = {}
-local AllRollTypes = {}
-local IsMeteorEventActive = false
-local MeteorTargetZone = nil
-local MeteorQueue = {}
-local ChanceModules = {}
-local ChanceSortedNames = {}
-local WeaponsModule = {}
-local AccessoriesConfig = {}
-local EnemiesConfig = {}
-local UpgradesModules = {}
+hrp = nil
+humanoid = nil
+LastZone = nil
+CurrentZoneName = ""
+CurrentZoneEnemiesCache = {}
+IsLoadingConfig = false
+IsTeleporting = false
+GlobalEnemyMap = {}
+RollConfigs = {}
+AllRollTypes = {}
+ChanceModules = {}
+ChanceSortedNames = {}
+WeaponsModule = {}
+AccessoriesConfig = {}
+EnemiesConfig = {}
+UpgradesModules = {}
+
+ChanceModules = {}
+ChanceSortedNames = {}
+UpgradeModules = {}
+UpgradeSortedNames = {}
+CombinedToggleUI = {} 
+UpgradeUICache = {} -- [NEW] Cache to prevent lag
 
 local Config = {
     AutoFarm = false,
@@ -108,9 +115,9 @@ local Config = {
     AutoLeave = false,
     AutoLeave_Dungeon = 50,      -- Target Room Dungeon
     AutoLeave_Raid = 25,         -- Target Wave Raid
-    AutoLeave_Defense = 30,      -- Target Wave Defense
-    AutoLeave_PirateTower = 100, -- Target Floor Pirate Tower
-    AutoLeave_ShadowGate = 50   -- Target Wave Shadow Gate
+    AutoLeave_Defense = 200,      -- Target Wave Defense
+    AutoLeave_PirateTower = 500, -- Target Floor Pirate Tower
+    AutoLeave_ShadowGate = 500   -- Target Wave Shadow Gate
 }
 
 -- // UI Variables //
@@ -121,7 +128,21 @@ local YenUpgradeToggleUI = {}
 local TokenUpgradeToggleUI = {}
 
 getgenv().PlayerData = nil
-
+-- [HELPER: TIME CALCULATOR]
+local function GetNextTime(startTimes)
+    if not startTimes or #startTimes == 0 then return nil end
+    local now = os.date("!*t") -- Waktu UTC
+    local currentMin = os.date("*t").min
+    
+    local minDiff = 999
+    
+    for _, startMin in ipairs(startTimes) do
+        local diff = startMin - currentMin
+        if diff < 0 then diff = diff + 60 end
+        if diff < minDiff then minDiff = diff end
+    end
+    return minDiff
+end
 -- // Security & Cleanup Functions //
 
 local function SecureWipe()
@@ -211,23 +232,6 @@ local function DiscoverRollTypes()
     table.sort(AllRollTypes)
 end
 DiscoverRollTypes()
-
-local function LoadChanceModules()
-    local path = ConfigsPath:FindFirstChild("ChanceUpgrades")
-    if path then
-        for _, module in pairs(path:GetChildren()) do
-            if module:IsA("ModuleScript") then
-                local success, data = pcall(require, module)
-                if success and type(data) == "table" then
-                    ChanceModules[module.Name] = data
-                    table.insert(ChanceSortedNames, module.Name)
-                end
-            end
-        end
-    end
-    table.sort(ChanceSortedNames)
-end
-LoadChanceModules()
 
 local function ScanPlayerData()
     if (getgenv()).PlayerData then
@@ -806,113 +810,6 @@ Window:OnDestroy(function()
         SaveZoneConfig(CurrentZoneName, Config.SelectedEnemy);
     end;
 end);
-
-local function CreateTabButtons(section, tabNames)
-    local TabSystem = {
-        CurrentTab = tabNames[1],
-        Elements = {},
-        ButtonObjects = {}
-    }
-    for _, name in pairs(tabNames) do TabSystem.Elements[name] = {} end
-
-    local ButtonContainer = Instance.new("Frame")
-    ButtonContainer.Name = "TabButtonsContainer"
-    ButtonContainer.Size = UDim2.new(1, 0, 0, 35)
-    ButtonContainer.BackgroundTransparency = 1
-
-    local ContainerPadding = Instance.new("UIPadding")
-    ContainerPadding.Parent = ButtonContainer
-    ContainerPadding.PaddingLeft = UDim.new(0, 5)
-    ContainerPadding.PaddingRight = UDim.new(0, 5)
-
-    local Dummy = section:Paragraph({Title="Temp", Desc=""})
-    local ContentParent = Dummy.ParagraphFrame.UIElements.Main.Parent.Parent.Content
-    ButtonContainer.Parent = ContentParent
-    Dummy.ParagraphFrame:Destroy()
-
-    ButtonContainer.LayoutOrder = -9999
-
-    local UIList = Instance.new("UIListLayout")
-    UIList.Parent = ButtonContainer
-    UIList.FillDirection = Enum.FillDirection.Horizontal
-    UIList.SortOrder = Enum.SortOrder.LayoutOrder
-    UIList.Padding = UDim.new(0, 5)
-
-    local function UpdateVisibility(selectedTab)
-        TabSystem.CurrentTab = selectedTab
-        for name, objects in pairs(TabSystem.Elements) do
-            local isVisible = (name == selectedTab)
-            for _, obj in ipairs(objects) do
-                if obj.ElementFrame then
-                    obj.ElementFrame.Visible = isVisible
-                elseif obj.UIElements and obj.UIElements.Main then
-                    obj.UIElements.Main.Visible = isVisible
-                elseif obj.GroupFrame then
-                    obj.GroupFrame.Visible = isVisible
-                end
-            end
-        end
-        for name, btn in pairs(TabSystem.ButtonObjects) do
-            local isSelected = (name == selectedTab)
-            local targetColor = isSelected and Color3.fromRGB(60, 200, 120) or Color3.fromRGB(45, 45, 45)
-            local targetText = isSelected and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(180, 180, 180)
-            game:GetService("TweenService"):Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = targetColor}):Play()
-            game:GetService("TweenService"):Create(btn.TextLabel, TweenInfo.new(0.2), {TextColor3 = targetText}):Play()
-        end
-        task.spawn(function()
-            task.wait(0.05)
-            if section.Opened then
-                section:Open()
-            end
-        end)
-    end
-
-    local btnWidth = 1 / #tabNames
-
-    for i, name in ipairs(tabNames) do
-        local btn = Instance.new("TextButton")
-        btn.Name = name .. "_Btn"
-        btn.Parent = ButtonContainer
-        btn.Size = UDim2.new(btnWidth, -5, 1, 0)
-        btn.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
-        btn.AutoButtonColor = true
-        btn.Text = ""
-
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = btn
-
-        local lbl = Instance.new("TextLabel")
-        lbl.Parent = btn
-        lbl.Size = UDim2.new(1,0,1,0)
-        lbl.BackgroundTransparency = 1
-        lbl.Text = name
-        lbl.Font = Enum.Font.GothamBold
-        lbl.TextSize = 12
-        lbl.TextColor3 = Color3.fromRGB(180, 180, 180)
-
-        btn.MouseButton1Click:Connect(function() UpdateVisibility(name) end)
-        TabSystem.ButtonObjects[name] = btn
-    end
-
-    function TabSystem:Add(tabName, elementObject)
-        if not TabSystem.Elements[tabName] then return end
-        table.insert(TabSystem.Elements[tabName], elementObject)
-        if tabName ~= TabSystem.CurrentTab then
-            if elementObject.ElementFrame then
-                elementObject.ElementFrame.Visible = false
-            elseif elementObject.UIElements and elementObject.UIElements.Main then
-                elementObject.UIElements.Main.Visible = false
-            elseif elementObject.GroupFrame then
-                elementObject.GroupFrame.Visible = false
-            end
-        end
-    end
-
-    UpdateVisibility(tabNames[1])
-    section:Divider()
-    return TabSystem
-end
 LocalPlayer.CharacterAdded:Connect(function(char)
     hrp = char:WaitForChild("HumanoidRootPart");
     humanoid = char:WaitForChild("Humanoid");
@@ -1018,123 +915,67 @@ local function LogicAutoFarm()
     
     while Config.AutoFarm do
         if Window.Destroyed then break end
-        local currentMap = GetCurrentMapStatus()
-        local isBusyInGameMode = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
-        -- [LOGIKA 1: CEK METEOR EVENT]
-        -- Tambahan: "and not isBusyInGameMode"
-        -- Meteor hanya akan dieksekusi jika event aktif DAN kita TIDAK sedang di GameMode
-        if Config.AutoMeteor and IsMeteorEventActive and MeteorTargetZone and not isBusyInGameMode then
-            
-            -- [CEK ZONE: APAKAH KITA DI MAP YANG BENAR?]
-            if CurrentZoneName ~= MeteorTargetZone then
-                -- Jika beda map, lakukan Zone Teleport DULU
-                if not IsTeleporting then
-                    Notify("Meteor", "Warping to " .. tostring(MeteorTargetZone), "map-pin")
-                    if Reliable then
-                        pcall(function()
-                            Reliable:FireServer("Zone Teleport", { MeteorTargetZone })
-                        end)
+        
+        -- [LOGIKA FARMING BIASA (NORMAL)]
+        if not hrp or not hrp.Parent or not humanoid or humanoid.Health <= 0 then
+            currentTargetObj = nil 
+            local char = LocalPlayer.Character
+            if char then
+                hrp = char:FindFirstChild("HumanoidRootPart")
+                humanoid = char:FindFirstChild("Humanoid")
+            end
+            task.wait(1)
+        else
+            local isTargetStillAlive = false
+            if currentTargetObj then
+                if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
+                    local data = currentTargetObj.Data
+                    local hp = (data and data.Health) or 0
+                    local aliveFlag = currentTargetObj.Alive
+                    if aliveFlag == true and hp > 0 then
+                        isTargetStillAlive = true
                     end
-                    -- Tunggu sebentar agar tidak spam request (IsTeleporting akan dihandle oleh Listener "Do Teleport")
-                    task.wait(3) 
-                end
-                -- Jangan lanjut ke kode bawah, tunggu sampai pindah map selesai
-                task.wait(0.5)
-            
-            else
-                -- [SUDAH DI MAP YANG BENAR: LANJUT KE LOGIKA METEOR]
-                if #MeteorQueue > 0 then
-                    local targetMet = MeteorQueue[1]
-                    
-                    -- Tunggu meteor mendarat (Durasi jatuh ~4.5 - 5 detik)
-                    if os.time() - targetMet.Time >= 4.5 then
-                        if hrp then
-                            pcall(function()
-                                -- CFrame Teleport ke Posisi Meteor
-                                hrp.CFrame = CFrame.new(targetMet.Pos + Vector3.new(0, 3, 0))
-                                
-                                if hrp.AssemblyLinearVelocity.Magnitude > 0 then
-                                    hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                                end
-                            end)
-                            
-                            -- Jarak dekat? Hapus antrian
-                            if (hrp.Position - targetMet.Pos).Magnitude < 15 then
-                                task.wait(1.5) 
-                                table.remove(MeteorQueue, 1) 
-                            end
-                        end
-                    else
-                        task.wait(0.1)
-                    end
-                else
-                    task.wait(0.5)
                 end
             end
-            
-        else 
-            -- [LOGIKA 2: FARMING BIASA (NORMAL)]
-            -- Sama seperti sebelumnya...
-            if not hrp or not hrp.Parent or not humanoid or humanoid.Health <= 0 then
-                currentTargetObj = nil 
-                local char = LocalPlayer.Character
-                if char then
-                    hrp = char:FindFirstChild("HumanoidRootPart")
-                    humanoid = char:FindFirstChild("Humanoid")
-                end
-                task.wait(1)
-            else
-                local isTargetStillAlive = false
-                if currentTargetObj then
-                    if currentTargetObj.Parent and currentTargetObj.Root and currentTargetObj.Root.Parent then
-                        local data = currentTargetObj.Data
-                        local hp = (data and data.Health) or 0
-                        local aliveFlag = currentTargetObj.Alive
-                        if aliveFlag == true and hp > 0 then
-                            isTargetStillAlive = true
-                        end
-                    end
-                end
 
-                if not isTargetStillAlive then
-                    currentTargetObj = nil
-                end
+            if not isTargetStillAlive then
+                currentTargetObj = nil
+            end
 
-                if not currentTargetObj then
-                    local targetName = Config.SelectedEnemy
+            if not currentTargetObj then
+                local targetName = Config.SelectedEnemy
+                
+                if targetName and GlobalEnemyMap[targetName] then
+                    local enemyList = GlobalEnemyMap[targetName]
+                    local minDistance = math.huge
+                    local myPos = hrp.Position
                     
-                    if targetName and GlobalEnemyMap[targetName] then
-                        local enemyList = GlobalEnemyMap[targetName]
-                        local minDistance = math.huge
-                        local myPos = hrp.Position
+                    for _, enemyObj in ipairs(enemyList) do
+                        local data = enemyObj.Data
+                        local hp = (data and data.Health) or 0
                         
-                        for _, enemyObj in ipairs(enemyList) do
-                            local data = enemyObj.Data
-                            local hp = (data and data.Health) or 0
+                        if enemyObj.Alive == true and hp > 0 and enemyObj.Root and enemyObj.Root.Parent then
+                            local enemyPos = enemyObj.Root.Position
+                            local dist = (myPos - enemyPos).Magnitude
                             
-                            if enemyObj.Alive == true and hp > 0 and enemyObj.Root and enemyObj.Root.Parent then
-                                local enemyPos = enemyObj.Root.Position
-                                local dist = (myPos - enemyPos).Magnitude
-                                
-                                if dist < minDistance then
-                                    minDistance = dist
-                                    currentTargetObj = enemyObj
-                                end
+                            if dist < minDistance then
+                                minDistance = dist
+                                currentTargetObj = enemyObj
                             end
                         end
                     end
                 end
+            end
 
-                if currentTargetObj and currentTargetObj.Root then
-                    pcall(function()
-                        local enemyCFrame = currentTargetObj.Data.CFrame
-                        local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
-                        hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
-                        if hrp.AssemblyLinearVelocity.Magnitude > 0 then
-                            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                        end
-                    end)
-                end
+            if currentTargetObj and currentTargetObj.Root then
+                pcall(function()
+                    local enemyCFrame = currentTargetObj.Data.CFrame
+                    local attackPos = enemyCFrame * CFrame.new(0, 0, 6) 
+                    hrp.CFrame = CFrame.new(attackPos.Position, enemyCFrame.Position)
+                    if hrp.AssemblyLinearVelocity.Magnitude > 0 then
+                        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    end
+                end)
             end
         end
         
@@ -1193,7 +1034,7 @@ task.spawn(function()
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
     while Window and not Window.Destroyed do
-        -- Cek apakah ada Auto Roll yang sedang aktif
+        -- Cek apakah ada Auto Roll yang sedang aktif di Config
         local isRolling = false
         if AllRollTypes then
             for _, rollType in ipairs(AllRollTypes) do
@@ -1205,26 +1046,39 @@ task.spawn(function()
         end
 
         if isRolling then
-            -- 1. Hapus UI Crate (Layar Gacha yang menutupi)
-            local crateUI = PlayerGui:FindFirstChild("Crate")
-            if crateUI then
-                crateUI.Parent = nil -- Buang ke nil agar hilang total
-            end
+            -- [FIX] Hapus UI Overlay bernama "Rolls" (Berdasarkan CrateRoll.c)
+            -- Kita pakai pcall agar tidak error jika UI sedang dimanipulasi game
+            pcall(function()
+                local rollsUI = PlayerGui:FindFirstChild("Rolls")
+                if rollsUI then
+                    rollsUI.Enabled = false -- Matikan dulu visibilitasnya
+                    rollsUI.Parent = nil    -- Buang dari PlayerGui
+                end
+                
+                -- Jaga-jaga jika namanya berubah jadi "Crate" (Backup logic)
+                local crateUI = PlayerGui:FindFirstChild("Crate")
+                if crateUI then
+                    crateUI.Enabled = false
+                    crateUI.Parent = nil
+                end
+            end)
 
-            -- 2. Paksa UI Utama (HP/Skill) Muncul Kembali
+            -- [FIX] Paksa UI Utama Muncul Kembali
+            -- Game mematikan ini di baris 175 CrateRoll.c (arg1.Screen.Enabled = false)
             local screenUI = PlayerGui:FindFirstChild("Screen")
             if screenUI and not screenUI.Enabled then
                 screenUI.Enabled = true
             end
 
-            -- 3. Paksa Topbar Muncul Kembali
+            -- [FIX] Paksa Topbar Muncul Kembali
+            -- Game mematikan ini di baris 176 CrateRoll.c
             local topbarUI = PlayerGui:FindFirstChild("TopbarStandard")
             if topbarUI and not topbarUI.Enabled then
                 topbarUI.Enabled = true
             end
         end
         
-        -- Cek setiap 0.1 detik agar responsif
+        -- Cek setiap 0.1 detik agar responsif tapi tidak lag
         task.wait(0.1)
     end
 end)
@@ -1335,6 +1189,8 @@ local FM_CategoryDescriptions = {
     ["Vault"] = "Auto Equipped Best Vault for battle/lobby",
     ["Avatar Level"] = "Upgrade Avatar Level, view stats and costs",
     ["Heroes Stats"] = "Reroll Heroes Stats, view stats and costs",
+    ["Ascension"] = "You can exchange all your level progress to obtain boosts.",
+    ["Enchantments"] = "Add Stats Enchantments To Your Weapon.",
     ["Exchange"] = "Exchange materials, preview tokens and calculate amounts",
     ["Crate Roll"] = "Auto roll various gachas and monitor material stock",
     ["Upgrade: Yen"] = "Upgrade Yen buff along with cost and effects",
@@ -1399,6 +1255,8 @@ local FM_Category = FarmTab:Category({
         {Title="Vault", Icon="rbxassetid://90798559571883"},
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()},
         {Title="Heroes Stats", Icon="rbxassetid://127892390350003"},
+        {Title="Ascension", Icon="rbxassetid://84524784941090"},
+        {Title="Enchantments", Icon="rbxassetid://104488852837942"},
         {Title="Exchange", Icon="rbxassetid://101595095661272"},
         {Title="Crate Roll", Icon="package"},
         {Title="Upgrade: Yen", Icon=GetYenIcon()},
@@ -1458,15 +1316,6 @@ local FarmToggle = FarmTab:Toggle({
     end
 });
 FM_Add("Zone Farming", FarmToggle);
-local MeteorToggle = FarmTab:Toggle({
-    Title = "Auto Farm Meteor Event",
-    Desc = "Pauses normal farm when Meteor Shower starts",
-    Flag = "AutoMeteor_Cfg",
-    Callback = function(val)
-        Config.AutoMeteor = val
-    end
-})
-FM_Add("Zone Farming", MeteorToggle)
 
 local function LogicGamemodes()
     local wasInGamemode = false;
@@ -1643,9 +1492,9 @@ local function LoadPirateTowerData()
         return require(ReplicatedStorage.Scripts.Configs.Gamemodes.PirateTower);
     end);
     if success and module then
-        local hpBase = module.HealthBase or 0
+        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
         local floors = module.MAX_FLOOR or 100
-        local desc = "Floors: " .. floors .. " | HP Base: " .. UtilsModule.ToText(hpBase);
+        local desc = "Max Floors: " .. floors .. " | HP Base: " .. UtilsModule.ToText(hpBase);
         local rewardCards = GenerateCardRewards(module.ChanceReward)
 
         pirateTowerList = {{
@@ -1665,9 +1514,9 @@ local function LoadShadowGateData()
         return require(ReplicatedStorage.Scripts.Configs.Gamemodes.ShadowGate);
     end);
     if success and module then
-        local hpBase = module.HealthBase or 0
+        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
         local waves = module.MAX_WAVE or 500
-        local desc = "Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
+        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
         local rewardCards = GenerateCardRewards(module.ChanceReward)
 
         shadowGateList = {{
@@ -1689,13 +1538,13 @@ local function LoadDungeonData()
         dungeonList, dungeonDB = {}, {};
         for id, phase in ipairs(module.PHASES) do
             local rName = phase.Name;
-            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
+            local hpCalc = module.GetRecommendedPower(phase.HealthBase);
             
             -- [OPTIMASI: Format Jadwal agar rapi]
             local times = phase.START_TIMES or {}
             table.sort(times)
             local timeStr = table.concat(times, ", ")
-            local desc = "HP: " .. UtilsModule.ToText(hpCalc) .. " | Mins: " .. timeStr;
+            local desc = "HP: " .. UtilsModule.ToText(hpCalc);
             
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
@@ -1724,7 +1573,7 @@ local function LoadRaidData()
         raidList, raidDB = {}, {};
         for id, phase in ipairs(module.PHASES) do
             local rName = phase.Name;
-            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
+            local hpCalc = module.GetRecommendedPower(phase.HealthBase);
             
             -- [OPTIMASI: Format Jadwal agar rapi]
             local times = phase.START_TIMES or {}
@@ -1759,7 +1608,7 @@ local function LoadDefenseData()
         defenseList, defenseDB = {}, {};
         for id, phase in ipairs(module.PHASES) do
             local rName = phase.Name;
-            local hpCalc = math.floor((phase.HealthBase or 0) / 50);
+            local hpCalc = module.GetRecommendedPower(phase.HealthBase);
             
             local times = phase.START_TIMES or {}
             table.sort(times)
@@ -2602,16 +2451,9 @@ end
 -- [DYNAMIC UPGRADE SYSTEM (TRAINER + GACHA UPGRADES) WITH WEBHOOK & CACHE]
 -- =========================================================================
 
-local ChanceModules = {}
-local ChanceSortedNames = {}
-local UpgradeModules = {}
-local UpgradeSortedNames = {}
-local CombinedToggleUI = {} 
-local UpgradeUICache = {} -- [NEW] Cache to prevent lag
-
 -- 1. Load Modules
 local function LoadAllUpgradeModules()
-    local path1 = ReplicatedStorage.Scripts.Configs:FindFirstChild("ChanceUpgrades")
+    local path1 = ReplicatedStorage.Scripts.Configs:FindFirstChild("Trainers")
     if path1 then
         for _, m in pairs(path1:GetChildren()) do
             if m:IsA("ModuleScript") then
@@ -2657,7 +2499,7 @@ local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
     local flagName = isGachaUpgrade and ("AutoUpgrade_" .. name) or ("AutoChance_" .. name)
 
     local myToggle = _upgradeGroup:Toggle({
-        Title = (mod.Display or name) .. " Upgrade",
+        Title = mod.Display .. " Upgrade",
         Desc = "Loading...",
         Flag = flagName .. "_Cfg",
         Image = iconId,
@@ -3117,6 +2959,8 @@ local AvatarLevelToggle = FarmTab:Toggle({
     end
 })
 FM_Add("Avatar Level", AvatarLevelToggle)
+
+
 local function SendAvatarUpgradeWebhook(avatarDisplayName, newLevel, maxLevel, buffPercentage)
     -- Asumsi variabel global/lokal: Config, HttpService, LocalPlayer, CensorText, dan httpRequest tersedia di scope ini.
     
@@ -3220,6 +3064,197 @@ local function GetClassBuffPercentage(statName, statIndex)
     return ""
 end
 
+-- ============================================================================
+-- [ASCENSION FEATURE - DYNAMIC & OPTIMIZED]
+-- ============================================================================
+
+local AscUI = {} 
+
+do
+
+    -- [2] DYNAMIC REWARDS LIST
+    -- Kita load module Potions langsung dari game
+    local potionRewardsList = {}
+    
+    local success, PotionsData = pcall(function()
+        -- Mencoba load module Potions dari path config
+        return require(game:GetService("ReplicatedStorage").Scripts.Configs.General.Potions)
+    end)
+
+    if success and PotionsData then
+        -- List kunci potion sesuai loop di Ascension.c (Baris 67)
+        local rewardKeys = {"BasicStrengh", "BasicMastery", "BasicYen", "BasicDrop", "BasicLuck"}
+        
+        for _, key in ipairs(rewardKeys) do
+            local data = PotionsData[key]
+            if data then
+                -- Ambil Template (Image) dan Display (Nama) secara dinamis
+                local imgId = data.Template or 0
+                local displayName = data.Display or key
+                
+                -- Format Asset ID
+                local finalImg = "rbxassetid://" .. tostring(imgId)
+                
+                table.insert(potionRewardsList, {
+                    Image = finalImg,
+                    Quantity = "5x", -- Hardcoded dari Ascension.c
+                    Title = displayName,
+                    Gradient = ColorSequence.new(Color3.fromRGB(0, 168, 255)) -- Default Blue/Rare color
+                })
+            end
+        end
+    else
+        -- Fallback jika module gagal diload
+        table.insert(potionRewardsList, {
+            Title = "Error Loading Potions",
+            Desc = "Could not require Potions module.",
+            Image = "rbxassetid://84366761557806"
+        })
+    end
+    -- [1] STATUS ASCENSION
+    AscUI.Status = FarmTab:Paragraph({
+        Title = "Ascension Status",
+        Desc = "Waiting for data...",
+        Images = potionRewardsList,
+        ImageSize = UDim2.fromOffset(50, 50)
+    })
+    FM_Add("Ascension", AscUI.Status)
+
+    -- [4] TOGGLE AUTO
+    AscUI.AutoToggle = FarmTab:Toggle({
+        Title = "Auto Ascend",
+        Desc = "Automatically ascend when Level Cap is reached.",
+        Flag = "AutoAscend_Cfg",
+        Callback = function(val)
+            Config.AutoAscend = val
+        end
+    })
+    FM_Add("Ascension", AscUI.AutoToggle)
+end
+-- ============================================================================
+-- [ENCHANTMENTS FEATURE - FIX GHOST TARGET & LIMIT ERROR]
+-- ============================================================================
+
+local EnchUI = {}
+
+-- [FIX 1] Reset filter setiap kali script dijalankan agar tidak ada "Ghost Target" dari config lama
+Config.EnchantFilters = {} 
+
+do
+    -- [1] CONTROLLER GROUP
+    local EnchControlGroup = FarmTab:Group({Title = "Controller"})
+    FM_Add("Enchantments", EnchControlGroup)
+
+    -- [2] MASTER TOGGLE
+    EnchUI.MasterToggle = EnchControlGroup:Toggle({
+        Title = "Loading Weapon...",
+        Desc = "Waiting Data...", 
+        Flag = "Enchant_Master_Toggle",
+        Image = "sparkles",
+        ImageSize = 30,
+        Callback = function(val)
+            Config.Enchant_Master_Toggle = val
+            
+            if val then
+                task.spawn(function()                    
+                    while Config.Enchant_Master_Toggle and not Window.Destroyed do
+                        local pData = (getgenv()).PlayerData
+                        
+                        if pData and pData.Attributes and pData.Weapons and pData.Materials and Reliable then
+                            local currentEquipID = pData.Attributes.Weapon
+                            local weaponData = pData.Weapons[currentEquipID]
+                            
+                            -- [A] LOGIC CEK TARGET (DIPERBAIKI)
+                            if weaponData and weaponData.Enchantment then
+                                local currentID = weaponData.Enchantment
+                                
+                                -- Cek: Apakah Filter Kosong?
+                                -- next(table) == nil artinya table kosong.
+                                local isFilterActive = next(Config.EnchantFilters) ~= nil 
+                                
+                                -- Hanya STOP jika Filter TIDAK KOSONG dan Target COCOK
+                                if isFilterActive and Config.EnchantFilters[currentID] == true then                                    
+                                    Config.Enchant_Master_Toggle = false
+                                    EnchUI.MasterToggle:Set(false)
+                                    break 
+                                end
+                            end
+                            
+                            -- [B] Cek Token & Roll
+                            local tokenKey = (EnchantmentsConfig and EnchantmentsConfig.TokenName) or "EnchantmentToken"
+                            local tokenCost = (EnchantmentsConfig and EnchantmentsConfig.TokenCost) or 10
+                            local myTokens = pData.Materials[tokenKey] or 0
+                            
+                            if myTokens >= tokenCost then
+                                pcall(function()
+                                    Reliable:FireServer("Enchantments Roll") 
+                                end)
+                            else
+                                if Notify then Notify("Enchantments", "Out of Tokens!", "alert-triangle") end
+                                Config.Enchant_Master_Toggle = false
+                                EnchUI.MasterToggle:Set(false)
+                                break
+                            end
+                        end
+                        task.wait(1.2) -- Delay aman
+                    end
+                end)
+            end
+        end
+    })
+
+    -- [3] FILTER SETTINGS
+    local EnchFilterGroup = FarmTab:Group({Title = "Roll Targets (Select to Stop)"})
+    FM_Add("Enchantments", EnchFilterGroup)
+
+    local DropdownValues = {}
+
+    if EnchantmentsConfig and EnchantmentsConfig.Table then
+        local RomanNumerals = {"I", "II", "III", "IV", "V"} 
+
+        for typeName, typeData in pairs(EnchantmentsConfig.Table) do
+            if typeData.List then
+                for tierIndex, tierData in ipairs(typeData.List) do
+                    local configId = string.format("%s_%d", typeName, tierIndex)
+                    local roman = RomanNumerals[tierIndex] or tostring(tierIndex)
+                    local displayName = string.format("%s %s", typeData.Display, roman)
+                    local iconId = "rbxassetid://" .. tostring(tierData.Template)
+                    
+                    local bonusDesc = "Bonus"
+                    pcall(function() bonusDesc = typeData.Description:format(tierData.Bonus) end)
+
+                    table.insert(DropdownValues, {
+                        Title = displayName,
+                        Desc = bonusDesc,
+                        Value = configId,
+                        Icon = iconId
+                    })
+                end
+            end
+        end
+        table.sort(DropdownValues, function(a,b) return a.Title < b.Title end)
+
+        EnchUI.FilterDropdown = EnchFilterGroup:Dropdown({
+            Title = "Select Targets",
+            Desc = "Script will STOP rolling if you get one of these.",
+            Multi = true,
+            AllowNone = true,
+            Values = DropdownValues,
+            Flag = "EnchantFilterDropdown",
+            Callback = function(selectedValues)
+                local map = {}
+                for _, val in pairs(selectedValues) do
+                    local id = type(val) == "table" and val.Value or val
+                    print(id)
+                    map[id] = true
+                end
+                Config.EnchantFilters = map
+            end
+        })
+    else
+        EnchFilterGroup:Paragraph({Title="Error", Desc="Failed to load Enchantments Config"})
+    end
+end
 -- ============================================================================
 -- // HEROES STATS UI
 -- ============================================================================
@@ -3373,34 +3408,8 @@ SettingsTab:Paragraph({
 });
 if Reliable then
     Reliable.OnClientEvent:Connect(function(msg, args)
-        if msg == "Meteor Shower Started" then
-            IsMeteorEventActive = true
-            
-            -- [UPDATE: SIMPAN NAMA ZONE]
-            -- Berdasarkan script MeteorEvent.c, args adalah Nama Zone
-            if type(args) == "string" then
-                MeteorTargetZone = args
-            elseif type(args) == "table" then
-                MeteorTargetZone = args[1]
-            end
-            
-            Notify("Event", "Meteor in " .. tostring(MeteorTargetZone) .. "! Pausing Farm...", "flame")
-        
-        elseif msg == "Meteor Shower Ended" then
-            IsMeteorEventActive = false
-            MeteorQueue = {} 
-            MeteorTargetZone = nil -- Reset nama zone
-            Notify("Event", "Meteor Shower Ended. Resuming Farm.", "check")
-        
-        elseif msg == "Meteor Spawn" then
-            if typeof(args) == "Vector3" then
-                table.insert(MeteorQueue, {Pos = args, Time = os.time()})
-            elseif type(args) == "table" and typeof(args[1]) == "Vector3" then
-                table.insert(MeteorQueue, {Pos = args[1], Time = os.time()})
-            end
-
-        -- [BAGIAN BAWAH INI TETAP SAMA SEPERTI YANG ANDA KIRIM]
-        elseif msg == "Do Teleport" and type(args) == "table" then
+        -- Hanya menyisakan logika Teleport, logika Meteor sudah dihapus
+        if msg == "Do Teleport" and type(args) == "table" then
             local targetZoneName = args[1];
             IsTeleporting = true;
             IsLoadingConfig = true;
@@ -3535,16 +3544,197 @@ end)
 -- Paste ini di bagian paling bawah script, sebelum Window:SelectTab
 
 -- Kita gunakan Table "Optimizer" agar tidak memakan batas limit local variable Lua (Limit 200)
-local Optimizer = {
+Optimizer = { 
     Cache = {
         Roll = {},
         Craft = {},
         Upgrade = {},
         VaultHash = "",
-        VaultWasVisible = false
+        VaultWasVisible = false,
+        EnchantState = ""
     }
 }
 
+function Optimizer.Update_Gamemode_Dropdowns()
+    -- Update setiap 1 detik agar timer akurat
+    local now = os.time()
+    if Optimizer.Cache.LastGamemodeUpdate and (now - Optimizer.Cache.LastGamemodeUpdate) < 1 then
+        return
+    end
+    Optimizer.Cache.LastGamemodeUpdate = now
+
+    -- Fungsi Helper Update Item per Dropdown
+    local function UpdateItems(db, originalList, dropdownUI)
+        if not db or not originalList or not dropdownUI then return end
+
+        for _, item in ipairs(originalList) do
+            local val = item.Value
+            local dbData = db[val]
+
+            if dbData and dbData.Times then
+                -- Hitung Waktu Mundur
+                local minDiff = GetNextTime(dbData.Times)
+                
+                -- Format Status String
+                local statusStr = ""
+                if minDiff <= 0 or minDiff >= 60 then
+                    statusStr = "Status: <font color='#00ff00'><b>OPEN / ACTIVE</b></font>"
+                else
+                    statusStr = string.format("Opens in: <font color='#ffaa00'><b>%d mins</b></font>", minDiff)
+                end
+                
+                -- Gabungkan Deskripsi Asli dengan Status Waktu
+                local baseDesc = dbData.BaseDesc or ""
+                local newDesc = baseDesc .. "\n" .. statusStr
+
+                -- [PENTING] Gunakan :Edit untuk update deskripsi tanpa menutup dropdown
+                -- Kita gunakan pcall agar script tidak error jika UI library belum support :Edit sepenuhnya
+                pcall(function()
+                    if dropdownUI.Edit then
+                        dropdownUI:Edit(val, {
+                            Desc = newDesc
+                        })
+                    end
+                end)
+            end
+        end
+    end
+
+    -- Update Dropdown Dungeon, Raid, dan Defense
+    -- Pastikan variable DgnDrop, RaidDrop, DefenseDB, dll bisa diakses (mereka ada di atas script ini)
+    if DgnDrop then UpdateItems(dungeonDB, dungeonList, DgnDrop) end
+    if RaidDrop then UpdateItems(raidDB, raidList, RaidDrop) end
+    if DefenseDrop then UpdateItems(defenseDB, defenseList, DefenseDrop) end
+end
+function Optimizer.Update_Ascension_Logic(pData)
+    if not pData.Attributes then return end
+    
+    local currentLevel = pData.Attributes.Level or 1
+    local currentAsc = pData.Attributes.Ascension or 0
+    
+    -- Hitung Max Level (Logic dari Decompile)
+    local maxLevel = 100 
+    if LevelUpModule and LevelUpModule.GetMaxLevel then
+        maxLevel = LevelUpModule.GetMaxLevel(currentAsc)
+    end
+    
+    local pointsPerLevel = currentAsc + 1
+
+    -- Update UI Visual (Menggunakan AscUI table)
+    if not Window.Closed and AscUI and AscUI.Status then
+        local pct = math.clamp(currentLevel / maxLevel, 0, 1)
+        local bar = string.rep("█", math.floor(pct * 10)) .. string.rep("▒", 10 - math.floor(pct * 10))
+        
+        local desc = string.format(
+            "Current Ascension: %d\nLevel: %d / %d\n[%s] %d%%\nPoints Per Level: %d",
+            currentAsc, currentLevel, maxLevel, bar, math.floor(pct * 100), pointsPerLevel
+        )
+        
+        -- Logic UI Max Ascension
+        if LevelUpModule and LevelUpModule.MAX_ASCENSION and currentAsc >= LevelUpModule.MAX_ASCENSION then
+             AscUI.Status:SetTitle("Ascension MAXED")
+             AscUI.Status:SetDesc("You have reached the maximum ascension.")
+             
+             if AscUI.AutoToggle and not AscUI.AutoToggle.Locked then
+                 AscUI.AutoToggle:Set(false)
+                 AscUI.AutoToggle:Lock()
+             end
+        else
+            AscUI.Status:SetTitle("Progress Tracker")
+            AscUI.Status:SetDesc(desc)
+             if AscUI.AutoToggle and AscUI.AutoToggle.Locked then AscUI.AutoToggle:Unlock() end
+        end
+    end
+
+    -- Logic Auto Ascend
+    if Config.AutoAscend and currentLevel >= maxLevel then
+        if Reliable then
+            local now = os.time()
+            if not Optimizer.Cache.LastAscendTime or (now - Optimizer.Cache.LastAscendTime) > 5 then
+                pcall(function()
+                    Reliable:FireServer("Ascend")
+                    if Notify then Notify("Ascension", "Auto Ascending...", "chevrons-up") end
+                    
+                    -- Webhook
+                    local hookKey = "AscensionWebhook"
+                    if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 10 then
+                        SendUpgradeWebhook("Rank", "Ascension " .. (currentAsc + 1), currentAsc + 1, 0)
+                        LastWebhookTime[hookKey] = now
+                    end
+                end)
+                Optimizer.Cache.LastAscendTime = now
+            end
+        end
+    end
+end
+
+function Optimizer.Update_Enchantments_Logic(pData)
+    -- Update Visual UI Saja (Logic Roll sudah pindah ke Toggle Callback)
+    if EnchUI.MasterToggle and not Window.Closed then
+        if pData.Materials and pData.Attributes and pData.Weapons then
+            
+            local tokenKey = (EnchantmentsConfig and EnchantmentsConfig.TokenName) or "EnchantmentToken"
+            local tokenCost = (EnchantmentsConfig and EnchantmentsConfig.TokenCost) or 10
+            local myTokens = pData.Materials[tokenKey] or 0
+            
+            local tokenDisplayName = "Tokens"
+            local tokenDisplayIcon = ""
+            if MaterialsModule and MaterialsModule[tokenKey] then
+                if MaterialsModule[tokenKey].Display then tokenDisplayName = MaterialsModule[tokenKey].Display end
+                if MaterialsModule[tokenKey].Template then tokenDisplayIcon = GetIcon(MaterialsModule[tokenKey].Template) end
+            end
+
+            local currentEquipID = pData.Attributes.Weapon
+            local weaponInstance = pData.Weapons[currentEquipID]
+            
+            local weaponDisplayName = currentEquipID or "Unknown"
+            local weaponIcon = "sparkles"
+            local weaponRarity = "Common" 
+            
+            if weaponInstance and weaponInstance.Index then
+                local configID = weaponInstance.Index
+                if WeaponsModule and WeaponsModule[configID] then
+                    local staticData = WeaponsModule[configID]
+                    if staticData.Display then weaponDisplayName = staticData.Display end
+                    if staticData.Template then weaponIcon = "rbxassetid://" .. tostring(staticData.Template) end
+                    if staticData.Rarity then weaponRarity = staticData.Rarity end
+                end
+            end
+
+            local enchantText = "None"
+            if weaponInstance and weaponInstance.Enchantment then
+                local rawID = weaponInstance.Enchantment
+                local parts = string.split(rawID, "_")
+                if #parts == 2 and EnchantmentsConfig and EnchantmentsConfig.Table then
+                    local eType = parts[1]
+                    local eTier = tonumber(parts[2])
+                    local roman = {"I", "II", "III", "IV", "V"}
+                    if EnchantmentsConfig.Table[eType] then
+                        local typeInfo = EnchantmentsConfig.Table[eType]
+                        enchantText = string.format("%s %s", typeInfo.Display, (roman[eTier] or eTier))
+                    end
+                end
+            end
+            
+            local newStateHash = string.format("%s|%s|%s", weaponDisplayName, myTokens, enchantText)
+            
+            if Optimizer.Cache.EnchantState ~= newStateHash then
+                EnchUI.MasterToggle:SetTitle(string.format("%s [%s]", weaponDisplayName, enchantText))
+                EnchUI.MasterToggle:SetDesc(string.format("%s%s: %s / %s", tokenDisplayIcon, tokenDisplayName, UtilsModule.ToText(tokenCost), UtilsModule.ToText(myTokens)))
+                
+                if EnchUI.MasterToggle.SetMainImage then
+                    EnchUI.MasterToggle:SetMainImage({
+                        Image = weaponIcon,
+                        Title = weaponDisplayName,
+                        Quantity = weaponRarity, 
+                        Gradient = GetGameGradient(weaponRarity) 
+                    }, 50)
+                end
+                Optimizer.Cache.EnchantState = newStateHash
+            end
+        end
+    end
+end
 -- Definisi Fungsi dimasukkan ke dalam Table (Bukan local function terpisah)
 function Optimizer.Update_Exchange_Logic(pData)
     local digest = GetMaterialsDigest()
@@ -3974,6 +4164,8 @@ task.spawn(function()
             ScanPlayerData() 
         else
             -- Jalankan semua update UI dalam satu frame (Protected Call agar error satu tidak mematikan yg lain)
+            pcall(Optimizer.Update_Ascension_Logic, pData)
+            pcall(Optimizer.Update_Enchantments_Logic, pData)
             pcall(Optimizer.Update_Exchange_Logic, pData)
             pcall(Optimizer.Update_Roll_Logic, pData)
             pcall(Optimizer.Update_Craft_Logic, pData)
@@ -3982,6 +4174,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Avatar_Logic, pData)
             pcall(Optimizer.Update_Heroes_Logic, pData)
             pcall(Optimizer.Update_Main_Data_Logic, pData)
+            pcall(Optimizer.Update_Gamemode_Dropdowns)
         end
         task.wait(1) -- GLOBAL THROTTLE (1 DETIK)
     end
