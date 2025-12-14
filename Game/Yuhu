@@ -61,6 +61,7 @@ local WeaponsModule = {}
 local AccessoriesConfig = {}
 local EnemiesConfig = {}
 local UpgradesModules = {}
+
 local Config = {
     AutoFarm = false,
     AutoFuse = false,
@@ -103,7 +104,13 @@ local Config = {
     HeroesStats_LockStats = "",
     GM_AutoJoin = false,
     GM_AutoKill = false,
-    GM_AutoCreate = false
+    GM_AutoCreate = false,
+    AutoLeave = false,
+    AutoLeave_Dungeon = 50,      -- Target Room Dungeon
+    AutoLeave_Raid = 25,         -- Target Wave Raid
+    AutoLeave_Defense = 30,      -- Target Wave Defense
+    AutoLeave_PirateTower = 100, -- Target Floor Pirate Tower
+    AutoLeave_ShadowGate = 50   -- Target Wave Shadow Gate
 }
 
 -- // UI Variables //
@@ -1313,7 +1320,7 @@ local FarmTab = Window:Tab({
     Title = "Main Feature",
     Icon = "swords",
         Profile = MakeProfile({
-        	Avatar = GameIconURL,
+            Avatar = GameIconURL,
             Title = "Main Feature",
             Desc = "Anime Weapons"
         }),
@@ -1899,6 +1906,158 @@ local GMCreateToggle = FM_Add("GameModes", FarmTab:Toggle({
     end
 }));
 
+-- // [AUTO LEAVE SYSTEM - MULTI MODE] //
+
+-- Group 1: Dungeon & Raid
+local LeaveGroup1 = FarmTab:Group({})
+FM_Add("GameModes", LeaveGroup1)
+
+LeaveGroup1:Input({
+    Title = "Dungeon (Room)",
+    Value = tostring(Config.AutoLeave_Dungeon or 50),
+    Numeric = true,
+    Flag = "Leave_Dungeon_Cfg",
+    Callback = function(txt) Config.AutoLeave_Dungeon = tonumber(txt) or 50 end
+})
+
+LeaveGroup1:Input({
+    Title = "Raid (Wave)",
+    Value = tostring(Config.AutoLeave_Raid or 25),
+    Numeric = true,
+    Flag = "Leave_Raid_Cfg",
+    Callback = function(txt) Config.AutoLeave_Raid = tonumber(txt) or 25 end
+})
+
+-- Group 2: Defense & Pirate Tower
+local LeaveGroup2 = FarmTab:Group({})
+FM_Add("GameModes", LeaveGroup2)
+
+LeaveGroup2:Input({
+    Title = "Defense (Wave)",
+    Value = tostring(Config.AutoLeave_Defense or 30),
+    Numeric = true,
+    Flag = "Leave_Defense_Cfg",
+    Callback = function(txt) Config.AutoLeave_Defense = tonumber(txt) or 30 end
+})
+
+LeaveGroup2:Input({
+    Title = "Pirate Tower (Floor)",
+    Value = tostring(Config.AutoLeave_PirateTower or 100),
+    Numeric = true,
+    Flag = "Leave_Pirate_Cfg",
+    Callback = function(txt) Config.AutoLeave_PirateTower = tonumber(txt) or 100 end
+})
+
+-- Group 3: Shadow Gate & Master Toggle
+local LeaveGroup3 = FarmTab:Group({})
+FM_Add("GameModes", LeaveGroup3)
+
+LeaveGroup3:Input({
+    Title = "Shadow Gate (Wave)",
+    Value = tostring(Config.AutoLeave_ShadowGate or 50),
+    Numeric = true,
+    Flag = "Leave_Shadow_Cfg",
+    Callback = function(txt) Config.AutoLeave_ShadowGate = tonumber(txt) or 50 end
+})
+
+LeaveGroup3:Toggle({
+    Title = "Enable Auto Leave",
+    Desc = "Master switch for auto leaving",
+    Flag = "AutoLeave_Cfg",
+    Callback = function(val)
+        Config.AutoLeave = val
+    end
+})
+
+-- [LOGIC LOOP BARU]
+task.spawn(function()
+    while not Window.Destroyed do
+        if Config.AutoLeave then
+            local PlayerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
+            -- Menggunakan jalur UI yang valid sesuai file Anda: PlayerGui.Screen.Hud.gamemode
+            local HudGamemode = PlayerGui and PlayerGui:FindFirstChild("Screen") and PlayerGui.Screen:FindFirstChild("Hud") and PlayerGui.Screen.Hud:FindFirstChild("gamemode")
+            
+            if HudGamemode and HudGamemode.Visible then
+                local currentVal = 0
+                local targetLimit = 999999 -- Default tinggi agar tidak leave sembarangan
+                local modeActive = false
+
+                -- A. Cek DUNGEON
+                local dungeonUI = HudGamemode:FindFirstChild("Dungeon")
+                if dungeonUI and dungeonUI.Visible then
+                    local txt = dungeonUI.room.amount.Text
+                    currentVal = tonumber(string.match(txt, "%d+")) or 0
+                    targetLimit = Config.AutoLeave_Dungeon
+                    modeActive = true
+                end
+
+                -- B. Cek RAID
+                if not modeActive then
+                    local raidUI = HudGamemode:FindFirstChild("Raid")
+                    if raidUI and raidUI.Visible then
+                        local txt = raidUI.wave.amount.Text
+                        currentVal = tonumber(string.match(txt, "%d+")) or 0
+                        targetLimit = Config.AutoLeave_Raid
+                        modeActive = true
+                    end
+                end
+
+                -- C. Cek DEFENSE
+                if not modeActive then
+                    local defenseUI = HudGamemode:FindFirstChild("Defense")
+                    if defenseUI and defenseUI.Visible then
+                        local txt = defenseUI.wave.amount.Text
+                        currentVal = tonumber(string.match(txt, "%d+")) or 0
+                        targetLimit = Config.AutoLeave_Defense
+                        modeActive = true
+                    end
+                end
+
+                -- D. Cek PIRATE TOWER
+                if not modeActive then
+                    local pirateUI = HudGamemode:FindFirstChild("PirateTower")
+                    if pirateUI and pirateUI.Visible then
+                        local txt = pirateUI.floor.amount.Text
+                        currentVal = tonumber(string.match(txt, "%d+")) or 0
+                        targetLimit = Config.AutoLeave_PirateTower
+                        modeActive = true
+                    end
+                end
+
+                -- E. Cek SHADOW GATE
+                if not modeActive then
+                    local shadowUI = HudGamemode:FindFirstChild("ShadowGate")
+                    if shadowUI and shadowUI.Visible then
+                        local txt = shadowUI.wave.amount.Text
+                        currentVal = tonumber(string.match(txt, "%d+")) or 0
+                        targetLimit = Config.AutoLeave_ShadowGate
+                        modeActive = true
+                    end
+                end
+
+                -- [EKSEKUSI LEAVE]
+                if modeActive and currentVal >= targetLimit then
+                    -- Ambil LastZone yang aman
+                    local pData = getgenv().PlayerData
+                    local returnZone = (pData and pData.Attributes and pData.Attributes.LastZone) or "Starter Zone"
+                    if string.find(returnZone, ":") or returnZone == "Unknown" then returnZone = "Starter Zone" end
+
+                    if Reliable then
+                        pcall(function()
+                            Reliable:FireServer("Zone Teleport", { returnZone })
+                        end)
+                        
+                        if Notify then 
+                            Notify("Auto Leave", "Target Reached ("..currentVal.." / "..targetLimit..")! Leaving...", "log-out") 
+                        end
+                        task.wait(5) -- Jeda biar ga spam
+                    end
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
 -- =========================================================================
 
 FM_OnChange("Zone Farming")
@@ -3696,6 +3855,9 @@ end
 function Optimizer.Update_Heroes_Logic(pData)
     if not HeroesStatsModule or not Reliable or not pData.EquippedHeroes or not pData.Heroes then return end
     
+    -- [TAMBAHAN] Inisialisasi variable cache waktu jika belum ada
+    if not Optimizer.Cache.LastHeroRollTime then Optimizer.Cache.LastHeroRollTime = 0 end
+
     local equippedHeroUID = nil
     for uid, isEquipped in pairs(pData.EquippedHeroes) do if isEquipped == true and pData.Heroes[uid] then equippedHeroUID = uid; break end end
     
@@ -3731,10 +3893,17 @@ function Optimizer.Update_Heroes_Logic(pData)
                     end
                 end
                 
-                if safeToRoll and currency > 8 then
-                    local anyUnlocked = false
-                    for _, sName in ipairs(ValidStatsList) do if not lStats[sName] then anyUnlocked = true; break end end
-                    if anyUnlocked then Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, true}) end
+                -- [MODIFIKASI] Cek selisih waktu (Delay 2 Detik)
+                if safeToRoll and currency > 15 then
+                    if (os.time() - Optimizer.Cache.LastHeroRollTime) >= 2 then
+                        local anyUnlocked = false
+                        for _, sName in ipairs(ValidStatsList) do if not lStats[sName] then anyUnlocked = true; break end end
+                        
+                        if anyUnlocked then
+                            Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, true})
+                            Optimizer.Cache.LastHeroRollTime = os.time() -- Update waktu terakhir roll
+                        end
+                    end
                 end
             end
         end
