@@ -2325,80 +2325,6 @@ for id, data in pairs(CraftsConfig) do
 end
 table.sort(CraftListForEquip, function(a,b) return a.Title < b.Title end)
 
--- Buat Dropdown langsung di FarmTab
-local AutoEquipCraftDropdown = FarmTab:Dropdown({
-    Title = "Auto Equip Craft",
-    Desc = "Force equip selected craft",
-    Multi = false,
-    AllowNone = true,
-    Values = CraftListForEquip,
-    Flag = "AutoEquipCraft_Cfg",
-    Callback = function(val)
-        Config.AutoEquipCraft = type(val) == "table" and val.Value or val
-    end
-})
--- Daftarkan Dropdown ke Kategori Crafts
-FM_Add("Crafts", AutoEquipCraftDropdown)
-
--- [PERBAIKAN: LOGIC AUTO EQUIP CRAFT + VISUAL NOTIFY]
-task.spawn(function()
-    while not Window.Destroyed do
-        -- Pastikan Config ada isinya
-        if Config.AutoEquipCraft and Config.AutoEquipCraft ~= "" then
-            local pData = (getgenv()).PlayerData
-            
-            -- Ubah ke string agar cocok dengan key PlayerData
-            local targetID = tostring(Config.AutoEquipCraft)
-
-            if pData and pData.Crafts and pData.EquippedCrafts then
-                -- 1. Cek: Apakah kita MEMILIKI Craft tersebut? (Level > 0)
-                local myCraftLevel = pData.Crafts[targetID]
-
-                if myCraftLevel and myCraftLevel > 0 then
-                    -- 2. Cek: Apakah SUDAH Ter-Equip?
-                    local isCurrentlyEquipped = pData.EquippedCrafts[targetID] == true
-
-                    -- 3. HANYA FireServer jika BELUM equip
-                    if not isCurrentlyEquipped then
-                        if Reliable then
-                            pcall(function()
-                                -- Kirim ID dalam table { "4" }
-                                Reliable:FireServer("Equip Craft", { targetID })
-                            end)
-                            
-                            -- [MODIFIKASI VISUAL NOTIFIKASI]
-                            -- Default fallback jika data tidak ketemu
-                            local displayName = "Craft " .. targetID
-                            local displayIcon = "tool" -- Icon default jika gambar gagal load
-                            
-                            -- Ambil Nama dan Gambar dari Config Script (CraftsConfig)
-                            if CraftsConfig and CraftsConfig[targetID] then
-                                local data = CraftsConfig[targetID]
-                                
-                                -- Ambil Nama Asli
-                                if data.Display then 
-                                    displayName = data.Display 
-                                end
-                                
-                                -- Ambil Gambar Asli
-                                if data.Template then 
-                                    displayIcon = "rbxassetid://" .. tostring(data.Template) 
-                                end
-                            end
-                            
-                            -- Tampilkan Notify dengan Nama & Gambar Asli
-                            if Notify then 
-                                Notify("Crafts", "Equipping: " .. displayName, displayIcon) 
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        task.wait(2) -- Cek setiap 2 detik
-    end
-end)
-
 -- 2. TOGGLES AUTO CRAFT/UPGRADE (List ke bawah)
 local CraftToggles = {}
 
@@ -3190,7 +3116,7 @@ do
                                     Reliable:FireServer("Enchantments Roll") 
                                 end)
                             else
-                                if Notify then Notify("Enchantments", "Out of Tokens!", "alert-triangle") end
+                                if Notify then Notify("Enchantments", "Out of Tokens") end
                                 Config.Enchant_Master_Toggle = false
                                 EnchUI.MasterToggle:Set(false)
                                 break
@@ -4090,7 +4016,7 @@ function Optimizer.Update_Heroes_Logic(pData)
                         for _, sName in ipairs(ValidStatsList) do if not lStats[sName] then anyUnlocked = true; break end end
                         
                         if anyUnlocked then
-                            Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, true})
+                            Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, false})
                             Optimizer.Cache.LastHeroRollTime = os.time() -- Update waktu terakhir roll
                         end
                     end
