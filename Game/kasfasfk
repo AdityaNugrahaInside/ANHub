@@ -2710,46 +2710,56 @@ local function GetOwnedRunesList()
     return list
 end
 
-local function HasEnoughMaterials(runeName, prestigeTier)
+local function HasEnoughMaterials(runeName, currentLevel)
     local pData = getgenv().PlayerData
     
-    -- 1. Cek Data Pemain & Database
+    -- 1. Validasi Data Dasar
     if not pData or not pData.Items then return false end
     if not GlobalRunesDB or not GlobalRunesDB[runeName] then return false end
 
     local runeConfig = GlobalRunesDB[runeName]
     if not runeConfig.Prestige then return false end
 
-    -- 2. Tentukan Tier Selanjutnya
-    -- Kita coba ambil pakai String ("1") dan Number (1) untuk memastikan ketemu
-    local nextTierNum = prestigeTier + 1
-    local requirements = runeConfig.Prestige[tostring(nextTierNum)] or runeConfig.Prestige[nextTierNum]
+    -- 2. Ambil Requirement berdasarkan Level Saat Ini
+    -- Kita pakai tostring(currentLevel) karena key di database berupa string "0", "1", dst.
+    -- Contoh: Jika Level 5, kita ambil biaya di index ["5"]
+    local requirements = runeConfig.Prestige[tostring(currentLevel)]
 
-    -- PENTING: Jika requirements tidak ditemukan/kosong, jangan return true sembarangan.
-    -- Asumsikan jika tidak ada config untuk tier selanjutnya, berarti max level atau error.
-    if not requirements then 
-        return false 
-    end
+    -- Jika tidak ada requirement (mungkin sudah Max Level), stop.
+    if not requirements then return false end
 
-    -- 3. Loop Cek Material
-    for itemName, requiredAmount in pairs(requirements) do
-        -- Ambil jumlah item yang dimiliki pemain
-        local ownedAmount = pData.Items[itemName] or 0
+    -- 3. Loop Validasi Material
+    for key, value in pairs(requirements) do
+        local targetItemName
+        local targetAmount = 0
         
-        -- Pastikan tipe data benar-benar angka
-        local numOwned = tonumber(ownedAmount) or 0
-        local numReq = tonumber(requiredAmount) or 0
+        -- Deteksi Format Database:
+        if type(value) == "number" then
+            targetItemName = key
+            targetAmount = value
+        elseif type(value) == "table" then
+            targetItemName = value.Item or value.Name
+            targetAmount = value.Amount or value.Cost or value.Value or 0
+        end
 
-        -- LOGIKA CEK:
-        if numOwned < numReq then
-            -- Uncomment baris di bawah ini jika ingin melihat item apa yang kurang di Console (F9)
-            -- warn(string.format("[Rune Check] Gagal: %s | Punya: %d | Butuh: %d", itemName, numOwned, numReq))
+        -- Pastikan Nama Item Valid & Jumlah > 0
+        if targetItemName and targetAmount > 0 then
+            local ownedAmount = (pData.Items and pData.Items[targetItemName]) or 0
             
-            return false -- Jika ada SATU saja yang kurang, langsung return false
+            local numOwned = tonumber(ownedAmount) or 0
+            local numReq = tonumber(targetAmount) or 0
+            
+            -- [DEBUG] Bisa dibuka untuk cek di F9 jika masih ragu
+            -- print(string.format("[Check %s Lv.%s] Item: %s | Punya: %s | Butuh: %s", runeName, currentLevel, targetItemName, numOwned, numReq))
+
+            -- Pengecekan KETAT: Jika salah satu saja kurang, langsung GAGAL.
+            if numOwned < numReq then
+                return false 
+            end
         end
     end
 
-    -- Jika loop selesai tanpa return false, berarti semua cukup
+    -- Jika lolos semua loop, berarti semua material cukup
     return true
 end
 
@@ -2780,6 +2790,7 @@ FM_Add("Runes", PrestigeToggle)
 -- Background Tasks: Auto Prestige & UI Updater
 task.spawn(function()
     local lastRuneLevels = {}
+    local runeCooldowns = {} 
 
     while not Window.Destroyed do
         task.wait(AutoPrestigeDelay)
@@ -2790,16 +2801,30 @@ task.spawn(function()
             continue 
         end
 
-        -- 1. Auto Prestige Logic
+        -- 1. Auto Prestige Logic (FIXED)
         if isAutoPrestige and GlobalRunesDB and next(GlobalRunesDB) ~= nil then
             for runeName, runeData in pairs(pData.Runes) do
-                local currentPrestigeTier = runeData.PrestigeTier or 0
+                -- Cek Cooldown
+                if runeCooldowns[runeName] and (os.clock() - runeCooldowns[runeName] < 3) then
+                    continue 
+                end
+
+                -- [PERBAIKAN DISINI] Menggunakan .Level sesuai data kamu
+                local currentLevel = runeData.Level or 0
+                
+                -- Cek Database & Material
                 if GlobalRunesDB[runeName] then
-                    if HasEnoughMaterials(runeName, currentPrestigeTier) then
+                    -- Kirim currentLevel ke fungsi pengecekan
+                    if HasEnoughMaterials(runeName, currentLevel) then
+                        
+                        -- Eksekusi FireServer
                         local args = {{{"General", "Runes", "Prestige", runeName}, "\2"}}
                         ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer(unpack(args))
-                        Notify("Auto Prestige", string.format("Request Prestige %s", runeName), "star")
-                        task.wait(0.5)
+                        
+                        Notify("Auto Prestige", "Upgrading " .. runeName .. " to Lv " .. (currentLevel + 1), "star")
+                        
+                        -- Set Cooldown 3 Detik
+                        runeCooldowns[runeName] = os.clock()
                     end
                 end
             end
@@ -3831,6 +3856,130 @@ GQ_StatusLabel = FM_Add("Global Quests", MainTab:Paragraph({
     Image = "rbxassetid://116941678612804"
 }))
 
+-- ============================================================================
+--  AUTO GOBLIN KILLER (INFINITE LOOP)
+-- ============================================================================
+
+local isAutoGoblin = false
+local GoblinQuestName = "Goblin Killer"
+
+-- Definisi Requirement Manual (Berdasarkan Decompile Shared.Quests.Secondary["Goblin Killer"])
+local GoblinQuestReqs = {
+    {Name = "Goblin", Amount = 50},
+    {Name = "Skull Goblin", Amount = 40},
+    {Name = "Toothy Goblin", Amount = 30},
+    {Name = "Horned Goblin", Amount = 20}
+}
+
+-- 1. UI Toggle
+FM_Add("Global Quests", MainTab:Toggle({
+    Title = "Auto Goblin Killer (Infinite)",
+    Desc = "Auto Accept, Farm & Claim recursively.\n(Map: World of Aincrad)",
+    Flag = "AutoGoblin_Cfg",
+    Callback = function(v)
+        isAutoGoblin = v
+        if v then
+            -- Matikan Auto Quest lama agar tidak bentrok
+            if GQ_IsAutoDo then 
+                GQ_IsAutoDo = false 
+                Notify("System", "Standard Auto Quest Disabled", "info")
+            end
+            Notify("Quest", "Starting Goblin Loop...", "swords")
+        else
+            -- Reset target saat dimatikan
+            table.clear(targetList)
+            isFarm1 = false -- Matikan auto farm agar char diam
+            Notify("Quest", "Goblin Loop Stopped.", "stop-circle")
+        end
+    end
+}))
+
+-- 2. Logic Loop
+task.spawn(function()
+    while not Window.Destroyed do
+        if isAutoGoblin then
+            local pData = getgenv().PlayerData
+            
+            if pData and pData.Quests then
+                local currentMap = pData.Map
+                
+                -- [A] CEK MAP: Harus di World of Aincrad
+                if currentMap ~= "World of Aincrad"  then
+                    if not isTransitioning and not isGlobalBossActive and not isTransitioning and not IsInGamemode() and not IsSwordsmanActive() then
+                        Notify("Quest", "Warping to World of Aincrad...", "map")
+                        SmartTeleport("World of Aincrad")
+                        task.wait(2)
+                    end
+                else
+                    -- [B] CEK STATUS QUEST
+                    local activeQuest = pData.Quests.Active[GoblinQuestName]
+                    
+                    if not activeQuest then
+                        -- KONDISI 1: Quest Belum Diambil -> AMBIL
+                        ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                            {"General", "Quests", "Active", GoblinQuestName}, 
+                            "\2"
+                        })
+                        Notify("Quest", "Accepted: " .. GoblinQuestName, "check")
+                        task.wait(1.5) -- Delay agar data masuk
+                    else
+                        -- KONDISI 2: Quest Sedang Aktif -> CEK PROGRESS
+                        local currentKills = activeQuest.KilledEnemies or {}
+                        local targetMob = nil
+                        local isCompleted = true
+
+                        -- Cek mana musuh yang belum selesai
+                        for _, req in ipairs(GoblinQuestReqs) do
+                            local myCount = currentKills[req.Name] or 0
+                            if myCount < req.Amount then
+                                isCompleted = false
+                                targetMob = req.Name
+                                break -- Fokus satu per satu (Priority)
+                            end
+                        end
+
+                        if isCompleted then
+                            -- KONDISI 3: Semua Syarat Penuh -> CLAIM (COMPLETE)
+                            ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                                {"General", "Quests", "Complete", GoblinQuestName}, 
+                                "\2"
+                            })
+                            Notify("Quest", "Quest Completed! Re-taking...", "gift")
+                            task.wait(1.5) -- Delay sebelum ambil ulang
+                        else
+                            -- KONDISI 4: Belum Selesai -> FARM TARGET
+                            if targetMob then
+                                -- Override Target List Script Utama
+                                local needUpdate = true
+                                if #targetList == 1 and targetList[1] == targetMob then
+                                    needUpdate = false
+                                end
+
+                                if needUpdate then
+                                    table.clear(targetList)
+                                    table.insert(targetList, targetMob)
+                                    
+                                    -- Update UI Dropdown (Visual Only) agar user tau lagi kill apa
+                                    if UI.EnemyDD then 
+                                        UI.EnemyDD:SetMainImage(CharacterIcons[targetMob] or "rbxassetid://84366761557806")
+                                        UI.EnemyDD:SetDesc("Quest Target: " .. targetMob)
+                                    end
+                                    Notify("Quest", "Hunting: " .. targetMob, "target")
+                                end
+
+                                -- Paksa Nyalakan Auto Farm Bawaan
+                                if not isFarm1 then
+                                    isFarm1 = true
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
 -- [3] MAIN LOGIC LOOP (SHOW MAP NAME)
 task.spawn(function()
     while not Window.Destroyed do
