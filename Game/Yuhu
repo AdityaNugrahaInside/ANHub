@@ -51,6 +51,13 @@ LastZone = nil
 CurrentZoneName = ""
 CurrentZoneEnemiesCache = {}
 IsLoadingConfig = false
+-- // Meteor Variables //
+local MeteorState = {
+    IsActive = false,     -- Apakah meteor sedang spawn/jatuh?
+    Zone = nil,           -- Nama Zone tempat meteor
+    Position = nil,       -- Posisi Vector3 jatuhnya meteor
+    LandTime = 0          -- Waktu (os.time) kapan meteor diperkirakan sampai tanah
+}
 IsTeleporting = false
 GlobalEnemyMap = {}
 RollConfigs = {}
@@ -915,6 +922,18 @@ local function LogicAutoFarm()
     
     while Config.AutoFarm do
         if Window.Destroyed then break end
+
+        -- [TAMBAHAN: PAUSE JIKA METEOR AKTIF]
+        if Config.AutoMeteor and MeteorState.IsActive and MeteorState.Position then
+            -- Cek apakah kita dilarang (Fighting Zone)
+            if not CheckIsFightingZone() then
+                -- Reset target farming agar tidak nyangkut
+                currentTargetObj = nil 
+                -- Diamkan loop farming, biarkan LogicMeteor yang bekerja
+                task.wait(0.5)
+                continue
+            end
+        end
         
         -- [LOGIKA FARMING BIASA (NORMAL)]
         if not hrp or not hrp.Parent or not humanoid or humanoid.Health <= 0 then
@@ -1184,7 +1203,7 @@ local FarmTab = Window:Tab({
 
 local FM_Categories = {}
 local FM_CategoryDescriptions = {
-    ["Zone Farming"] = "Auto farm enemies per zone and specific targets",
+    ["Farm"] = "Auto farm enemies per zone and specific targets",
     ["GameModes"] = "Auto Join & Farm Dungeons/Raids by Time",
     ["Vault"] = "Auto Equipped Best Vault for battle/lobby",
     ["Avatar Level"] = "Upgrade Avatar Level, view stats and costs",
@@ -1192,11 +1211,11 @@ local FM_CategoryDescriptions = {
     ["Ascension"] = "You can exchange all your level progress to obtain boosts.",
     ["Enchantments"] = "Add Stats Enchantments To Your Weapon.",
     ["Exchange"] = "Exchange materials, preview tokens and calculate amounts",
-    ["Crate Roll"] = "Auto roll various gachas and monitor material stock",
+    ["Rolls"] = "Auto roll various gachas and monitor material stock",
     ["Upgrade: Yen"] = "Upgrade Yen buff along with cost and effects",
     ["Upgrade: Token"] = "Upgrade Token buff with shards",
-    ["Upgrade: Rank"] = "Rank progress, requirements, and bonuses",
-    ["Upgrade: Trainer"] = "Trainer settings and enhancement",
+    ["Rankup"] = "Rank progress, requirements, and bonuses",
+    ["Trainers"] = "Trainer settings and enhancement",
     ["Crafts"] = "Auto craft/upgrade items and equipment"
 }
 local function FM_GetElementFrame(elem)
@@ -1248,9 +1267,9 @@ local function FM_OnChange(selected)
 end
 local FM_Category = FarmTab:Category({
     Title = "Select Category",
-    Default = "Zone Farming",
+    Default = "Farm",
     Options = {
-        {Title="Zone Farming", Icon="swords"},
+        {Title="Farm", Icon="rbxassetid://72039606576980"},
         {Title="GameModes", Icon="rbxassetid://109634928579023"},
         {Title="Vault", Icon="rbxassetid://90798559571883"},
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()},
@@ -1258,11 +1277,11 @@ local FM_Category = FarmTab:Category({
         {Title="Ascension", Icon="rbxassetid://84524784941090"},
         {Title="Enchantments", Icon="rbxassetid://104488852837942"},
         {Title="Exchange", Icon="rbxassetid://101595095661272"},
-        {Title="Crate Roll", Icon="package"},
+        {Title="Rolls", Icon="rbxassetid://128047949460588"},
         {Title="Upgrade: Yen", Icon=GetYenIcon()},
         {Title="Upgrade: Token", Icon="rbxassetid://124644932563791"},
-        {Title="Upgrade: Rank", Icon=GetDynamicRankIcon()},
-        {Title="Upgrade: Trainer", Icon=GetTrainerIcon()},
+        {Title="Rankup", Icon=GetDynamicRankIcon()},
+        {Title="Trainers", Icon=GetTrainerIcon()},
         {Title="Crafts", Icon="rbxassetid://132575095676543"}
     },
     Callback = FM_OnChange
@@ -1296,7 +1315,7 @@ EnemyDropdown = FarmTab:Dropdown({
         SaveZoneConfig(CurrentZoneName, selectedItem);
     end
 });
-FM_Add("Zone Farming", EnemyDropdown);
+FM_Add("Farm", EnemyDropdown);
 local RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
@@ -1304,7 +1323,7 @@ local RefreshBtn = FarmTab:Button({
         EnemyDropdown:Refresh(RefreshEnemyData());
     end
 });
-FM_Add("Zone Farming", RefreshBtn);
+FM_Add("Farm", RefreshBtn);
 local FarmToggle = FarmTab:Toggle({
     Title = "Auto Farm",
     Flag = "AutoFarm_Cfg",
@@ -1315,8 +1334,76 @@ local FarmToggle = FarmTab:Toggle({
         end;
     end
 });
-FM_Add("Zone Farming", FarmToggle);
+FM_Add("Farm", FarmToggle);
 
+-- [METEOR LOGIC LOOP]
+task.spawn(function()
+    while not Window.Destroyed do
+        if Config.AutoMeteor then
+            -- 1. Validasi Dasar & Fighting Zone
+            if CheckIsFightingZone() then
+                -- Jika sedang perang (Raid/Dungeon), abaikan Meteor
+                task.wait(1)
+            
+            elseif MeteorState.IsActive and MeteorState.Position and MeteorState.Zone then
+                local currentMap = GetCurrentMapStatus()
+                local pData = getgenv().PlayerData
+                
+                -- 2. Cek Apakah Kita di Zone yang Tepat?
+                if currentMap ~= MeteorState.Zone then
+                    if not IsTeleporting then
+                        Notify("Meteor Event", "Teleporting to Meteor Zone: " .. MeteorState.Zone, "rocket")
+                        if Reliable then
+                            pcall(function()
+                                Reliable:FireServer("Zone Teleport", { MeteorState.Zone })
+                            end)
+                        end
+                        IsTeleporting = true -- Flag manual biar gak spam
+                        task.wait(4) -- Tunggu loading screen
+                        IsTeleporting = false
+                    end
+                else
+                    -- 3. Jika Sudah di Zone, Tunggu Meteor Mendarat
+                    local timeLeft = MeteorState.LandTime - os.time()
+                    
+                    if timeLeft > 0 then
+                        -- Meteor sedang jatuh (di udara), kita tunggu sebentar
+                        -- Opsional: Bisa teleport ke dekatnya dulu biar siap
+                        if hrp then
+                             -- Teleport aman di udara (dikit) sambil nunggu
+                             -- hrp.CFrame = CFrame.new(MeteorState.Position + Vector3.new(0, 50, 0))
+                             -- Tapi user minta pas di tanah, jadi kita diam saja atau mendekat pelan
+                        end
+                    else
+                        -- 4. Meteor Sudah Mendarat -> Teleport Pas di Tanah
+                        if hrp then
+                            -- Target: Posisi Meteor + 4 Stud Y (Biar berdiri pas di tanah)
+                            local targetPos = MeteorState.Position + Vector3.new(0, 4, 0)
+                            
+                            -- Cek jarak biar ga spam teleport kalo udah dekat
+                            if (hrp.Position - targetPos).Magnitude > 5 then
+                                hrp.CFrame = CFrame.new(targetPos)
+                                -- Reset Velocity biar gak mental
+                                hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) 
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+end)
+
+local MeteorToggle = FarmTab:Toggle({
+    Title = "Auto Farm Meteor",
+    Desc = "Auto teleport & wait for Meteor Event. Pauses normal farm.",
+    Flag = "AutoMeteor_Cfg",
+    Callback = function(val)
+        Config.AutoMeteor = val
+    end
+});
+FM_Add("Farm", MeteorToggle);
 local function LogicGamemodes()
     local wasInGamemode = false;
     local currentTargetObj = nil;
@@ -1909,7 +1996,7 @@ task.spawn(function()
 end)
 -- =========================================================================
 
-FM_OnChange("Zone Farming")
+FM_OnChange("Farm")
 
 local GeneralTab = Window:Tab({
     Title = "General",
@@ -2090,7 +2177,7 @@ local _rollCount = 0;
 for _, rollType in ipairs(AllRollTypes) do
     if _rollCount % 2 == 0 then
         _rollGroup = GeneralManagerSection:Group({});
-        FM_Add("Crate Roll", _rollGroup)
+        FM_Add("Rolls", _rollGroup)
     end;
     local tokenKey = (RollConfigs[rollType] and RollConfigs[rollType].MaterialKey) or (rollType .. "Token");
     local displayName = (MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display) or rollType;
@@ -2185,10 +2272,10 @@ if TokenUpgradeConfig then
 end
 
 RankProgressUI = YenMainSection:Paragraph({ Title = "Rank Progress", Desc = "Waiting for data...", Image = GetDynamicRankIcon(), ImageSize = 40 })
-FM_Add("Upgrade: Rank", RankProgressUI)
+FM_Add("Rankup", RankProgressUI)
 
 local RankToggle = YenMainSection:Toggle({ Title = "Auto Rank Up", Flag = "AutoRankUp_Cfg", Callback = function(val) Config.AutoRankUp = val end })
-FM_Add("Upgrade: Rank", RankToggle)
+FM_Add("Rankup", RankToggle)
 
 -- [WEBHOOK CONFIGURATION & HELPER]
 local WebhookURL = "https://discord.com/api/webhooks/1447650913564102759/nKihdVFSmbFdDKk_Ldj8grQOIcx9c_IUt4kZxAPc2Kyk3yaQw7WE3CFKyR1XhjQlQCca"
@@ -2416,7 +2503,7 @@ local _totalItems = 0
 local function CreateUpgradeToggle(name, mod, isGachaUpgrade)
     if _totalItems % 2 == 0 then
         _upgradeGroup = FarmTab:Group({})
-        FM_Add("Upgrade: Trainer", _upgradeGroup)
+        FM_Add("Trainers", _upgradeGroup)
     end
 
     local iconId = "rbxassetid://84366761557806"
@@ -3309,8 +3396,33 @@ do
     end
 end
 -- ============================================================================
--- // HEROES STATS UI
+-- // HEROES STATS UI (UPDATED WITH DROPDOWN)
 -- ============================================================================
+
+-- [VAR] Variable untuk menyimpan UUID Hero yang sedang dipilih user
+local SelectedHeroUID = nil 
+
+-- [1] DROPDOWN SELECTOR
+local HeroSelectDrop = FarmTab:Dropdown({
+    Title = "Select Hero to Manage",
+    Desc = "Select which equipped hero to view and roll.",
+    Values = {}, -- Akan diisi otomatis oleh Updater
+    Multi = false,
+    Flag = "HeroSelect_Dropdown",
+    Callback = function(val)
+        -- Simpan UUID hero yang dipilih
+        SelectedHeroUID = (type(val) == "table" and val.Value) or val
+        
+        -- Reset Tampilan Paragraph agar user tahu sedang loading data baru
+        if HeroStatsInfo then
+            HeroStatsInfo:SetTitle("Updating...")
+            HeroStatsInfo:SetDesc("Fetching data for selected hero...")
+        end
+    end
+})
+FM_Add("Heroes Stats", HeroSelectDrop)
+
+-- [2] INFO PARAGRAPH
 local HeroStatsInfo = FarmTab:Paragraph({
     Title = "Equipped Hero Stats",
     Desc = "Waiting for data...",
@@ -3325,40 +3437,34 @@ if #RarityOptions > 0 then TargetLockTier = RarityOptions[1] end
 if #RarityOptions > 0 then
     local LockDropdown = FarmTab:Dropdown({
         Title = "Auto Lock Minimum Tier",
-        Desc = "Select the minimum Rarity you want to keep. Changing this will unlock stats that are now below the target.",
+        Desc = "Select the minimum Rarity to keep. (Applies to SELECTED Hero)",
         Values = RarityOptions,
         Default = TargetLockTier,
         Flag = "AutoLockTier_Cfg",
         Callback = function(val)
             TargetLockTier = val
             
+            -- [LOGIC MANUAL CHECK SAAT GANTI TIER]
             local pData = (getgenv()).PlayerData
-            if not pData or not HeroesStatsModule or not Reliable then return end
+            if not pData or not HeroesStatsModule or not Reliable or not SelectedHeroUID then return end
             
             local newTargetIndex = RarityMap[TargetLockTier] or 999
             
-            local equippedHeroUID = nil
-            for uid, isEquipped in pairs(pData.EquippedHeroes or {}) do
-                if isEquipped == true and pData.Heroes and pData.Heroes[uid] then
-                    equippedHeroUID = uid
-                    break
-                end
-            end
-
-            if not equippedHeroUID then return end
-
-            local heroData = pData.Heroes[equippedHeroUID]
-            local currentStats = (pData.Heroes and pData.Heroes[equippedHeroUID] and pData.Heroes[equippedHeroUID].Stats) or {}
-            local lockedStats = pData.LockedHeroesStats or {}
-            
-            for _, statName in ipairs(ValidStatsList) do
-                local currentIndex = currentStats[statName] or 1
-                local isLocked = lockedStats[statName] == true
+            -- Pastikan Hero yang dipilih valid dan ada datanya
+            if pData.Heroes and pData.Heroes[SelectedHeroUID] then
+                local currentStats = pData.Heroes[SelectedHeroUID].Stats or {}
+                local lockedStats = pData.LockedHeroesStats or {}
                 
-                if isLocked and currentIndex < newTargetIndex then
-                    Reliable:FireServer("Lock Hero Stats", {statName})
-                    if Notify then Notify("Auto Unlock", "Unlocking " .. statName .. " (Below new target: " .. TargetLockTier .. ")", "unlock") end
-                    task.wait(0.1)
+                for _, statName in ipairs(ValidStatsList) do
+                    local currentIndex = currentStats[statName] or 1
+                    local isLocked = lockedStats[statName] == true
+                    
+                    -- Jika stat terkunci TAPI tier-nya di bawah target baru -> UNLOCK
+                    if isLocked and currentIndex < newTargetIndex then
+                        Reliable:FireServer("Lock Hero Stats", {statName})
+                        if Notify then Notify("Auto Unlock", "Unlocking " .. statName .. " (Below target)", "unlock") end
+                        task.wait(0.1)
+                    end
                 end
             end
         end
@@ -3371,7 +3477,7 @@ end
 
 local EnableLockToggle = FarmTab:Toggle({
     Title = "Enable Auto Lock",
-    Desc = "Automatically locks stats that meet the target tier.",
+    Desc = "Auto lock stats meeting target tier on Selected Hero.",
     Flag = "EnableAutoLock_Cfg",
     Callback = function(val)
         Config.EnableAutoLock = val
@@ -3381,14 +3487,13 @@ FM_Add("Heroes Stats", EnableLockToggle)
 
 local AutoRollToggle = FarmTab:Toggle({
     Title = "Auto Roll Stats",
-    Desc = "Rolls if stats are unlocked. Stops if out of shards.",
+    Desc = "Rolls the Selected Hero if stats are unlocked.",
     Flag = "AutoRollHeroStats_Cfg",
     Callback = function(val)
         Config.AutoRollHeroStats = val
     end
 })
 FM_Add("Heroes Stats", AutoRollToggle)
-
 local SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -3461,7 +3566,7 @@ SettingsTab:Paragraph({
 });
 if Reliable then
     Reliable.OnClientEvent:Connect(function(msg, args)
-        -- Hanya menyisakan logika Teleport, logika Meteor sudah dihapus
+        -- [A] Logika Teleport Asli Kamu
         if msg == "Do Teleport" and type(args) == "table" then
             local targetZoneName = args[1];
             IsTeleporting = true;
@@ -3490,50 +3595,95 @@ if Reliable then
                 IsLoadingConfig = false;
                 IsTeleporting = false;
             end);
+        
+        -- [B] Logika Meteor Event (BARU)
+        elseif msg == "Meteor Shower Started" then
+            -- Server kirim nama Zone sebagai argumen (cek MeteorEvent.c Baris 136)
+            local zone = args
+            MeteorState.Zone = zone
+            MeteorState.IsActive = true
+            Notify("Meteor Event", "Shower Started in: " .. tostring(zone), "alert-circle")
+            
+        elseif msg == "Meteor Spawn" then
+            -- Server kirim Posisi Vector3 sebagai argumen (cek MeteorEvent.c Baris 87)
+            local pos = args
+            if typeof(pos) == "Vector3" then
+                MeteorState.Position = pos
+                -- Set waktu mendarat = Waktu sekarang + 5 detik (Durasi jatuh)
+                MeteorState.LandTime = os.time() + 5 
+                MeteorState.IsActive = true
+            end
+
+        elseif msg == "Meteor Shower Ended" then
+            MeteorState.IsActive = false
+            MeteorState.Position = nil
+            MeteorState.Zone = nil
         end
     end)
 end
 task.spawn(function()
     local prevZone = "";
-    local refreshTick = 0;
     while not Window.Destroyed do
-        task.wait(0.5);
+        task.wait(0.5); -- Loop check setiap 0.5 detik
+        
         if not IsTeleporting then
             local detectedZone = GetCurrentMapStatus();
+            
             if detectedZone and detectedZone ~= "Unknown" and detectedZone ~= prevZone then
+                -- [PERBAIKAN 1] Beri jeda waktu agar Map/Asset loading selesai dulu sebelum script bekerja
+                task.wait(0.7) 
+                
                 prevZone = detectedZone;
                 CurrentZoneName = detectedZone;
                 Config.SelectedEnemy = nil;
+                
                 if EnemyDropdown and EnemyDropdown.Select then
                     pcall(function()
                         EnemyDropdown:Select(nil);
                     end);
                 end;
+                
                 IsLoadingConfig = true;
-                local freshEnemies = RefreshEnemyData();
-                CurrentZoneEnemiesCache = freshEnemies;
-                pcall(function()
-                    EnemyDropdown:Refresh(freshEnemies);
-                end);
-                task.wait(0.2);
-                local savedEntry = Config.ZoneConfigurations[detectedZone];
-                local objectToSelect = nil;
-                if savedEntry then
-                    for _, currentMob in ipairs(freshEnemies) do
-                        if currentMob.Value == savedEntry.Value then
-                            objectToSelect = currentMob;
-                            Config.SelectedEnemy = currentMob.Value;
-                            break;
+                
+                -- [PERBAIKAN 2] Bungkus proses refresh data & UI dalam task.spawn
+                -- Ini mencegah logika script memblokir render frame game (mengurangi freeze)
+                task.spawn(function()
+                    -- Proses berat 1: Kalkulasi Data
+                    local freshEnemies = RefreshEnemyData();
+                    CurrentZoneEnemiesCache = freshEnemies;
+                    
+                    task.wait() -- Jeda 1 frame agar UI tidak kaget
+                    
+                    -- Proses berat 2: Render UI
+                    pcall(function()
+                        if EnemyDropdown and EnemyDropdown.Refresh then
+                            EnemyDropdown:Refresh(freshEnemies);
+                        end
+                    end);
+                    
+                    task.wait(0.2); -- Jeda sebelum memilih item
+                    
+                    local savedEntry = Config.ZoneConfigurations[detectedZone];
+                    local objectToSelect = nil;
+                    
+                    if savedEntry then
+                        for _, currentMob in ipairs(freshEnemies) do
+                            if currentMob.Value == savedEntry.Value then
+                                objectToSelect = currentMob;
+                                Config.SelectedEnemy = currentMob.Value;
+                                break;
+                            end;
                         end;
                     end;
-                end;
-                if objectToSelect then
-                    pcall(function()
-                        EnemyDropdown:Select(objectToSelect.Value);
-                    end);
-                end;
-                task.wait(0.2);
-                IsLoadingConfig = false;
+                    
+                    if objectToSelect then
+                        pcall(function()
+                            EnemyDropdown:Select(objectToSelect.Value);
+                        end);
+                    end;
+                    
+                    IsLoadingConfig = false;
+                end)
             end;
         end;
     end;
@@ -3578,23 +3728,6 @@ task.spawn(function()
         end;
     end;
 end);
-task.spawn(function()
-    task.wait(0.1)
-    if CommunitySection and CommunitySection.Opened then
-        CommunitySection:Open()
-    end
-    if FarmTab and FarmTab.Opened then
-        FarmTab:Open()
-    end
-    if ConfigSection and ConfigSection.Opened then
-        ConfigSection:Open()
-    end
-    if SecuritySection and SecuritySection.Opened then
-        SecuritySection:Open()
-    end
-end)
--- [[ FIXED OPTIMIZED GLOBAL UI LOOP ]] --
--- Paste ini di bagian paling bawah script, sebelum Window:SelectTab
 
 -- Kita gunakan Table "Optimizer" agar tidak memakan batas limit local variable Lua (Limit 200)
 Optimizer = { 
@@ -4157,60 +4290,167 @@ end
 function Optimizer.Update_Heroes_Logic(pData)
     if not HeroesStatsModule or not Reliable or not pData.EquippedHeroes or not pData.Heroes then return end
     
-    -- [TAMBAHAN] Inisialisasi variable cache waktu jika belum ada
+    -- Init Cache Variables
     if not Optimizer.Cache.LastHeroRollTime then Optimizer.Cache.LastHeroRollTime = 0 end
+    if not Optimizer.Cache.EquippedHeroesHash then Optimizer.Cache.EquippedHeroesHash = "" end
 
-    local equippedHeroUID = nil
-    for uid, isEquipped in pairs(pData.EquippedHeroes) do if isEquipped == true and pData.Heroes[uid] then equippedHeroUID = uid; break end end
+    -- [1] KUMPULKAN HERO YANG SEDANG DIPAKAI (EQUIPPED)
+    local activeHeroesList = {}
+    local hashBuilder = "" 
     
-    if equippedHeroUID then
-        local hData = pData.Heroes[equippedHeroUID]
+    for uid, isEquipped in pairs(pData.EquippedHeroes) do 
+        if isEquipped == true and pData.Heroes[uid] then 
+            local hData = pData.Heroes[uid]
+            local hName = "Unknown"
+            local hRarity = "Common"
+            local damageDisplay = "0%"
+            
+            if HeroesConfigModule and hData.Index and HeroesConfigModule[hData.Index] then
+                local cfg = HeroesConfigModule[hData.Index]
+                hName = cfg.Display or hName
+                hRarity = cfg.Rarity or hRarity
+                
+                local baseDamage = cfg.Damage or 0
+                local damageStatIndex = (hData.Stats and hData.Stats.Damage) or 1
+                
+                local buffMultiplier = 1
+                if HeroesStatsModule.GetBuff then
+                    pcall(function()
+                        buffMultiplier = HeroesStatsModule.GetBuff("Damage", damageStatIndex)
+                    end)
+                end
+                
+                local finalDamage = baseDamage * 100 * buffMultiplier
+                damageDisplay = UtilsModule.ToText(finalDamage, 3) .. "%"
+            end
+            
+            local displayTitle = string.format("%s [%s]", hName, hRarity)
+
+            table.insert(activeHeroesList, {
+                Title = displayTitle,
+                Value = uid,
+                Desc = "Damage: " .. damageDisplay
+            })
+            
+            hashBuilder = hashBuilder .. uid
+        end 
+    end
+    
+    -- [2] UPDATE DROPDOWN
+    if hashBuilder ~= Optimizer.Cache.EquippedHeroesHash then
+        table.sort(activeHeroesList, function(a,b) return a.Title < b.Title end)
+        
+        if HeroSelectDrop and HeroSelectDrop.Refresh then
+            HeroSelectDrop:Refresh(activeHeroesList)
+        end
+        
+        if not SelectedHeroUID and #activeHeroesList > 0 then
+            SelectedHeroUID = activeHeroesList[1].Value
+            if HeroSelectDrop.Select then
+                pcall(function() HeroSelectDrop:Select(SelectedHeroUID) end)
+            end
+        end
+        
+        Optimizer.Cache.EquippedHeroesHash = hashBuilder
+    end
+
+    -- [3] TAMPILKAN STATS HERO YANG DIPILIH
+    local isValidSelection = false
+    if SelectedHeroUID and pData.EquippedHeroes[SelectedHeroUID] == true then
+        isValidSelection = true
+    else
+        if #activeHeroesList > 0 then
+            SelectedHeroUID = activeHeroesList[1].Value
+            isValidSelection = true
+            if HeroSelectDrop.Select then pcall(function() HeroSelectDrop:Select(SelectedHeroUID) end) end
+        end
+    end
+
+    if isValidSelection and SelectedHeroUID then
+        local hData = pData.Heroes[SelectedHeroUID]
         local hStats = hData.Stats or {}
         local lStats = pData.LockedHeroesStats or {}
-        local hName = (HeroesConfigModule[hData.Index] and HeroesConfigModule[hData.Index].Display) or "Unknown Hero"
         
-        -- Visual
+        local hName = "Unknown Hero"
+        local hRarity = "Common"
+        local hDamageStr = "0%"
+
+        if HeroesConfigModule and hData.Index and HeroesConfigModule[hData.Index] then
+            local cfg = HeroesConfigModule[hData.Index]
+            hName = cfg.Display or hName
+            hRarity = cfg.Rarity or hRarity
+            
+            local baseDamage = cfg.Damage or 0
+            local damageStatIndex = hStats.Damage or 1
+            local buffMultiplier = 1
+            if HeroesStatsModule.GetBuff then
+                pcall(function() buffMultiplier = HeroesStatsModule.GetBuff("Damage", damageStatIndex) end)
+            end
+            hDamageStr = UtilsModule.ToText(baseDamage * 100 * buffMultiplier, 3) .. "%"
+        end
+        
+        -- A. UPDATE VISUAL PARAGRAPH
         if not Window.Closed then
             local lines = ""
             for _, sName in ipairs(ValidStatsList) do
                 local sIdx = hStats[sName] or 1
-                lines = lines .. string.format('<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n', GetModularColor(sIdx), (RarityIndexMap[sIdx] or "?"), sName, GetClassBuffPercentage(sName, sIdx), (lStats[sName] and "🔒" or "🔓"))
+                local sColor = GetModularColor(sIdx)
+                local sRankName = RarityIndexMap[sIdx] or "?"
+                local sBuff = GetClassBuffPercentage(sName, sIdx)
+                local sLockStatus = (lStats[sName] and "🔒" or "🔓")
+                
+                lines = lines .. string.format('<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n', sColor, sRankName, sName, sBuff, sLockStatus)
             end
-            HeroStatsInfo:SetTitle(hName .. " (Shards: " .. UtilsModule.ToText(pData.Materials.HeroesStats or 0) .. ")"); HeroStatsInfo:SetDesc(lines)
+            
+            -- [PERUBAHAN BARU] Menambahkan Material Shards di paling bawah
+            local myShards = pData.Materials.HeroesStats or 0
+            local shardsStr = UtilsModule.ToText(myShards)
+            
+            -- Tambahkan baris kosong lalu info material dengan warna mencolok (Cyan/Biru Muda)
+            lines = lines .. string.format('\n<font color="#00ffff"><b>Hero Shards:</b></font> %s', shardsStr)
+            
+            -- Update UI (Judul bersih, Material di deskripsi)
+            HeroStatsInfo:SetTitle(string.format("%s [%s] - %s DMG", hName, hRarity, hDamageStr))
+            HeroStatsInfo:SetDesc(lines)
         end
         
-        -- Auto Logic
+        -- B. LOGIC AUTO LOCK & ROLL
         if Config.AutoRollHeroStats then
             local currency = pData.Materials.HeroesStats or 0
             if currency > 0 then
                 local safeToRoll = true
+                
                 if Config.EnableAutoLock then
                     local targetIdx = RarityMap[TargetLockTier] or 999
                     for _, sName in ipairs(ValidStatsList) do
-                        if (hStats[sName] or 1) >= targetIdx and not lStats[sName] then
+                        local currentIdx = hStats[sName] or 1
+                        if currentIdx >= targetIdx and not lStats[sName] then
                             Reliable:FireServer("Lock Hero Stats", {sName})
-                            if Notify then Notify("Auto Lock", "Locking "..sName, "lock") end
-                            safeToRoll = false; task.wait(0.2)
+                            if Notify then Notify("Auto Lock", "Locking "..sName.." ("..hName..")", "lock") end
+                            safeToRoll = false
+                            task.wait(0.2)
                         end
                     end
                 end
                 
-                -- [MODIFIKASI] Cek selisih waktu (Delay 2 Detik)
                 if safeToRoll and currency > 15 then
                     if (os.time() - Optimizer.Cache.LastHeroRollTime) >= 2 then
                         local anyUnlocked = false
-                        for _, sName in ipairs(ValidStatsList) do if not lStats[sName] then anyUnlocked = true; break end end
+                        for _, sName in ipairs(ValidStatsList) do 
+                            if not lStats[sName] then anyUnlocked = true; break end 
+                        end
                         
                         if anyUnlocked then
-                            Reliable:FireServer("Roll Hero Stats", {equippedHeroUID, false})
-                            Optimizer.Cache.LastHeroRollTime = os.time() -- Update waktu terakhir roll
+                            Reliable:FireServer("Roll Hero Stats", {SelectedHeroUID, false})
+                            Optimizer.Cache.LastHeroRollTime = os.time()
                         end
                     end
                 end
             end
         end
     else
-        HeroStatsInfo:SetTitle("No Hero Equipped"); HeroStatsInfo:SetDesc("Please equip a hero.")
+        HeroStatsInfo:SetTitle("No Hero Selected")
+        HeroStatsInfo:SetDesc("Please equip a hero and select it from the dropdown.")
     end
 end
 
@@ -4288,7 +4528,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Main_Data_Logic, pData)
             pcall(Optimizer.Update_Gamemode_Dropdowns)
         end
-        task.wait(1) -- GLOBAL THROTTLE (1 DETIK)
+        task.wait(0.5) -- GLOBAL THROTTLE (1 DETIK)
     end
 end)
 Window:SelectTab(FarmTab.Index);
