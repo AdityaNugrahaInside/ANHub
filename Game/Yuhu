@@ -2596,27 +2596,53 @@ local function GetRarityVal(r) return RarityOrder[r] or 0 end
 
 local function GenerateBonusText(itemData)
     local textLines = ""
+
+    -- [BARU] 1. Cek Stat Khusus Weapon (Langsung di Root Table)
+    -- Berdasarkan script: Damage & Mastery ada di root, bukan di dalam table Bonus
+    
+    if itemData.Damage then
+        -- Warna Merah untuk Damage
+        textLines = textLines .. string.format('<font color="#ff2b2b"><b>Damage</b></font>   <font color="#ffffff">%s</font>\n', tostring(itemData.Damage))
+    end
+
+    if itemData.Mastery then
+        -- Warna Ungu untuk Mastery
+        textLines = textLines .. string.format('<font color="#d667ff"><b>Mastery</b></font>   <font color="#ffffff">%s</font>\n', tostring(itemData.Mastery))
+    end
+
+    -- [LAMA] 2. Cek Stat Vault/Accessory (Di dalam table Bonus/Multiplier)
     if itemData.Bonus then
         for bType, bVal in pairs(itemData.Bonus) do
             local color = BonusColors[bType] or "#ffffff"
             local valStr = tostring(bVal)
-            if tonumber(bVal) and tonumber(bVal) < 1 and tonumber(bVal) > 0 then
-                 valStr = math.floor(bVal*100).."%"
-            elseif tonumber(bVal) then
-                 valStr = bVal.."%"
+            -- Logic format persen
+            if type(bVal) == "number" then
+                 if bVal < 1 and bVal > 0 then
+                     valStr = math.floor(bVal*100).."%"
+                 else
+                     valStr = bVal.."%"
+                 end
             end
             textLines = textLines .. string.format('<font color="%s"><b>%s</b></font>   <font color="#ffffff">%s</font>\n', color, bType, valStr)
         end
-        return textLines
     end
+
     if itemData.Multiplier then
         local bType = itemData.Multiplier.Type or "Unknown"
         local bAmount = itemData.Multiplier.Amount or 0
         local color = BonusColors[bType] or "#ffffff"
         local valStr = math.floor(bAmount * 100) .. "%"
-        return string.format('<font color="%s"><b>%s</b></font>   <font color="#ffffff">%s</font>', color, bType, valStr)
+        textLines = textLines .. string.format('<font color="%s"><b>%s</b></font>   <font color="#ffffff">%s</font>\n', color, bType, valStr)
     end
-    return '<font color="#aaaaaa">No Bonus</font>'
+
+    if textLines == "" then return '<font color="#aaaaaa">No Stats</font>' end
+    
+    -- Hapus newline terakhir agar rapi
+    if string.sub(textLines, -1) == "\n" then
+        textLines = string.sub(textLines, 1, -2)
+    end
+    
+    return textLines
 end
 
 -- ============================================================================
@@ -2732,7 +2758,115 @@ local function RefreshVaultUI()
     local ImageList = {}
     local Count = 0
 
-    -- 1. Scan Power/Vault
+    -- [1] DATA SENJATA (WEAPON)
+    if pData.Attributes.Weapon and pData.Weapons then
+        local equipID = pData.Attributes.Weapon
+        local weaponInstance = pData.Weapons[equipID]
+        
+        if weaponInstance and weaponInstance.Index and WeaponsModule[weaponInstance.Index] then
+            local staticInfo = WeaponsModule[weaponInstance.Index]
+            
+            Count = Count + 1
+            local rarity = staticInfo.Rarity or "Common"
+            local img = "rbxassetid://84366761557806"
+            if staticInfo.Template then img = "rbxassetid://" .. tostring(staticInfo.Template) end
+            
+            -- Generates Text (Sekarang support Damage & Mastery)
+            local bonusText = GenerateBonusText(staticInfo)
+            
+            -- Tambahan Info Zone (Karena di Main Loader ada module[i].Zone = v.Name)
+            if staticInfo.Zone then
+                bonusText = bonusText .. string.format('\n<font color="#888888" size="14">Zone: %s</font>', staticInfo.Zone)
+            end
+            
+            -- Format Enchantment
+            if weaponInstance.Enchantment then
+                local rawEnchant = weaponInstance.Enchantment
+                local niceEnchant = rawEnchant
+                
+                if EnchantmentsConfig and EnchantmentsConfig.Table then
+                    local parts = string.split(rawEnchant, "_")
+                    if #parts == 2 then
+                        local eType = parts[1]
+                        local eTier = tonumber(parts[2])
+                        local roman = {"I", "II", "III", "IV", "V"}
+                        if EnchantmentsConfig.Table[eType] then
+                            local typeDisplay = EnchantmentsConfig.Table[eType].Display or eType
+                            local tierDisplay = roman[eTier] or eTier
+                            niceEnchant = string.format("%s %s", typeDisplay, tierDisplay)
+                            
+                            if EnchantmentsConfig.Table[eType].List and EnchantmentsConfig.Table[eType].List[eTier] then
+                                local tierData = EnchantmentsConfig.Table[eType].List[eTier]
+                                local desc = EnchantmentsConfig.Table[eType].Description
+                                if desc and tierData.Bonus then
+                                    pcall(function()
+                                        local formattedDesc = desc:format(tierData.Bonus)
+                                        niceEnchant = niceEnchant .. "\n<font size='14' color='#aaaaaa'>(" .. formattedDesc .. ")</font>"
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                end
+                bonusText = bonusText .. "\n\n<font color='#ffaa00'><b>Enchantment:</b></font>\n" .. niceEnchant
+            end
+            
+            local rarityHex = GetRarityHex(rarity)
+
+            local function OnClick()
+                Window:Dialog({
+                    Title = staticInfo.Display,
+                    Icon = img,
+                    Content = string.format('<font size="18" color="%s"><b>%s</b></font>\n\n%s', rarityHex, rarity, bonusText),
+                    Buttons = {{Title="Close", Variant="Secondary"}}
+                })
+            end
+
+            table.insert(ImageList, {
+                Title = staticInfo.Display,
+                Quantity = "Weapon",
+                Image = img,
+                Gradient = GetInvGradient(rarity),
+                _Sort = GetRarityVal(rarity) + 200,
+                Callback = OnClick
+            })
+        end
+    end
+
+    -- [2] DATA ACCESSORY
+    if pData.Attributes.Accessory and pData.Attributes.Accessory ~= "None" then
+        local accID = pData.Attributes.Accessory
+        local info = AccessoriesConfig[accID]
+        if info then
+            Count = Count + 1
+            local rarity = info.Rarity or "Common"
+            local img = "rbxassetid://84366761557806"
+            if info.Template then img = "rbxassetid://" .. tostring(info.Template) end
+            
+            local bonusText = GenerateBonusText(info)
+            local rarityHex = GetRarityHex(rarity)
+
+            local function OnClick()
+                 Window:Dialog({
+                    Title = info.Display,
+                    Icon = img,
+                    Content = string.format('<font size="18" color="%s"><b>%s</b></font>\n\n%s', rarityHex, rarity, bonusText),
+                    Buttons = {{Title="Close", Variant="Secondary"}}
+                })
+            end
+
+            table.insert(ImageList, {
+                Title = info.Display,
+                Quantity = "Accessory",
+                Image = img,
+                Gradient = GetInvGradient(rarity),
+                _Sort = GetRarityVal(rarity) + 100, 
+                Callback = OnClick
+            })
+        end
+    end
+
+    -- [3] DATA VAULT (PASSIVES)
     if pData.Vault then
         for catName, _ in pairs(pData.Vault) do
             local equippedID = pData.Attributes[catName]
@@ -2771,50 +2905,22 @@ local function RefreshVaultUI()
         end
     end
 
-    -- 2. Scan Accessory (Yang Dipakai Saja)
-    if pData.Attributes.Accessory and pData.Attributes.Accessory ~= "None" then
-        local accID = pData.Attributes.Accessory
-        local info = AccessoriesConfig[accID]
-        if info then
-            Count = Count + 1
-            local rarity = info.Rarity or "Common"
-            local img = "rbxassetid://84366761557806"
-            if info.Template then img = "rbxassetid://" .. tostring(info.Template) end
-            
-            local bonusText = GenerateBonusText(info)
-            local rarityHex = GetRarityHex(rarity)
-
-            local function OnClick()
-                 Window:Dialog({
-                    Title = info.Display,
-                    Icon = img,
-                    Content = string.format('<font size="18" color="%s"><b>%s</b></font>\n\n%s', rarityHex, rarity, bonusText),
-                    Buttons = {{Title="Close", Variant="Secondary"}}
-                })
-            end
-
-            table.insert(ImageList, {
-                Title = info.Display,
-                Quantity = "Accessory",
-                Image = img,
-                Gradient = GetInvGradient(rarity),
-                _Sort = GetRarityVal(rarity) + 100, -- Prioritas tampil paling kiri
-                Callback = OnClick
-            })
-        end
-    end
-
     table.sort(ImageList, function(a,b) return a._Sort > b._Sort end)
 
-    -- Re-create Paragraph untuk update gambar
-    VaultParagraph.ParagraphFrame:Destroy()
+    if VaultParagraph and VaultParagraph.ParagraphFrame then
+        VaultParagraph.ParagraphFrame:Destroy()
+    end
+    
     VaultParagraph = FarmTab:Paragraph({
         Title = "Equipped Vault List",
         Desc = "Click Image for details.",
         ImageSize = UDim2.fromOffset(70, 70),
         Images = ImageList
     })
-    VaultParagraph.ParagraphFrame.UIElements.Main.Parent = VaultGroup.GroupFrame
+    
+    if VaultGroup and VaultGroup.GroupFrame then
+        VaultParagraph.ParagraphFrame.UIElements.Main.Parent = VaultGroup.GroupFrame
+    end
 end
 
 local AvatarStatusPara = FarmTab:Paragraph({
@@ -3058,20 +3164,30 @@ do
     FM_Add("Ascension", AscUI.AutoToggle)
 end
 -- ============================================================================
--- [ENCHANTMENTS FEATURE - FIX GHOST TARGET & LIMIT ERROR]
+-- [ENCHANTMENTS FEATURE - PER WEAPON CONFIG]
 -- ============================================================================
 
 local EnchUI = {}
 
--- [FIX 1] Reset filter setiap kali script dijalankan agar tidak ada "Ghost Target" dari config lama
-Config.EnchantFilters = {} 
+-- [INIT] Pastikan tabel config per-senjata ada
+if not Config.WeaponSpecificEnchants then
+    Config.WeaponSpecificEnchants = {}
+end
+
+-- Helper: Dapatkan Filter untuk Senjata yang sedang dipakai
+local function GetCurrentWeaponFilters(weaponID)
+    if not Config.WeaponSpecificEnchants[weaponID] then
+        Config.WeaponSpecificEnchants[weaponID] = {}
+    end
+    return Config.WeaponSpecificEnchants[weaponID]
+end
 
 do
     -- [1] CONTROLLER GROUP
-    local EnchControlGroup = FarmTab:Group({Title = "Controller"})
+    local EnchControlGroup = FarmTab:Group({Title = "Enchant Controller"})
     FM_Add("Enchantments", EnchControlGroup)
 
-    -- [2] MASTER TOGGLE
+    -- [2] MASTER TOGGLE (LOGIC LOOP)
     EnchUI.MasterToggle = EnchControlGroup:Toggle({
         Title = "Loading Weapon...",
         Desc = "Waiting Data...", 
@@ -3090,16 +3206,18 @@ do
                             local currentEquipID = pData.Attributes.Weapon
                             local weaponData = pData.Weapons[currentEquipID]
                             
-                            -- [A] LOGIC CEK TARGET (DIPERBAIKI)
+                            -- [A] LOGIC CEK TARGET (PER WEAPON)
                             if weaponData and weaponData.Enchantment then
-                                local currentID = weaponData.Enchantment
+                                local currentEnchantID = weaponData.Enchantment
                                 
-                                -- Cek: Apakah Filter Kosong?
-                                -- next(table) == nil artinya table kosong.
-                                local isFilterActive = next(Config.EnchantFilters) ~= nil 
+                                -- Ambil filter khusus untuk senjata ini
+                                local myFilters = Config.WeaponSpecificEnchants[currentEquipID] or {}
                                 
-                                -- Hanya STOP jika Filter TIDAK KOSONG dan Target COCOK
-                                if isFilterActive and Config.EnchantFilters[currentID] == true then                                    
+                                -- Cek apakah Filter Aktif (ada isinya)
+                                local isFilterActive = next(myFilters) ~= nil 
+                                
+                                -- Hanya STOP jika Filter TIDAK KOSONG dan Enchant saat ini ada di list filter
+                                if isFilterActive and myFilters[currentEnchantID] == true then
                                     Config.Enchant_Master_Toggle = false
                                     EnchUI.MasterToggle:Set(false)
                                     break 
@@ -3116,25 +3234,26 @@ do
                                     Reliable:FireServer("Enchantments Roll") 
                                 end)
                             else
-                                if Notify then Notify("Enchantments", "Out of Tokens") end
+                                if Notify then Notify("Enchantments", "Out of Tokens", "alert-triangle") end
                                 Config.Enchant_Master_Toggle = false
                                 EnchUI.MasterToggle:Set(false)
                                 break
                             end
                         end
-                        task.wait(1.2) -- Delay aman
+                        task.wait(1.2) -- Delay aman (jangan terlalu cepat agar tidak lag/ban)
                     end
                 end)
             end
         end
     })
 
-    -- [3] FILTER SETTINGS
-    local EnchFilterGroup = FarmTab:Group({Title = "Roll Targets (Select to Stop)"})
+    -- [3] FILTER SETTINGS (DYNAMIC DROPDOWN)
+    local EnchFilterGroup = FarmTab:Group({Title = "Target Settings (Specific per Weapon)"})
     FM_Add("Enchantments", EnchFilterGroup)
 
     local DropdownValues = {}
 
+    -- Membangun list opsi enchant
     if EnchantmentsConfig and EnchantmentsConfig.Table then
         local RomanNumerals = {"I", "II", "III", "IV", "V"} 
 
@@ -3161,20 +3280,28 @@ do
         table.sort(DropdownValues, function(a,b) return a.Title < b.Title end)
 
         EnchUI.FilterDropdown = EnchFilterGroup:Dropdown({
-            Title = "Select Targets",
-            Desc = "Script will STOP rolling if you get one of these.",
+            Title = "Select Target Enchantments",
+            Desc = "Select enchantments to STOP rolling for the CURRENT equipped weapon.",
             Multi = true,
             AllowNone = true,
             Values = DropdownValues,
-            Flag = "EnchantFilterDropdown",
+            Flag = "EnchantFilterDropdown", -- Flag ini dummy, kita handle manual di Callback
             Callback = function(selectedValues)
-                local map = {}
-                for _, val in pairs(selectedValues) do
-                    local id = type(val) == "table" and val.Value or val
-                    print(id)
-                    map[id] = true
+                -- Simpan config berdasarkan ID Senjata yang sedang dipakai
+                local pData = (getgenv()).PlayerData
+                if pData and pData.Attributes then
+                    local currentEquipID = pData.Attributes.Weapon
+                    if currentEquipID then
+                        -- Reset filter senjata ini
+                        Config.WeaponSpecificEnchants[currentEquipID] = {}
+                        
+                        -- Isi ulang dengan yang baru dipilih
+                        for _, val in pairs(selectedValues) do
+                            local id = type(val) == "table" and val.Value or val
+                            Config.WeaponSpecificEnchants[currentEquipID][id] = true
+                        end
+                    end
                 end
-                Config.EnchantFilters = map
             end
         })
     else
@@ -3595,24 +3722,19 @@ function Optimizer.Update_Ascension_Logic(pData)
 end
 
 function Optimizer.Update_Enchantments_Logic(pData)
-    -- Update Visual UI Saja (Logic Roll sudah pindah ke Toggle Callback)
+    -- Update Visual UI Saja
     if EnchUI.MasterToggle and not Window.Closed then
         if pData.Materials and pData.Attributes and pData.Weapons then
             
+            -- [1] DATA WEAPON & TOKEN
             local tokenKey = (EnchantmentsConfig and EnchantmentsConfig.TokenName) or "EnchantmentToken"
             local tokenCost = (EnchantmentsConfig and EnchantmentsConfig.TokenCost) or 10
             local myTokens = pData.Materials[tokenKey] or 0
             
-            local tokenDisplayName = "Tokens"
-            local tokenDisplayIcon = ""
-            if MaterialsModule and MaterialsModule[tokenKey] then
-                if MaterialsModule[tokenKey].Display then tokenDisplayName = MaterialsModule[tokenKey].Display end
-                if MaterialsModule[tokenKey].Template then tokenDisplayIcon = GetIcon(MaterialsModule[tokenKey].Template) end
-            end
-
             local currentEquipID = pData.Attributes.Weapon
             local weaponInstance = pData.Weapons[currentEquipID]
             
+            -- Ambil nama cantik weapon & icon
             local weaponDisplayName = currentEquipID or "Unknown"
             local weaponIcon = "sparkles"
             local weaponRarity = "Common" 
@@ -3642,12 +3764,30 @@ function Optimizer.Update_Enchantments_Logic(pData)
                 end
             end
             
-            local newStateHash = string.format("%s|%s|%s", weaponDisplayName, myTokens, enchantText)
+            -- [2] UPDATE MAIN TOGGLE UI (OPTIMIZED SPLIT CACHE)
             
-            if Optimizer.Cache.EnchantState ~= newStateHash then
+            -- A. LOGIC TEKS (Sering berubah karena Token & Enchant)
+            -- Hash ini mencakup Token, jadi Title & Desc akan update setiap roll.
+            local textStateHash = string.format("%s|%s|%s", weaponDisplayName, myTokens, enchantText)
+            
+            if Optimizer.Cache.EnchantTextState ~= textStateHash then
                 EnchUI.MasterToggle:SetTitle(string.format("%s [%s]", weaponDisplayName, enchantText))
-                EnchUI.MasterToggle:SetDesc(string.format("%s%s: %s / %s", tokenDisplayIcon, tokenDisplayName, UtilsModule.ToText(tokenCost), UtilsModule.ToText(myTokens)))
                 
+                local tkInfo = MaterialsModule[tokenKey]
+                local tkName = tkInfo and tkInfo.Display or "Tokens"
+                local tkIcon = tkInfo and GetIcon(tkInfo.Template) or ""
+                
+                EnchUI.MasterToggle:SetDesc(string.format("%s%s %s/%s", tkIcon, tkName, UtilsModule.ToText(tokenCost), UtilsModule.ToText(myTokens)))
+                
+                Optimizer.Cache.EnchantTextState = textStateHash
+            end
+
+            -- B. LOGIC GAMBAR (Jarang berubah, HANYA saat ganti senjata)
+            -- Hash ini HANYA mencakup Nama Senjata. Token TIDAK dimasukkan.
+            -- Jadi SetMainImage TIDAK akan jalan saat nge-roll (FPS Aman).
+            local imageStateHash = weaponDisplayName .. weaponIcon
+            
+            if Optimizer.Cache.EnchantImageState ~= imageStateHash then
                 if EnchUI.MasterToggle.SetMainImage then
                     EnchUI.MasterToggle:SetMainImage({
                         Image = weaponIcon,
@@ -3656,8 +3796,30 @@ function Optimizer.Update_Enchantments_Logic(pData)
                         Gradient = GetGameGradient(weaponRarity) 
                     }, 50)
                 end
-                Optimizer.Cache.EnchantState = newStateHash
+                Optimizer.Cache.EnchantImageState = imageStateHash
             end
+
+            -- [3] AUTO REFRESH DROPDOWN SAAT GANTI SENJATA
+            if Optimizer.Cache.LastEquippedWeapon ~= currentEquipID then
+                Optimizer.Cache.LastEquippedWeapon = currentEquipID
+                
+                if Config.WeaponSpecificEnchants and Config.WeaponSpecificEnchants[currentEquipID] then
+                    local savedFilters = Config.WeaponSpecificEnchants[currentEquipID]
+                    local valueList = {}
+                    for k, v in pairs(savedFilters) do
+                        if v then table.insert(valueList, k) end
+                    end
+                    
+                    if EnchUI.FilterDropdown and EnchUI.FilterDropdown.Select then
+                        pcall(function() EnchUI.FilterDropdown:Select(valueList) end)
+                    end
+                else
+                    if EnchUI.FilterDropdown and EnchUI.FilterDropdown.Select then
+                        pcall(function() EnchUI.FilterDropdown:Select({}) end)
+                    end
+                end
+            end
+
         end
     end
 end
@@ -3838,20 +4000,44 @@ function Optimizer.Update_Trainer_Logic(pData)
 end
 
 function Optimizer.Update_Vault_Logic(pData)
+    -- Fungsi Helper untuk membuat "Sidik Jari" data saat ini
     local function GetVaultSnapshot(pd)
-        if not pd.Attributes or not pd.Vault then return "" end
+        if not pd.Attributes then return "" end
         local s = {}
-        for c, _ in pairs(pd.Vault) do if pd.Attributes[c] then s[c] = pd.Attributes[c] end end
+        
+        -- 1. Masukkan data Vault (Luck, Yen, dll) ke dalam sidik jari
+        if pd.Vault then
+            for c, _ in pairs(pd.Vault) do 
+                if pd.Attributes[c] then s[c] = pd.Attributes[c] end 
+            end
+        end
+        
+        -- 2. Masukkan data Accessory
         if pd.Attributes.Accessory then s["Accessory"] = pd.Attributes.Accessory end
+
+        -- 3. [PERBAIKAN] Masukkan data WEAPON
+        -- Tanpa baris ini, script tidak tahu kalau senjata berubah
+        if pd.Attributes.Weapon then s["Weapon"] = pd.Attributes.Weapon end
+
         return HttpService:JSONEncode(s)
     end
     
     local IsVisible = VaultGroup and VaultGroup.GroupFrame and VaultGroup.GroupFrame.Visible
     local CurrentHash = GetVaultSnapshot(pData)
+    
+    -- Cek apakah sidik jari berubah?
     local DataChanged = (CurrentHash ~= Optimizer.Cache.VaultHash)
     
-    if DataChanged then Optimizer.Cache.VaultHash = CurrentHash end
-    if (DataChanged and IsVisible) or (IsVisible and not Optimizer.Cache.VaultWasVisible) then RefreshVaultUI() end
+    if DataChanged then 
+        Optimizer.Cache.VaultHash = CurrentHash 
+    end
+    
+    -- Refresh UI jika Data Berubah DAN Tab sedang dibuka
+    -- ATAU jika Tab baru saja dibuka (VaultWasVisible false -> true)
+    if (DataChanged and IsVisible) or (IsVisible and not Optimizer.Cache.VaultWasVisible) then 
+        RefreshVaultUI() 
+    end
+    
     Optimizer.Cache.VaultWasVisible = IsVisible
 end
 
