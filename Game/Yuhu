@@ -622,15 +622,26 @@ local function GetRollIconAsset(rollType)
     return assetId or defaultIcon
 end
 
--- [FUNGSI HELPER GRADIENT]
+-- [OPTIMISASI: Cache Gradient agar tidak search berulang kali]
+local _GradientCache = {}
 local function GetGameGradient(rarityName)
+    if _GradientCache[rarityName] then return _GradientCache[rarityName] end
+    
     local rf = game:GetService("ReplicatedFirst")
     local success, gradientObj = pcall(function()
         return rf.Assets.Gradients.Rarity:FindFirstChild(rarityName)
     end)
-    if success and gradientObj then return gradientObj.Color end
+    
+    if success and gradientObj then 
+        _GradientCache[rarityName] = gradientObj.Color
+        return gradientObj.Color 
+    end
+    
+    -- Fallback
     local fallback = rf.Assets.Gradients.Rarity:FindFirstChild("Common")
-    return fallback and fallback.Color or nil
+    local color = fallback and fallback.Color or nil
+    _GradientCache[rarityName] = color
+    return color
 end
 
 -- [HELPER: GENERATE CARD REWARDS]
@@ -709,23 +720,28 @@ end
 
 local function RefreshEnemyData()
     local uiList = {}
-    local liveEnemies = getgenv().EnemiesData -- Mengambil data global
+    local liveEnemies = getgenv().EnemiesData 
 
-    -- Validasi dasar
     if liveEnemies and CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
-        local added = {} -- Table untuk mencegah nama musuh ganda di list
+        local added = {} 
+        local processCount = 0 -- Counter untuk Anti-Freeze
         
         for uid, enemyObj in pairs(liveEnemies) do
-            -- Filter Class: Islands ATAU MegaBoss
+            -- [ANTI-FREEZE MAGIC]
+            -- Setiap memproses 20 musuh, script akan istirahat 1 frame.
+            -- Ini mencegah layar Freeze total.
+            processCount = processCount + 1
+            if processCount % 10 == 0 then 
+                task.wait() 
+            end
+
             if enemyObj.Config and enemyObj.Data and (enemyObj.Data.Class == "Islands" or enemyObj.Data.Class == "MegaBoss") then
                 
                 local displayName = enemyObj.Config.Display or "Unknown"
                 
-                -- HANYA MASUKKAN JIKA BELUM ADA DI LIST (Deduplikasi)
                 if not added[displayName] then
                     added[displayName] = true
                     
-                    -- 1. Ambil Difficulty
                     local diff = "Normal"
                     if enemyObj.DifficultConfig and enemyObj.DifficultConfig.Display then
                         diff = enemyObj.DifficultConfig.Display
@@ -733,54 +749,23 @@ local function RefreshEnemyData()
                         diff = enemyObj.Config.Difficult
                     end
                     
-                    -- Jika MegaBoss, label difficulty jadi "World Boss" atau "Mega Boss"
-                    if enemyObj.Data.Class == "MegaBoss" then
-                        diff = "Mega Boss"
-                    end
+                    if enemyObj.Data.Class == "MegaBoss" then diff = "Mega Boss" end
 
-                    -- 2. Ambil Max Health
                     local maxHp = 0
-                    if enemyObj.Data.MaxHealth then
-                        maxHp = enemyObj.Data.MaxHealth
-                    -- Fallback ke Config MegaBoss jika Data.MaxHealth nil
-                    elseif enemyObj.Data.Class == "MegaBoss" and MegaBossConfig.BossConfig then
-                        maxHp = MegaBossConfig.BossConfig.MaxHealth
-                    elseif enemyObj.Config.MaxHealth then
-                        maxHp = enemyObj.Config.MaxHealth
-                    end
+                    if enemyObj.Data.MaxHealth then maxHp = enemyObj.Data.MaxHealth
+                    elseif enemyObj.Data.Class == "MegaBoss" and MegaBossConfig.BossConfig then maxHp = MegaBossConfig.BossConfig.MaxHealth
+                    elseif enemyObj.Config.MaxHealth then maxHp = enemyObj.Config.MaxHealth end
 
-                    -- 3. Ambil Rewards (LOGIC BARU DISINI)
+                    -- Logic Rewards (Sama seperti sebelumnya)
                     local rewards = {}
-                    
                     if enemyObj.Data.Class == "MegaBoss" and MegaBossConfig then
-                        -- [A] Ambil Chance Rewards (Persentase)
-                        if MegaBossConfig.ChanceRewards then
-                            for k, v in pairs(MegaBossConfig.ChanceRewards) do
-                                rewards[k] = v
-                            end
-                        end
-                        
-                        -- [B] Ambil Guaranteed Rewards (Item Pasti)
-                        -- Format di module: {"Materials/MegaBossToken/10"}
-                        if MegaBossConfig.Rewards then
-                            for _, itemStr in ipairs(MegaBossConfig.Rewards) do
-                                -- Kita set chamenya 100 karena ini reward pasti
-                                rewards[itemStr] = 100 
-                            end
-                        end
+                        if MegaBossConfig.ChanceRewards then for k, v in pairs(MegaBossConfig.ChanceRewards) do rewards[k] = v end end
+                        if MegaBossConfig.Rewards then for _, itemStr in ipairs(MegaBossConfig.Rewards) do rewards[itemStr] = 100 end end
                     else
-                        -- Logic Biasa (Musuh Islands)
-                        if enemyObj.Config.ChanceReward then
-                            for k, v in pairs(enemyObj.Config.ChanceReward) do
-                                rewards[k] = v
-                            end
-                        end
-                        
-                        -- Inject Avatar Token manual (opsional untuk musuh biasa)
+                        if enemyObj.Config.ChanceReward then for k, v in pairs(enemyObj.Config.ChanceReward) do rewards[k] = v end end
                         rewards["Materials.AvatarToken"] = 5
                     end
                     
-                    -- Generate gambar kartu reward
                     local rewardImages = GenerateCardRewards(rewards)
 
                     table.insert(uiList, {
@@ -795,9 +780,7 @@ local function RefreshEnemyData()
         end
     end
     
-    -- Urutkan dari HP terkecil ke terbesar
     table.sort(uiList, function(a, b) return a.HP < b.HP end)
-    
     CurrentZoneEnemiesCache = uiList
     return uiList
 end
@@ -1039,7 +1022,7 @@ local function LogicAutoFarm()
                         currentTargetObj = nil
                         
                         -- Pulang ke Last Zone yang disimpan sendiri
-                        if MegaBossState.ReturnZone and MegaBossState.ReturnZone ~= "Unknown" then
+                        if MegaBossState.ReturnZone and MegaBossState.ReturnZone ~= currentMap then
                             if Reliable then
                                 pcall(function() Reliable:FireServer("Zone Teleport", { MegaBossState.ReturnZone }) end)
                             end
@@ -3934,7 +3917,7 @@ task.spawn(function()
                 if Notify then Notify("Mega Boss", "Spawned at " .. zoneDisplayName .. "! Teleporting...", "skull") end
                 
                 -- 5. Eksekusi Teleport
-                if Reliable then
+                if Reliable and targetZoneID ~= getgenv().PlayerData.Attributes.Zone then
                     pcall(function() Reliable:FireServer("Zone Teleport", { targetZoneID }) end)
                 end
             else
@@ -3956,78 +3939,74 @@ task.spawn(function()
     end
 end)
 
+-- [OPTIMIZED ZONE DETECTION LOOP]
 task.spawn(function()
-    local prevZone = "";
+    local prevZone = ""
+    
     while not Window.Destroyed do
-        task.wait(0.5); -- Loop check setiap 0.5 detik
+        task.wait(1) -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
         
         if not IsTeleporting then
-            local detectedZone = GetCurrentMapStatus();
+            local detectedZone = GetCurrentMapStatus()
             
+            -- Hanya update jika zone BENAR-BENAR berubah
             if detectedZone and detectedZone ~= "Unknown" and detectedZone ~= prevZone then
-                -- [PERBAIKAN 1] Beri jeda waktu agar Map/Asset loading selesai dulu sebelum script bekerja
-                task.wait(0.7) 
                 
-                prevZone = detectedZone;
-                CurrentZoneName = detectedZone;
-                Config.SelectedEnemy = nil;
+                -- [PERBAIKAN 1: WAKTU TUNGGU]
+                -- Tunggu 2 detik agar Roblox selesai loading asset map & folder Enemies.
+                -- Jika terlalu cepat, folder Enemies masih kosong atau berisi data zone lama.
+                task.wait(2.0) 
                 
-                if EnemyDropdown and EnemyDropdown.Select then
-                    pcall(function()
-                        EnemyDropdown:Select(nil);
-                    end);
-                end;
+                prevZone = detectedZone
+                CurrentZoneName = detectedZone
+                Config.SelectedEnemy = nil
                 
-                IsLoadingConfig = true;
+                -- Reset dropdown sementara (Visual feedback)
+                if EnemyDropdown and EnemyDropdown.SetTitle then
+                    pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
+                end
                 
-                -- [PERBAIKAN 2] Bungkus proses refresh data & UI dalam task.spawn
-                -- Ini mencegah logika script memblokir render frame game (mengurangi freeze)
+                IsLoadingConfig = true
+                
+                -- Jalankan refresh data di thread terpisah agar Main Loop tidak macet
                 task.spawn(function()
-                    -- Proses berat 1: Kalkulasi Data
-                    local freshEnemies = RefreshEnemyData();
-                    CurrentZoneEnemiesCache = freshEnemies;
+                    -- Proses ini sekarang aman karena sudah ada "task.wait" di dalam RefreshEnemyData
+                    local freshEnemies = RefreshEnemyData()
+                    CurrentZoneEnemiesCache = freshEnemies
                     
-                    task.wait() -- Jeda 1 frame agar UI tidak kaget
-                    
-                    -- Proses berat 2: Render UI
+                    -- Update Dropdown UI
                     pcall(function()
-                        if EnemyDropdown and EnemyDropdown.Refresh then
-                            EnemyDropdown:Refresh(freshEnemies);
+                        if EnemyDropdown then
+                            -- Kembalikan Judul
+                            if EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+                            
+                            -- Refresh Isi
+                            if EnemyDropdown.Refresh then EnemyDropdown:Refresh(freshEnemies) end
                         end
-                    end);
+                    end)
                     
-                    task.wait(0.2); -- Jeda sebelum memilih item
-                    
-                    local savedEntry = Config.ZoneConfigurations[detectedZone];
-                    local objectToSelect = nil;
-                    
+                    -- Auto Select Enemy Terakhir (Saved Config)
+                    task.wait(0.2)
+                    local savedEntry = Config.ZoneConfigurations[detectedZone]
                     if savedEntry then
                         for _, currentMob in ipairs(freshEnemies) do
                             if currentMob.Value == savedEntry.Value then
-                                objectToSelect = currentMob;
-                                Config.SelectedEnemy = currentMob.Value;
-                                break;
-                            end;
-                        end;
-                    end;
-                    
-                    if objectToSelect then
-                        -- [FIX] Gunakan :Set(objectToSelect) agar tampilan visual terupdate
-                        pcall(function()
-                            if EnemyDropdown.Set then
-                                EnemyDropdown:Set(objectToSelect);
-                            else
-                                EnemyDropdown:Select(objectToSelect.Value);
+                                Config.SelectedEnemy = currentMob.Value
+                                pcall(function()
+                                    if EnemyDropdown.Set then EnemyDropdown:Set(currentMob)
+                                    elseif EnemyDropdown.Select then EnemyDropdown:Select(currentMob.Value) end
+                                end)
+                                break
                             end
-                        end);
-                    end;
+                        end
+                    end
                     
-                    IsLoadingConfig = false;
+                    IsLoadingConfig = false
                 end)
-            end;
-        end;
-    end;
-end);
+            end
+        end
+    end
+end)
 
 task.spawn(MaintainAutoStatus);
 task.spawn(function()
@@ -4879,90 +4858,112 @@ function Optimizer.Update_MegaBoss_Logic(pData)
     end
 end
 
+-- Simpan cache deskripsi terakhir agar tidak update berulang-ulang
+local _UIDescCache = {} 
+
 function Optimizer.Update_Main_Data_Logic(pData)
-    -- [1] RANK LOGIC (Tidak Berubah)
     local cRank, cMastery = (pData.Attributes.Rank or 0), (pData.Attributes.Mastery or 0)
     local req, cBuff, nBuff = RankModule.GetRequirement(cRank), RankModule.GetBuff(cRank), RankModule.GetBuff(cRank+1)
     
+    -- [RANK LOGIC]
     if RankProgressUI and not Window.Closed then
         local pct = req>0 and math.clamp(cMastery/req,0,1) or 0
         local bar = string.rep("█", math.floor(pct*10)) .. string.rep("▒", 10-math.floor(pct*10))
         local bt = (cRank>=RankModule.MAX) and ("Buff: "..UtilsModule.ToText(cBuff).."% (MAX)") or ("Buff: "..UtilsModule.ToText(cBuff).."% >> "..UtilsModule.ToText(nBuff).."%")
-        RankProgressUI:SetTitle("Rank "..cRank); RankProgressUI:SetDesc(string.format("%s\n[%s] %d%%\n%s / %s", bt, bar, math.floor(pct*100), UtilsModule.ToText(cMastery), UtilsModule.ToText(req)))
+        local finalDesc = string.format("%s\n[%s] %d%%\n%s / %s", bt, bar, math.floor(pct*100), UtilsModule.ToText(cMastery), UtilsModule.ToText(req))
+        
+        -- Cek Cache Rank
+        if _UIDescCache["Rank"] ~= finalDesc then
+            RankProgressUI:SetTitle("Rank "..cRank)
+            RankProgressUI:SetDesc(finalDesc)
+            _UIDescCache["Rank"] = finalDesc
+        end
     end
+    
     if Config.AutoRankUp and cMastery >= req and cRank < RankModule.MAX then
          if Reliable then pcall(function() Reliable:FireServer("RankUp") end) end
     end
 
-    -- [2] YEN UPGRADES LOGIC (UPDATED STYLE)
+    -- [YEN UPGRADES LOGIC]
     if pData.YenUpgrades then
         local cYen = pData.Attributes.Yen or 0
-        
-        -- Setup Visual Yen (Manual karena Yen biasanya Currency bukan Material)
-        local yenName = "Yen"
-        local yenIcon = GetYenIcon() -- Menggunakan helper icon yen yang sudah ada
+        local yenIcon = GetYenIcon() 
         
         for name, cfg in pairs(YenUpgradeConfig) do
             local lvl = pData.YenUpgrades[name] or 0
-            local cost, buff = YenModule.GetUpgradeCost(lvl, name), YenModule.GetUpgradeBuff(name, lvl)
             local toggle = YenUpgradeToggleUI[name]
-            local max = cfg.MaxLevel or 20
             
             if toggle and not Window.Closed then
+                local cost, buff = YenModule.GetUpgradeCost(lvl, name), YenModule.GetUpgradeBuff(name, lvl)
+                local max = cfg.MaxLevel or 20
+                local descStr = ""
+                local titleStr = ""
+
                 if lvl >= max then 
-                    toggle:SetTitle(name.." [MAX]")
-                    toggle:SetDesc(string.format("<b>Maxed</b>\nBuff: +%s%%", UtilsModule.ToText(buff)))
+                    titleStr = name.." [MAX]"
+                    descStr = string.format("<b>Maxed</b>\nBuff: +%s%%", UtilsModule.ToText(buff))
                     if not toggle.Locked then toggle:Lock(); toggle:Set(false) end
                 else 
-                    toggle:SetTitle(name.." ["..lvl.."/"..max.."]")
-                    
-                    -- [FORMAT BARU: SAMA SEPERTI MEGA BOSS]
-                    local desc = string.format("%s%s %s/%s\nBuff: +%s%%", 
-                        yenIcon, yenName, UtilsModule.ToText(cost), UtilsModule.ToText(cYen), UtilsModule.ToText(buff))
-                    toggle:SetDesc(desc)
+                    titleStr = name.." ["..lvl.."/"..max.."]"
+                    descStr = string.format("%sYen %s/%s\nBuff: +%s%%", 
+                        yenIcon, UtilsModule.ToText(cost), UtilsModule.ToText(cYen), UtilsModule.ToText(buff))
+                end
+
+                -- OPTIMISASI: Hanya SetDesc jika teks berubah
+                local cacheKey = "Yen_"..name
+                if _UIDescCache[cacheKey] ~= descStr then
+                    toggle:SetTitle(titleStr)
+                    toggle:SetDesc(descStr)
+                    _UIDescCache[cacheKey] = descStr
                 end
             end
-            if Config["AutoYen_"..name] and cYen >= cost and lvl < max and Reliable then
+            
+            if Config["AutoYen_"..name] and cYen >= cost and (pData.YenUpgrades[name] or 0) < (cfg.MaxLevel or 20) and Reliable then
                  pcall(function() Reliable:FireServer("Yen Upgrade", {name}) end)
             end
         end
     end
     
-    -- [3] TOKEN UPGRADES LOGIC (UPDATED STYLE)
+    -- [TOKEN UPGRADES LOGIC]
     if pData.TokenUpgrades then
-        local tokenKey = "UpgradeToken" -- Default key untuk Token Upgrade
+        local tokenKey = "UpgradeToken"
         local cTok = pData.Materials[tokenKey] or 0
-        
-        -- Ambil Data Visual dari MaterialsModule agar Dinamis (.Display & .Template)
-        local matName = tokenKey
+        local matName = MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display or tokenKey
         local matIcon = ""
-        
-        if MaterialsModule[tokenKey] then
-            if MaterialsModule[tokenKey].Display then matName = MaterialsModule[tokenKey].Display end
-            if MaterialsModule[tokenKey].Template then matIcon = GetIcon(MaterialsModule[tokenKey].Template) end
+        if MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Template then 
+            matIcon = GetIcon(MaterialsModule[tokenKey].Template) 
         end
 
         for name, cfg in pairs(TokenUpgradeConfig) do
             local lvl = pData.TokenUpgrades[name] or 0
-            local cost, buff = TokenModule.GetUpgradeCost(lvl, name), TokenModule.GetUpgradeBuff(name, lvl)
             local toggle = TokenUpgradeToggleUI[name]
-            local max = cfg.MaxLevel or 999
             
             if toggle and not Window.Closed then
-                 if lvl >= max then 
-                    toggle:SetTitle(name.." [MAX]") 
-                    toggle:SetDesc(string.format("<b>Maxed</b>\nBuff: +%s%%", UtilsModule.ToText(buff)))
+                local cost, buff = TokenModule.GetUpgradeCost(lvl, name), TokenModule.GetUpgradeBuff(name, lvl)
+                local max = cfg.MaxLevel or 999
+                local descStr = ""
+                local titleStr = ""
+
+                if lvl >= max then 
+                    titleStr = name.." [MAX]"
+                    descStr = string.format("<b>Maxed</b>\nBuff: +%s%%", UtilsModule.ToText(buff))
                     if not toggle.Locked then toggle:Lock() end
                  else 
-                    toggle:SetTitle(name.." ["..lvl.."/"..max.."]")
-                    
-                    -- [FORMAT BARU: SAMA SEPERTI MEGA BOSS]
-                    local desc = string.format("%s%s %s/%s\nBuff: +%s%%", 
+                    titleStr = name.." ["..lvl.."/"..max.."]"
+                    descStr = string.format("%s%s %s/%s\nBuff: +%s%%", 
                         matIcon, matName, UtilsModule.ToText(cost), UtilsModule.ToText(cTok), UtilsModule.ToText(buff))
-                    toggle:SetDesc(desc)
+                 end
+                 
+                 -- OPTIMISASI: Hanya SetDesc jika teks berubah
+                 local cacheKey = "Token_"..name
+                 if _UIDescCache[cacheKey] ~= descStr then
+                    toggle:SetTitle(titleStr)
+                    toggle:SetDesc(descStr)
+                    _UIDescCache[cacheKey] = descStr
                  end
             end
-            if Config["AutoToken_"..name] and cTok >= cost and lvl < max and Reliable then
+
+            if Config["AutoToken_"..name] and cTok >= cost and (pData.TokenUpgrades[name] or 0) < (cfg.MaxLevel or 999) and Reliable then
                  pcall(function() Reliable:FireServer("Token Upgrade", {name}) end)
             end
         end
@@ -5180,13 +5181,24 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
 end
 
 -- MAIN GLOBAL LOOP TRIGGER
+-- // OPTIMIZED MAIN LOOP //
 task.spawn(function()
+    local heavyTaskTick = 0
+    
     while not Window.Destroyed do
         local pData = (getgenv()).PlayerData
+        
+        -- Cek apakah player sedang loading/teleport (Character ada di workspace?)
+        local Char = LocalPlayer.Character
+        local Root = Char and Char:FindFirstChild("HumanoidRootPart")
+        
         if not pData then 
             ScanPlayerData() 
-        else
-            -- Jalankan semua update UI dalam satu frame (Protected Call agar error satu tidak mematikan yg lain)
+        elseif Root then -- Hanya jalan jika Karakter sudah spawn (tidak lagi loading zone)
+            
+            -- [TUGAS RINGAN] Update UI (Jalan setiap 0.5 - 1 detik)
+            -- Ini aman dijalankan sering-sering karena hanya baca data memory
+            pcall(Optimizer.Update_Main_Data_Logic, pData)
             pcall(Optimizer.Update_Ascension_Logic, pData)
             pcall(Optimizer.Update_Enchantments_Logic, pData)
             pcall(Optimizer.Update_Exchange_Logic, pData)
@@ -5196,12 +5208,19 @@ task.spawn(function()
             pcall(Optimizer.Update_Vault_Logic, pData)
             pcall(Optimizer.Update_Avatar_Logic, pData)
             pcall(Optimizer.Update_Heroes_Logic, pData)
-            pcall(Optimizer.Update_MegaBoss_Logic, pData)
-            pcall(Optimizer.Update_Main_Data_Logic, pData)
             pcall(Optimizer.Update_Gamemode_Dropdowns)
-            pcall(Optimizer.Update_HiddenQuests_Logic, pData)
+
+            -- [TUGAS BERAT] Scan Workspace (Jalan setiap 3 detik)
+            -- Kita pakai counter supaya tidak memberatkan CPU saat Teleport
+            heavyTaskTick = heavyTaskTick + 1
+            if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
+                pcall(Optimizer.Update_MegaBoss_Logic, pData)
+                pcall(Optimizer.Update_HiddenQuests_Logic, pData)
+                heavyTaskTick = 0
+            end
+            
         end
-        task.wait(0.5) -- GLOBAL THROTTLE (1 DETIK)
+        task.wait(0.5) -- Throttle Global
     end
 end)
 Window:SelectTab(FarmTab.Index);
