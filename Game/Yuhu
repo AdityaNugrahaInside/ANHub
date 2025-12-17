@@ -720,61 +720,70 @@ end
 
 local function RefreshEnemyData()
     local uiList = {}
-    local liveEnemies = getgenv().EnemiesData 
+    local rawEnemies = getgenv().EnemiesData -- Ambil data asli
 
-    if liveEnemies and CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
-        local added = {} 
-        local processCount = 0 -- Counter untuk Anti-Freeze
+    if rawEnemies and CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
         
-        for uid, enemyObj in pairs(liveEnemies) do
+        -- [PERBAIKAN] Clone table dulu agar aman dari 'invalid key to next'
+        local liveEnemiesSnapshot = {}
+        for k, v in pairs(rawEnemies) do
+            liveEnemiesSnapshot[k] = v
+        end
+
+        local added = {} 
+        local processCount = 0 
+        
+        -- Loop pada hasil CLONE (Snapshot), bukan data asli
+        for uid, enemyObj in pairs(liveEnemiesSnapshot) do
             -- [ANTI-FREEZE MAGIC]
-            -- Setiap memproses 20 musuh, script akan istirahat 1 frame.
-            -- Ini mencegah layar Freeze total.
             processCount = processCount + 1
             if processCount % 10 == 0 then 
-                task.wait() 
+                task.wait() -- Sekarang aman pakai wait di sini
             end
 
-            if enemyObj.Config and enemyObj.Data and (enemyObj.Data.Class == "Islands" or enemyObj.Data.Class == "MegaBoss") then
-                
-                local displayName = enemyObj.Config.Display or "Unknown"
-                
-                if not added[displayName] then
-                    added[displayName] = true
+            -- Pastikan cek ulang apakah enemy masih ada di data asli (opsional tapi bagus)
+            if rawEnemies[uid] then 
+                if enemyObj.Config and enemyObj.Data and (enemyObj.Data.Class == "Islands" or enemyObj.Data.Class == "MegaBoss") then
                     
-                    local diff = "Normal"
-                    if enemyObj.DifficultConfig and enemyObj.DifficultConfig.Display then
-                        diff = enemyObj.DifficultConfig.Display
-                    elseif enemyObj.Config.Difficult then
-                        diff = enemyObj.Config.Difficult
+                    local displayName = enemyObj.Config.Display or "Unknown"
+                    
+                    if not added[displayName] then
+                        added[displayName] = true
+                        
+                        local diff = "Normal"
+                        if enemyObj.DifficultConfig and enemyObj.DifficultConfig.Display then
+                            diff = enemyObj.DifficultConfig.Display
+                        elseif enemyObj.Config.Difficult then
+                            diff = enemyObj.Config.Difficult
+                        end
+                        
+                        if enemyObj.Data.Class == "MegaBoss" then diff = "Mega Boss" end
+
+                        local maxHp = 0
+                        if enemyObj.Data.MaxHealth then maxHp = enemyObj.Data.MaxHealth
+                        elseif enemyObj.Data.Class == "MegaBoss" and MegaBossConfig.BossConfig then maxHp = MegaBossConfig.BossConfig.MaxHealth
+                        elseif enemyObj.Config.MaxHealth then maxHp = enemyObj.Config.MaxHealth end
+
+                        -- Logic Rewards
+                        local rewards = {}
+                        if enemyObj.Data.Class == "MegaBoss" and MegaBossConfig then
+                            if MegaBossConfig.ChanceRewards then for k, v in pairs(MegaBossConfig.ChanceRewards) do rewards[k] = v end end
+                            if MegaBossConfig.Rewards then for _, itemStr in ipairs(MegaBossConfig.Rewards) do rewards[itemStr] = 100 end end
+                        else
+                            if enemyObj.Config.ChanceReward then for k, v in pairs(enemyObj.Config.ChanceReward) do rewards[k] = v end end
+                            rewards["Materials.AvatarToken"] = 5
+                        end
+                        
+                        local rewardImages = GenerateCardRewards(rewards)
+
+                        table.insert(uiList, {
+                            Title = displayName .. " (" .. diff .. ")",
+                            Value = displayName,
+                            Desc = "HP: " .. UtilsModule.ToText(maxHp),
+                            HP = maxHp,
+                            Images = rewardImages
+                        })
                     end
-                    
-                    if enemyObj.Data.Class == "MegaBoss" then diff = "Mega Boss" end
-
-                    local maxHp = 0
-                    if enemyObj.Data.MaxHealth then maxHp = enemyObj.Data.MaxHealth
-                    elseif enemyObj.Data.Class == "MegaBoss" and MegaBossConfig.BossConfig then maxHp = MegaBossConfig.BossConfig.MaxHealth
-                    elseif enemyObj.Config.MaxHealth then maxHp = enemyObj.Config.MaxHealth end
-
-                    -- Logic Rewards (Sama seperti sebelumnya)
-                    local rewards = {}
-                    if enemyObj.Data.Class == "MegaBoss" and MegaBossConfig then
-                        if MegaBossConfig.ChanceRewards then for k, v in pairs(MegaBossConfig.ChanceRewards) do rewards[k] = v end end
-                        if MegaBossConfig.Rewards then for _, itemStr in ipairs(MegaBossConfig.Rewards) do rewards[itemStr] = 100 end end
-                    else
-                        if enemyObj.Config.ChanceReward then for k, v in pairs(enemyObj.Config.ChanceReward) do rewards[k] = v end end
-                        rewards["Materials.AvatarToken"] = 5
-                    end
-                    
-                    local rewardImages = GenerateCardRewards(rewards)
-
-                    table.insert(uiList, {
-                        Title = displayName .. " (" .. diff .. ")",
-                        Value = displayName,
-                        Desc = "HP: " .. UtilsModule.ToText(maxHp),
-                        HP = maxHp,
-                        Images = rewardImages
-                    })
                 end
             end
         end
