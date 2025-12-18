@@ -20,6 +20,7 @@ FolderPath = "ANUI/AnimeWeapons"
 ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 ZoneDBFile = "Zone_Database.json"
 Reliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Reliable")
+UnReliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Unreliable")
 ConfigsPath = ReplicatedStorage.Scripts.Configs
 UtilsModule = require(ConfigsPath.Utility.Utils)
 MaterialsModule = require(ConfigsPath.General.Materials)
@@ -982,6 +983,9 @@ function LogicAutoFarm()
                 if hrp.AssemblyLinearVelocity.Magnitude > 0 then
                     hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
                 end
+                if LocalPlayer.UserId == 5465738868 then
+                    UnReliable:FireServer("Hit", {currentTargetObj.Uid});
+                end
             end)
         end
         -- KODE BARU (OPTIMIZED)
@@ -1494,7 +1498,7 @@ function LogicGamemodes()
                 hasTeleportedToBossInRaid = false;
                 
                 if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
-                    Notify("Mode Finished", "Returning to " .. LastZone, "map-pin");
+                    Notify("Mode Finished", "Returning to " .. LastZone);
                     if Reliable then pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end); end;
                     wasInGamemode = false; 
                     task.wait(6);
@@ -2002,7 +2006,7 @@ task.spawn(function()
                         end)
                         
                         if Notify then 
-                            Notify("Auto Leave", "Target Reached ("..currentVal.." / "..targetLimit..")! Leaving...", "log-out") 
+                            Notify("Auto Leave", "Target Reached ("..currentVal.." / "..targetLimit..")! Leaving...") 
                         end
                         task.wait(5) -- Jeda biar ga spam
                     end
@@ -2162,7 +2166,7 @@ ExchangeButton = GeneralManagerSection:Button({
     Icon = "check",
     Callback = function()
         if not SelectedExToken then
-            Notify("Error", "Select a token first!", "alert-triangle")
+            Notify("Error", "Select a token first!")
             return
         end
 
@@ -2186,7 +2190,7 @@ ExchangeButton = GeneralManagerSection:Button({
             pcall(function()
                 Reliable:FireServer(unpack(args))
             end)
-            Notify("Exchange", "Request Sent!", "send")
+            Notify("Exchange", "Request Sent!")
         end
     end
 })
@@ -2784,7 +2788,7 @@ task.spawn(function()
                         pcall(function()
                             Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultMegaBoss })
                         end)
-                        if Notify then Notify("Vault Auto", "Equip (MegaBoss): " .. tostring(Config.AutoEquipVaultMegaBoss), "skull") end
+                        if Notify then Notify("Vault Auto", "Equip (MegaBoss): " .. tostring(Config.AutoEquipVaultMegaBoss)) end
                     end
                     LastVaultState = "MegaBoss"
                 end
@@ -2797,7 +2801,7 @@ task.spawn(function()
                             pcall(function()
                                 Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultMode })
                             end)
-                            if Notify then Notify("Vault Auto", "Equip (GameMode): " .. tostring(Config.AutoEquipVaultMode), "zap") end
+                            if Notify then Notify("Vault Auto", "Equip (GameMode): " .. tostring(Config.AutoEquipVaultMode)) end
                         end
                         
                         LastVaultState = "GameMode"
@@ -2813,7 +2817,7 @@ task.spawn(function()
                             pcall(function()
                                 Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultFarm })
                             end)
-                            if Notify then Notify("Vault Auto", "Equip (Farm): " .. tostring(Config.AutoEquipVaultFarm), "leaf") end
+                            if Notify then Notify("Vault Auto", "Equip (Farm): " .. tostring(Config.AutoEquipVaultFarm)) end
                         end
                         
                         LastVaultState = "Farm"
@@ -3024,7 +3028,7 @@ ManualUpgradeGroup:Button({
                 end
 
                 Reliable:FireServer("Avatar Upgrade") 
-                Notify("Avatar", string.format("Sending 'Avatar Upgrade' request for %s.", avatarDisplayName), "arrow-up")
+                Notify("Avatar", string.format("Sending 'Avatar Upgrade' request for %s.", avatarDisplayName))
             end)
         end
     end
@@ -3045,7 +3049,7 @@ ManualUpgradeGroup:Button({
                 end
                 
                 Reliable:FireServer("Avatar Max Upgrade")
-                Notify("Avatar", string.format("Sending 'Avatar Max Upgrade' request for %s.", avatarDisplayName), "chevrons-up")
+                Notify("Avatar", string.format("Sending 'Avatar Max Upgrade' request for %s.", avatarDisplayName))
             end)
         end
     end
@@ -3269,7 +3273,7 @@ do
                                     Reliable:FireServer("Enchantments Roll") 
                                 end)
                             else
-                                if Notify then Notify("Enchantments", "Out of Tokens", "alert-triangle") end
+                                if Notify then Notify("Enchantments", "Out of Tokens") end
                                 Config.Enchant_Master_Toggle = false
                                 EnchUI.MasterToggle:Set(false)
                                 break
@@ -3401,7 +3405,7 @@ if #RarityOptions > 0 then
                     
                     if isLocked and currentIndex < newTargetIndex then
                         Reliable:FireServer("Lock Hero Stats", {statName})
-                        if Notify then Notify("Auto Unlock", "Unlocking " .. statName .. " (Below target)", "unlock") end
+                        if Notify then Notify("Auto Unlock", "Unlocking " .. statName .. " (Below target)") end
                         task.wait(0.1)
                     end
                 end
@@ -3542,7 +3546,7 @@ if Reliable then
             local zone = args
             MeteorState.Zone = zone
             MeteorState.IsActive = true
-            Notify("Meteor Event", "Shower Started in: " .. tostring(zone), "alert-circle")
+            Notify("Meteor Event", "Shower Started in: " .. tostring(zone))
             
         elseif msg == "Meteor Spawn" then
             -- Server kirim Posisi Vector3 sebagai argumen (cek MeteorEvent.c Baris 87)
@@ -3586,7 +3590,7 @@ task.spawn(function()
         if zoneDisplayName then
             -- 1. Cek apakah kita sedang di Dungeon/Raid?
             if CheckIsFightingZone() then 
-                if Notify then Notify("Mega Boss", "Ignored: You are in a Dungeon/Raid.", "x-circle") end
+                if Notify then Notify("Mega Boss", "Ignored: You are in a Dungeon/Raid.") end
                 return 
             end
 
@@ -3604,7 +3608,7 @@ task.spawn(function()
                 MegaBossState.IsActive = true
                 MegaBossState.BossDeadCheck = 0
                 
-                if Notify then Notify("Mega Boss", "Spawned at " .. zoneDisplayName .. "! Teleporting...", "skull") end
+                if Notify then Notify("Mega Boss", "Spawned at " .. zoneDisplayName .. "! Teleporting...") end
                 
                 -- 5. Eksekusi Teleport
                 if Reliable and targetZoneID ~= getgenv().PlayerData.Attributes.Zone then
@@ -3873,7 +3877,7 @@ function Optimizer.Update_Ascension_Logic(pData)
             if not Optimizer.Cache.LastAscendTime or (now - Optimizer.Cache.LastAscendTime) > 5 then
                 pcall(function()
                     Reliable:FireServer("Ascend")
-                    if Notify then Notify("Ascension", "Auto Ascending...", "chevrons-up") end
+                    if Notify then Notify("Ascension", "Auto Ascending...") end
                     
                     -- Webhook
                     local hookKey = "AscensionWebhook"
@@ -4408,7 +4412,7 @@ function Optimizer.Update_Avatar_Logic(pData)
                         avatarName = EnemiesConfig[currentAvatar].Display
                     end
                     
-                    Notify("Avatar", string.format("Auto Upgrade: %s to Lv. %d", avatarName, currentLevel + 1), "arrow-up")
+                    Notify("Avatar", string.format("Auto Upgrade: %s to Lv. %d", avatarName, currentLevel + 1))
                     
                     local now = os.time()
                     if not LastWebhookTime["AvatarLevels"] or (now - LastWebhookTime["AvatarLevels"]) >= 10 then
@@ -4583,33 +4587,50 @@ function Optimizer.Update_Heroes_Logic(pData)
             end
         end
         
-        -- [B] LOGIC AUTO LOCK & ROLL (Tetap sama)
+        -- TAMBAHKAN BAGIAN INI --
+        -- 1. Logika Auto Lock (Berjalan Mandiri)
+        if Config.EnableAutoLock then
+            local targetIdx = RarityMap[TargetLockTier] or 999
+            for _, sName in ipairs(ValidStatsList) do
+                local currentIdx = hStats[sName] or 1
+                -- Jika Tier Stats saat ini >= Target Tier DAN belum dikunci
+                if currentIdx >= targetIdx and not lStats[sName] then
+                    pcall(function()
+                        Reliable:FireServer("Lock Hero Stats", {sName})
+                        if Notify then 
+                            Notify("Auto Lock", "Locked " .. sName .. " (Tier " .. (RarityIndexMap[currentIdx] or "?") .. ")", "lock") 
+                        end
+                    end)
+                    task.wait(0.1) -- Jeda singkat agar tidak spam remote
+                end
+            end
+        end
+
+        -- 2. Logika Auto Roll (Hanya jalan jika Auto Roll ON)
         if Config.AutoRollHeroStats then
             local currency = pData.Materials.HeroesStats or 0
-            if currency > 0 then
-                local safeToRoll = true
-                if Config.EnableAutoLock then
-                    local targetIdx = RarityMap[TargetLockTier] or 999
-                    for _, sName in ipairs(ValidStatsList) do
-                        local currentIdx = hStats[sName] or 1
-                        if currentIdx >= targetIdx and not lStats[sName] then
-                            Reliable:FireServer("Lock Hero Stats", {sName})
-                            if Notify then Notify("Auto Lock", "Locking "..sName.." ("..hName..")", "lock") end
-                            safeToRoll = false
-                            task.wait(0.2)
-                        end
-                    end
+            -- Cek apakah semua stats yang >= target sudah terkunci sebelum lanjut roll
+            local allTargetsLocked = true
+            local targetIdx = RarityMap[TargetLockTier] or 999
+            
+            for _, sName in ipairs(ValidStatsList) do
+                local currentIdx = hStats[sName] or 1
+                if currentIdx >= targetIdx and not lStats[sName] then
+                    allTargetsLocked = false
+                    break
                 end
-                if safeToRoll and currency > 15 then
-                    if (os.time() - Optimizer.Cache.LastHeroRollTime) >= 2 then
-                        local anyUnlocked = false
-                        for _, sName in ipairs(ValidStatsList) do 
-                            if not lStats[sName] then anyUnlocked = true; break end 
-                        end
-                        if anyUnlocked then
-                            Reliable:FireServer("Roll Hero Stats", {SelectedHeroUID, false})
-                            Optimizer.Cache.LastHeroRollTime = os.time()
-                        end
+            end
+
+            if allTargetsLocked and currency > 15 then
+                if (os.time() - Optimizer.Cache.LastHeroRollTime) >= 1.5 then
+                    local anyUnlocked = false
+                    for _, sName in ipairs(ValidStatsList) do 
+                        if not lStats[sName] then anyUnlocked = true; break end 
+                    end
+                    
+                    if anyUnlocked then
+                        Reliable:FireServer("Roll Hero Stats", {SelectedHeroUID, false})
+                        Optimizer.Cache.LastHeroRollTime = os.time()
                     end
                 end
             end
@@ -5011,13 +5032,13 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
             if serverQuestData and ((serverQuestData.Status == "Completed") or (serverQuestData.Progress and serverQuestData.Progress >= questInfo.Required)) then
                 if Reliable then
                     pcall(function() Reliable:FireServer("Update HiddenQuests", {strID}) end)
-                    Notify("Hidden Quest", "Claiming Stage " .. currentStageIndex, "gift")
+                    Notify("Hidden Quest", "Claiming Stage " .. currentStageIndex)
                     hasActionTaken = true
                 end
             elseif not serverQuestData then
                 if Reliable then
                     pcall(function() Reliable:FireServer("Update HiddenQuests", {strID}) end)
-                    Notify("Hidden Quest", "Starting Stage " .. currentStageIndex, "book")
+                    Notify("Hidden Quest", "Starting Stage " .. currentStageIndex)
                     hasActionTaken = true 
                 end
             elseif serverQuestData.Status == "Progress" and questInfo.Event == "EnemyDefeated" and targetToFarm then
