@@ -3164,46 +3164,42 @@ function GetClassBuffPercentage(statName, statIndex)
 end
 
 AscUI = {} 
-
+-- [[ CATEGORY: ASCENSION ]] --
 do
-
-    local potionRewardsList = {}
-
-    if PotionsData then
-        local rewardKeys = {"BasicStrengh", "BasicMastery", "BasicYen", "BasicDrop", "BasicLuck"}
-        
-        for _, key in ipairs(rewardKeys) do
-            local data = PotionsData[key]
-            if data then
-                local imgId = data.Template or 0
-                local displayName = data.Display or key
-                
-                local finalImg = GetIcon(imgId)
-                
-                table.insert(potionRewardsList, {
-                    Image = finalImg,
-                    Quantity = "5x",
-                    Title = displayName,
-                    Gradient = ColorSequence.new(Color3.fromRGB(0, 168, 255))
-                })
-            end
-        end
-    else
-        table.insert(potionRewardsList, {
-            Title = "Error Loading Potions",
-            Desc = "Could not require Potions module.",
-            Image = GetIcon(84366761557806)
-        })
-    end
-
+    -- Paragraph Status Utama
     AscUI.Status = FarmTab:Paragraph({
         Title = "Ascension Status",
         Desc = "Waiting for data...",
-        Images = potionRewardsList,
         ImageSize = UDim2.fromOffset(50, 50)
     })
     FM_Add("Ascension", AscUI.Status)
 
+    -- Daftar status yang ingin di-auto
+    local statList = {"Mastery", "Damage", "Luck", "Yen"}
+    Config.AutoStat = {}
+    
+    -- Logika Pembagian 2 Item per Group
+    local currentStatGroup = nil
+    for i, statName in ipairs(statList) do
+        -- Membuat group baru setiap indeks ganjil (1, 3, dst)
+        if (i - 1) % 2 == 0 then
+            currentStatGroup = FarmTab:Group({
+                Title = (i == 1 and "Auto Distribute Stats" or "") 
+            })
+            FM_Add("Ascension", currentStatGroup)
+        end
+        
+        currentStatGroup:Toggle({
+            Title = "Auto " .. statName,
+            Desc = "Auto Distribute Stats points on " .. statName,
+            Flag = "AutoStat_" .. statName,
+            Callback = function(val)
+                Config.AutoStat[statName] = val
+            end
+        })
+    end
+
+    -- Toggle Master untuk Auto Ascend
     AscUI.AutoToggle = FarmTab:Toggle({
         Title = "Auto Ascend",
         Desc = "Automatically ascend when Level Cap is reached.",
@@ -3831,46 +3827,50 @@ function Optimizer.Update_Gamemode_Dropdowns()
 end
 
 function Optimizer.Update_Ascension_Logic(pData)
-    if not pData.Attributes then return end
+    if not pData.Attributes or not LevelUpModule then return end
     
     local currentLevel = pData.Attributes.Level or 1
     local currentAsc = pData.Attributes.Ascension or 0
     
-    -- Hitung Max Level (Logic dari Decompile)
-    local maxLevel = 100 
-    if LevelUpModule and LevelUpModule.GetMaxLevel then
-        maxLevel = LevelUpModule.GetMaxLevel(currentAsc)
-    end
+    -- Hitung Max Level
+    local maxLevel = LevelUpModule.GetMaxLevel(currentAsc)
     
-    local pointsPerLevel = currentAsc + 1
-
-    -- Update UI Visual (Menggunakan AscUI table)
+    -- [TAMBAHAN] Kalkulasi Exp Bonus (Base 10 sebagai contoh display)
+    local currentExpBonus = LevelUpModule.GetExpWithBonus(10, pData)
+    local expMultiplier = currentExpBonus / 10
+    
+    -- Update UI Visual
     if not Window.Closed and AscUI and AscUI.Status then
         local pct = math.clamp(currentLevel / maxLevel, 0, 1)
         local bar = string.rep("█", math.floor(pct * 10)) .. string.rep("▒", 10 - math.floor(pct * 10))
         
         local desc = string.format(
-            "Current Ascension: %d\nLevel: %d / %d\n[%s] %d%%\nPoints Per Level: %d",
-            currentAsc, currentLevel, maxLevel, bar, math.floor(pct * 100), pointsPerLevel
+            "Current Ascension: %d\nLevel: %d / %d\n[%s] %d%%\n<b>Exp Multiplier: x%.2f</b>\n(Base 10 Exp -> %s)",
+            currentAsc, currentLevel, maxLevel, bar, math.floor(pct * 100), 
+            expMultiplier, tostring(currentExpBonus)
         )
         
-        -- Logic UI Max Ascension
-        if LevelUpModule and LevelUpModule.MAX_ASCENSION and currentAsc >= LevelUpModule.MAX_ASCENSION then
-             AscUI.Status:SetTitle("Ascension MAXED")
-             AscUI.Status:SetDesc("You have reached the maximum ascension.")
-             
-             if AscUI.AutoToggle and not AscUI.AutoToggle.Locked then
-                 AscUI.AutoToggle:Set(false)
-                 AscUI.AutoToggle:Lock()
-             end
-        else
-            AscUI.Status:SetTitle("Progress Tracker")
-            AscUI.Status:SetDesc(desc)
-             if AscUI.AutoToggle and AscUI.AutoToggle.Locked then AscUI.AutoToggle:Unlock() end
+        AscUI.Status:SetDesc(desc)
+    end
+
+    -- [FEATURE] Auto Distribute Stat Point
+    local availablePoints = LevelUpModule.CountPoints(pData)
+    if availablePoints > 0 then
+        for statName, isEnabled in pairs(Config.AutoStat) do
+            if isEnabled then
+                -- Menyesuaikan dengan remote di LevelUpStats.c
+                -- Pastikan StatPointAmount di set (misal 1 atau 10) agar tidak lambat
+                if Reliable then
+                    pcall(function()
+                        -- Kita kirim request distribusi ke server
+                        Reliable:FireServer("Distribute Stat Point", {statName})
+                    end)
+                end
+            end
         end
     end
 
-    -- Logic Auto Ascend
+    -- Logic Auto Ascend (Tetap sama)
     if Config.AutoAscend and currentLevel >= maxLevel then
         if Reliable then
             local now = os.time()
@@ -3878,13 +3878,6 @@ function Optimizer.Update_Ascension_Logic(pData)
                 pcall(function()
                     Reliable:FireServer("Ascend")
                     if Notify then Notify("Ascension", "Auto Ascending...") end
-                    
-                    -- Webhook
-                    local hookKey = "AscensionWebhook"
-                    if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 10 then
-                        SendUpgradeWebhook("Rank", "Ascension " .. (currentAsc + 1), currentAsc + 1, 0)
-                        LastWebhookTime[hookKey] = now
-                    end
                 end)
                 Optimizer.Cache.LastAscendTime = now
             end
