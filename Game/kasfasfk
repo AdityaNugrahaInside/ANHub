@@ -928,14 +928,20 @@ end
 
 local function IsSwordsmanActive()
     local folder = GetTargetFolder("SwordsmanInvasion")
-    if folder and #folder:GetChildren() > 0 then
-        -- Cek settings
+    if folder then
+        local validCount = 0
+        for _, enemy in pairs(folder:GetChildren()) do
+            if enemy.Name ~= "Kiito" then
+                validCount = validCount + 1
+            end
+        end
+        
         local settings = GamemodeSettings["SwordsmanInvasion"]
-        return settings and settings.Active
+        -- Farming hanya pause jika ada musuh SELAIN Kiito dan setting aktif
+        return settings and settings.Active and validCount > 0
     end
     return false
 end
-
 -- Loop Utama Eksekusi Farm
 task.spawn(function()
     while not Window.Destroyed do
@@ -1313,7 +1319,6 @@ end)
 task.spawn(function()
     local requiredMap = "World of Aincrad"
     
-    -- Helper: Menghitung musuh selain Kiito
     local function GetValidSwordsmanEnemies()
         local folder = GetTargetFolder("SwordsmanInvasion")
         if not folder then return 0 end
@@ -1329,11 +1334,10 @@ task.spawn(function()
         if settings and settings.Active and not isTransitioning and not isGlobalBossActive then
             local pData = getgenv().PlayerData
             local currentMap = pData and pData.Map
-            
-            -- [UBAH]: Gunakan helper untuk cek musuh valid
             local validEnemies = GetValidSwordsmanEnemies()
 
             if validEnemies > 0 then
+                -- [LOGIKA SAAT ADA MUSUH]
                 if not SwordsmanStartTime then
                     SwordsmanStartTime = os.time()
                 end
@@ -1350,45 +1354,33 @@ task.spawn(function()
                     local elapsed = SwordsmanStartTime and (os.time() - SwordsmanStartTime) or 0
                     return settings.Active and aliveCount > 0 and elapsed < 50 and not isTransitioning
                 end, "SwordsmanInvasion")
+            end
 
-                -- [UBAH]: Cek kembali setelah Killer selesai
-                local stillEnemies = GetValidSwordsmanEnemies()
-                local elapsed = SwordsmanStartTime and (os.time() - SwordsmanStartTime) or 0
-
-                if stillEnemies > 0 and elapsed >= 50 then
-                    if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= requiredMap then
-                        Notify("SwordsmanInvasion", "Time limit reached, returning.", "clock")
-                        isTransitioning = false
-                        SmartTeleport(savedPreviousMap)
-                        savedPreviousMap = nil
-                    end
-                    SwordsmanStartTime = nil
-                elseif stillEnemies == 0 then
-                    -- Langsung anggap selesai jika musuh selain Kiito sudah habis
-                    if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= requiredMap then
-                        Notify("SwordsmanInvasion", "Invasion cleared (Kiito ignored), returning.", "check")
-                        isTransitioning = false
-                        SmartTeleport(savedPreviousMap)
-                        savedPreviousMap = nil
-                    end
-                    SwordsmanStartTime = nil
-                end
-            else
-                local ok, key = IsTimeForSwordsman()
-                if ok and currentMap and currentMap ~= "None" and currentMap ~= "Loading" then
-                    if SwordsmanLastTriggerKey ~= key then
-                        if currentMap ~= requiredMap then
-                            savedPreviousMap = currentMap
-                            Notify("SwordsmanInvasion", "Teleporting for invasion timer.", "map")
-                            SmartTeleport(requiredMap)
-                        end
-                        SwordsmanLastTriggerKey = key
-                    end
-                end
-                if not ok then
-                    SwordsmanLastTriggerKey = nil
+            -- [LOGIKA PULANG - DIPINDAH KE LUAR AGAR SELALU TERCEK]
+            -- Cek jika musuh sudah 0 DAN kita masih di map invasi DAN punya tujuan pulang
+            if validEnemies == 0 and currentMap == requiredMap then
+                if savedPreviousMap and savedPreviousMap ~= "None" and savedPreviousMap ~= requiredMap then
+                    Notify("SwordsmanInvasion", "Invasion cleared, returning home.", "check")
+                    isTransitioning = false
+                    SmartTeleport(savedPreviousMap)
+                    savedPreviousMap = nil -- Reset setelah pulang
                 end
                 SwordsmanStartTime = nil
+            end
+
+            -- [LOGIKA TIMER SPAWN (ABSEN)]
+            local ok, key = IsTimeForSwordsman()
+            if ok and currentMap and currentMap ~= "None" and currentMap ~= "Loading" then
+                if SwordsmanLastTriggerKey ~= key then
+                    if currentMap ~= requiredMap then
+                        savedPreviousMap = currentMap
+                        Notify("SwordsmanInvasion", "Teleporting for invasion timer.", "map")
+                        SmartTeleport(requiredMap)
+                    end
+                    SwordsmanLastTriggerKey = key
+                end
+            elseif not ok then
+                SwordsmanLastTriggerKey = nil
             end
         else
             SwordsmanStartTime = nil
