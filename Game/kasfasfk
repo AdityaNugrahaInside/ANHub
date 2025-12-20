@@ -227,7 +227,7 @@ end
 local l = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua"))()
 -- local l = require("d:/Roblox/A/WindUI/src/Init.lua")
 local Window = l:CreateWindow({
-    Title = "AN Hub - Anime Advanced",
+    Title = "AN Hub Anime Advanced",
     Icon = "rbxassetid://84366761557806",
     Author = "Aditya Nugraha",
     Folder = "AnimeAdvanced",
@@ -2051,8 +2051,7 @@ TextChatService.MessageReceived:Connect(function(message)
     
     local rawText = message.Text
     local cleanText = CleanRichText(rawText)
-
-    -- Cek format pesan [GAMEMODE] ... has started
+    -- [DI DALAM TextChatService.MessageReceived]
     if string.find(rawText, "%[GAMEMODE%]") and string.find(rawText, "has started") then
         if string.find(cleanText, "Eclipse Defense") then
             ActiveEventsFromChat["EclipseDefense"] = true
@@ -2061,6 +2060,11 @@ TextChatService.MessageReceived:Connect(function(message)
         if string.find(cleanText, "Raid") then
             ActiveEventsFromChat["Raid"] = true
             task.delay(60, function() ActiveEventsFromChat["Raid"] = nil end)
+        end
+        -- TAMBAHKAN KODE DI BAWAH INI:
+        if string.find(cleanText, "Swordsman Invasion") then
+            ActiveEventsFromChat["SwordsmanInvasion"] = true
+            task.delay(60, function() ActiveEventsFromChat["SwordsmanInvasion"] = nil end)
         end
     end
 
