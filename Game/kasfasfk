@@ -166,21 +166,37 @@ local function SaveMapSelection(mapName, enemyValue)
     writefile(SelectionsFile, HttpService:JSONEncode(MapSelections))
 end
 
--- [HELPER: KEYS]
-local function GetOnlineKeys()
-    local keys = {"Keynya", "FreeKey"}
-    local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key"
-    local success, response = pcall(function() return game:HttpGet(url) end)
+-- Variabel Global untuk Validasi
+local IsPremium = false
+local ValidKeys = {"ANHUB-2025"} -- Key default untuk Free User
+
+function LoadKeySystemData()
+    local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key.txt"
+    local success, response = pcall(function()
+        return game:HttpGet(url)
+    end)
+    
     if success then
-        keys = {}
         for line in response:gmatch("[^\r\n]+") do
-            local cleanKey = string.gsub(line, "^%s*(.-)%s*$", "%1")
-            if cleanKey ~= "" then table.insert(keys, cleanKey) end
+            -- Memisahkan ID dan Key (Format: UserId:MD5Key)
+            local parts = string.split(line, ":")
+            if #parts >= 2 then
+                local userid_in_file = string.gsub(parts[1], "%s+", "") -- Hapus spasi jika ada
+                local key_in_file = string.gsub(parts[2], "%s+", "")
+                
+                table.insert(ValidKeys, key_in_file)
+                
+                -- Deteksi jika player adalah pemilik ID Premium
+                if userid_in_file == tostring(LocalPlayer.UserId) then
+                    IsPremium = true
+                end
+            end
         end
     end
-    return keys
 end
 
+-- Jalankan pengecekan data
+LoadKeySystemData()
 -- [HELPER: DATA SCAN]
 local OmniRef = require(ReplicatedStorage.Omni)
 local NumberUtils = require(ReplicatedStorage.Libs.Utils.Scripts.Number)
@@ -245,12 +261,13 @@ local Window = l:CreateWindow({
     HideSearchBar = true,
     ToggleKey = Enum.KeyCode.RightControl,
     KeySystem = {
-        Enabled = true,
+        -- Fitur Auto-Fill/Bypass: Jika Premium, Enabled = false (langsung masuk)
+        Enabled = not IsPremium, 
         Title = "ANHub Access",
-        Description = "Key expires every 24 Hours!",
-        Key = GetOnlineKeys(),
+        Description = "Free Key: ANHUB-2025",
+        Key = ValidKeys,
         URL = "https://discord.gg/cy6uMRmeZ",
-        Note = "Join Discord for Key",
+        Note = "Premium Users are auto-verified!",
         SaveKey = true
     }
 })
@@ -1534,7 +1551,25 @@ local function MakeProfile(data)
 end
 
 Window:Tab({Profile = MakeProfile({ Title = "ANHub Script", Desc = "Anime Advanced" }), SidebarProfile = true})
-Window:Tag({ Title = "v" .. l.Version, Icon = "github", Color = Color3.fromHex("#ff0000") });
+
+
+do
+    -- Update Tag berdasarkan status akses
+    if IsPremium then
+        Window:Tag({
+            Title = "Premium User",
+            Icon = "crown",
+            Color = Color3.fromHex("#FFD700") -- Warna Emas
+        })
+        Notify("Welcome!", "Premium Access Verified. Enjoy!", "crown")
+    else
+        Window:Tag({
+            Title = "Free User",
+            Icon = "user",
+            Color = Color3.fromHex("#FFFFFF") -- Warna Putih
+        })
+    end
+end;
 
 local MainTab = Window:Tab({Title = "Main Feature", Icon = "swords", Profile = MakeProfile({Avatar = GameIconURL,Title = "Game Feature", Desc = "Anime Advanced"}), SidebarProfile = false})
 
