@@ -2425,7 +2425,7 @@ task.spawn(function()
                     if currentLvl >= maxLvl then
                         uiElement:SetTitle(upgradeName .. " [MAX]")
                         uiElement:SetDesc(perkDesc .. "Level: " .. currentLvl .. " (Maxed)")
-                        uiElement:Lock(true) -- Opsional: Lock jika max
+                        uiElement:Lock() -- Opsional: Lock jika max
                         uiElement:Set(false)
                     else
                         uiElement:SetTitle(upgradeName)
@@ -2573,7 +2573,7 @@ local WU_MapDropdown = FM_Add("World Upgrade", MainTab:Dropdown({
 
                 -- Kunci toggle jika level sudah maksimal saat UI pertama kali dibuat
                 if currentLvl >= 10 then
-                    tgl:Lock(true)
+                    tgl:Lock()
                     tgl:Set(false) -- Matikan toggle agar tidak auto-buy lagi
                 end
 
@@ -2994,7 +2994,7 @@ for i, power in ipairs(powerList) do
         
         if not IsMapUnlocked(power.Map) then
             if tgl.Lock then 
-                 tgl:Lock(true)
+                 tgl:Lock()
                  power.allow = false
                  tgl:SetDesc("LOCKED: " .. power.Map)
             end
@@ -3046,7 +3046,7 @@ if TalentPowerData then
     
     if not IsMapUnlocked(power.Map) then
         if tgl.Lock then 
-             tgl:Lock(true)
+             tgl:Lock()
              power.allow = false
              tgl:SetDesc("LOCKED: " .. power.Map)
         end
@@ -3132,7 +3132,7 @@ task.spawn(function()
                         end
                         
                         -- Kunci UI & Ubah Title
-                        toggleUI:Lock(true)
+                        toggleUI:Lock()
                         toggleUI:SetTitle(baseTitle .. " [MAX]")
                         toggleUI:SetDesc("Status: Scarlet (Maxed)")
                         
@@ -4825,7 +4825,7 @@ task.spawn(function()
 
                         -- [FITUR BARU] AUTO LOCK JIKA MAX LEVEL
                         if currentLevel >= upgradeConfig.Levels then
-                            toggleUI:Lock(true) -- Mengunci toggle agar tidak bisa diklik
+                            toggleUI:Lock() -- Mengunci toggle agar tidak bisa diklik
                             if toggleUI.Value then 
                                 toggleUI:Set(false) -- Matikan status toggle jika masih ON
                             end
@@ -5008,7 +5008,7 @@ task.spawn(function()
                         
                         -- Update Status Kunci (Lock) jika stok habis
                         if realStock <= 0 then
-                            toggleUI:Lock(true)
+                            toggleUI:Lock()
                             if toggleUI.Value then toggleUI:Set(false) end
                         else
                             toggleUI:Unlock()
