@@ -1236,6 +1236,7 @@ FM_CategoryDescriptions = {
     ["Heroes Stats"] = "Reroll Heroes Stats, view stats and costs",
     ["Ascension"] = "You can exchange all your level progress to obtain boosts.",
     ["Enchantments"] = "Add Stats Enchantments To Your Weapon.",
+    ["Weapon Reforging"] = "Reforge Tier 3 weapons to get +50% Mastery Boost (1 Hour process)",
     ["Exchange"] = "Exchange materials, preview tokens and calculate amounts",
     ["Rolls"] = "Auto roll various gachas and monitor material stock",
     ["Upgrade: Yen"] = "Upgrade Yen buff along with cost and effects",
@@ -1301,9 +1302,10 @@ FM_Category = FarmTab:Category({
         {Title="Secret Quests", Icon=GetIcon(104488852837942)},
         {Title="Vault", Icon=GetIcon(90798559571883)},
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
-        {Title="Heroes Stats", Icon=GetIcon(127892390350003)},
+        {Title="Heroes Stats", Icon=GetIcon(127892390350003)},-- Tambahkan di dalam FM_Category Options
         {Title="Ascension", Icon=GetIcon(84524784941090)},
         {Title="Enchantments", Icon=GetIcon(104488852837942)},
+        {Title="Weapon Reforging", Icon=GetIcon(76533888574769)},
         {Title="Exchange", Icon=GetIcon(101595095661272)},
         {Title="Rolls", Icon=GetIcon(128047949460588)},
         {Title="Upgrade: Yen", Icon=GetIcon(139379806755218)},
@@ -3411,6 +3413,65 @@ do
     end
 end
 
+-- [[ CATEGORY: WEAPON REFORGING ]] --
+function RefreshReforgeDropdown()
+    local pData = getgenv().PlayerData
+    local list = {}
+    if pData and pData.Weapons then
+        for uid, wData in pairs(pData.Weapons) do
+            -- Logika decompile: Harus Tier 3, tidak Locked, tidak Reforged
+            if wData.Tier == 3 and not wData.Locked and not wData.Reforged then
+                local staticInfo = WeaponsModule[wData.Index]
+                if staticInfo then
+                    table.insert(list, {
+                        Title = staticInfo.Display or uid,
+                        Value = uid,
+                        Desc = "Mastery: " .. (staticInfo.Mastery or 0),
+                        Icon = GetIcon(staticInfo.Template)
+                    })
+                end
+            end
+        end
+    end
+    return list
+end
+
+-- Paragraph Status
+ReforgeStatusPara = FarmTab:Paragraph({
+    Title = "Reforge Status",
+    Desc = "Select a Tier 3 weapon to see details.",
+})
+FM_Add("Weapon Reforging", ReforgeStatusPara)
+
+-- Dropdown Pemilihan Senjata Utama
+ReforgeMainDrop = FarmTab:Dropdown({
+    Title = "Select Main Weapon",
+    Desc = "Only Tier 3 weapons are shown.",
+    Values = RefreshReforgeDropdown(),
+    Multi = false,
+    Flag = "ReforgeMain_Cfg",
+    Callback = function(val)
+        Config.SelectedReforgeMainUID = type(val) == "table" and val.Value or val
+    end
+})
+FM_Add("Weapon Reforging", ReforgeMainDrop)
+
+-- Toggle Auto Reforge
+ReforgeToggle = FarmTab:Toggle({
+    Title = "Auto Reforge & Claim",
+    Desc = "Auto start process (1 Hour) and auto claim results.",
+    Flag = "AutoReforge_Cfg",
+    Callback = function(val)
+        Config.AutoReforge = val
+    end
+})
+FM_Add("Weapon Reforging", ReforgeToggle)
+
+-- [SISTEM LOCK PREMIUM] --
+if not IsPremium then
+    ReforgeMainDrop:Lock("Need Premium User")
+    ReforgeToggle:Lock("Need Premium User")
+end
 SelectedHeroUID = nil 
 
 HeroSelectDrop = FarmTab:Dropdown({
@@ -4060,6 +4121,63 @@ function Optimizer.Update_Enchantments_Logic(pData)
                 end
             end
 
+        end
+    end
+end
+
+function Optimizer.Update_Reforge_Logic(pData)
+    local reforgeData = pData.Reforging -- Data proses dari server
+    local cache = Optimizer.Cache
+    
+    if reforgeData then
+        -- 1. LOGIKA TIMER (1 JAM)
+        local timePassed = os.time() - reforgeData.Timestamp
+        local timeLeft = 3600 - timePassed -- 3600 detik = 1 jam
+        
+        if timeLeft > 0 then
+            local timeStr = shared.Utils.FormatTimer(timeLeft) -- Format 00:00:00
+            local pct = math.clamp(timePassed / 3600, 0, 1)
+            local bar = string.rep("█", math.floor(pct * 10)) .. string.rep("▒", 10 - math.floor(pct * 10))
+            
+            local desc = string.format("Status: <font color='#ffaa00'>FORGING</font>\nTime: %s\n[%s] %d%%", timeStr, bar, math.floor(pct * 100))
+            if cache.LastReforgeText ~= desc then
+                ReforgeStatusPara:SetDesc(desc)
+                cache.LastReforgeText = desc
+            end
+        else
+            -- 2. LOGIKA CLAIM
+            if cache.LastReforgeText ~= "Ready" then
+                ReforgeStatusPara:SetDesc("Status: <font color='#00ff00'>READY TO CLAIM</font>\nClick Claim or wait for Auto.")
+                cache.LastReforgeText = "Ready"
+            end
+            
+            if Config.AutoReforge and Reliable then
+                Reliable:FireServer("Reforge Claim") -- Remote claim dari decompile
+                Notify("Reforge", "Weapon Claimed! +50% Mastery Boost applied.")
+            end
+        end
+    else
+        -- 3. LOGIKA START REFORGE (1 Main + 2 Materials)
+        if Config.AutoReforge and Config.SelectedReforgeMainUID then
+            local mainUID = Config.SelectedReforgeMainUID
+            local mainData = pData.Weapons[mainUID]
+            
+            if mainData and not mainData.Locked then
+                local materials = {}
+                -- Cari 2 bahan dengan Index yang sama
+                for uid, wData in pairs(pData.Weapons) do
+                    if uid ~= mainUID and wData.Index == mainData.Index and wData.Tier == 3 and not wData.Locked and not wData.Reforged then
+                        table.insert(materials, uid)
+                        if #materials == 2 then break end
+                    end
+                end
+                
+                if #materials == 2 and Reliable then
+                    -- Remote start: Main UID, Tabel Materials
+                    Reliable:FireServer("Reforge Start", { mainUID, materials })
+                    Notify("Reforge", "Process Started (1 Hour)")
+                end
+            end
         end
     end
 end
@@ -5190,6 +5308,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Main_Data_Logic, pData)
             pcall(Optimizer.Update_Ascension_Logic, pData)
             pcall(Optimizer.Update_Enchantments_Logic, pData)
+            pcall(Optimizer.Update_Reforge_Logic)
             pcall(Optimizer.Update_Exchange_Logic, pData)
             pcall(Optimizer.Update_Roll_Logic, pData)
             pcall(Optimizer.Update_Craft_Logic, pData)
