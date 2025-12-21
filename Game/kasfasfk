@@ -5121,7 +5121,7 @@ task.spawn(function()
         if not Window.Closed then UpdateSupremeUI() end
 
         -- B. Logika Keluar: Jika toggle mati ATAU (boss mati DAN material habis)
-        if not isAutoSupreme or (not isBossAlive and not hasMaterials) then
+        if not isAutoSupreme or (not isBossAlive and not hasMaterials) or IsInGamemode() or IsSwordsmanActive() or isTransitioning or isGlobalBossActive then 
             continue
         end
 
