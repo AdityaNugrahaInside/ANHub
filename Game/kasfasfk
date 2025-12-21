@@ -1143,7 +1143,8 @@ local function GamemodeKiller(stopCheckFunc, overrideMapName)
 
             for _, enemyObj in ipairs(children) do
                 if not stopCheckFunc() then break end
-                if currentMap == "SwordsmanInvasion" and enemyObj.Name == "Kiito" then
+                local settings = GamemodeSettings["SwordsmanInvasion"]
+                if currentMap == "SwordsmanInvasion" and settings and enemyObj.Name == settings.IgnoreEnemy then
                     continue
                 end
 
@@ -1248,7 +1249,7 @@ if not GamemodeSettings["SwordsmanInvasion"] then
         Active = false,
         UseKey = false,
         Priority = false,
-        IgnoreEnemy = "Kiito" -- Nilai default
+        IgnoreEnemy = "" -- Nilai default
     }
 end
 if not GlobalGamemodeDB["SwordsmanInvasion"] then
@@ -2338,7 +2339,7 @@ local function UpdateGM_UI(modeName)
         if modeName == "SwordsmanInvasion" then
             frame.Visible = true
             UI_GM.WaveInput.ElementFrame.Visible = false
-            UI_GM.IgnoreEnemyDD:Set(settings.IgnoreEnemy or "Kiito")
+            UI_GM.IgnoreEnemyDD:Set(settings.IgnoreEnemy)
         else
             frame.Visible = false
             UI_GM.WaveInput.ElementFrame.Visible = true
