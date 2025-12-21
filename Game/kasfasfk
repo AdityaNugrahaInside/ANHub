@@ -250,7 +250,7 @@ end
 local l = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua"))()
 -- local l = require("d:/Roblox/A/WindUI/src/Init.lua")
 local Window = l:CreateWindow({
-    Title = "AN Hub Anime Advanced",
+    Title = "AN Hub - Anime Advanced",
     Icon = "rbxassetid://84366761557806",
     Author = "Aditya Nugraha",
     Folder = "AnimeAdvanced",
