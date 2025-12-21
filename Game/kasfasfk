@@ -3489,7 +3489,7 @@ task.spawn(function()
                 
                 if dist <= 15 then
                     ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
-                        {"General", "Stars", "Open", targetStar, 10, n = 10}, 
+                        {"General", "Stars", "Open", targetStar, 10000, n = 10}, 
                         "\2"
                     })
                 else
