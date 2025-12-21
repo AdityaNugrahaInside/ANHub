@@ -64,6 +64,7 @@ local raidJoinList = {{name = "Raid", time = 0}}
 local SelectedGamemodeName = "TrialEasy"
 local ActiveEventsFromChat = {} 
 local UI_GM = { WaveInput = nil, AutoToggle = nil, KeyToggle = nil, InfoLabel = nil }
+UI_GM.IgnoreEnemyDD = nil -- Tambahkan ini di dekat variable UI_GM lainnya
 local GM_DropdownList = {}
 
 local GlobalGachaSources = {} 
@@ -1016,15 +1017,16 @@ end
 local function IsSwordsmanActive()
     local folder = GetTargetFolder("SwordsmanInvasion")
     if folder then
+        local settings = GamemodeSettings["SwordsmanInvasion"]
+        local filterName = settings.IgnoreEnemy
+        
         local validCount = 0
         for _, enemy in pairs(folder:GetChildren()) do
-            if enemy.Name ~= "Kiito" then
+            if enemy.Name ~= filterName then -- Gunakan variable
                 validCount = validCount + 1
             end
         end
         
-        local settings = GamemodeSettings["SwordsmanInvasion"]
-        -- Farming hanya pause jika ada musuh SELAIN Kiito dan setting aktif
         return settings and settings.Active and validCount > 0
     end
     return false
@@ -1240,13 +1242,13 @@ local function LoadGamemodeDB()
 end
 LoadGamemodeDB()
 
--- Manually add SwordsmanInvasion if not present (Custom Event)
+-- Ubah bagian inisialisasi SwordsmanInvasion menjadi seperti ini:
 if not GamemodeSettings["SwordsmanInvasion"] then
     GamemodeSettings["SwordsmanInvasion"] = {
         Active = false,
-        TargetWave = 9999,
         UseKey = false,
-        Priority = false
+        Priority = false,
+        IgnoreEnemy = "Kiito" -- Nilai default
     }
 end
 if not GlobalGamemodeDB["SwordsmanInvasion"] then
@@ -1415,9 +1417,15 @@ task.spawn(function()
     local function GetValidSwordsmanEnemies()
         local folder = GetTargetFolder("SwordsmanInvasion")
         if not folder then return 0 end
+        
+        local settings = GamemodeSettings["SwordsmanInvasion"]
+        local filterName = settings.IgnoreEnemy
+        
         local count = 0
         for _, v in ipairs(folder:GetChildren()) do
-            if v.Name ~= "Kiito" then count = count + 1 end
+            if v.Name ~= filterName then -- Gunakan variable
+                count = count + 1 
+            end
         end
         return count
     end
@@ -2206,8 +2214,6 @@ end)
 -- ============================================================================
 
 -- UI Reference Variables
-UI_GM = { WaveInput = nil, AutoToggle = nil, KeyToggle = nil, InfoLabel = nil }
-
 -- 1. Generate Dropdown List
 table.clear(GM_DropdownList)
 for name, _ in pairs(GlobalGamemodeDB) do table.insert(GM_DropdownList, name) end
@@ -2255,6 +2261,18 @@ local function UpdateGM_UI(modeName)
         if db.Item then info = info .. "Cost: 1x " .. db.Item .. "\n" end
         if db.MaxWave then info = info .. "Max Wave: " .. db.MaxWave end
         UI_GM.InfoLabel:SetDesc(info)
+    end
+
+    if UI_GM.IgnoreEnemyDD then
+        local frame = UI_GM.IgnoreEnemyDD.ElementFrame or UI_GM.IgnoreEnemyDD.GroupFrame
+        if modeName == "SwordsmanInvasion" then
+            frame.Visible = true
+            UI_GM.WaveInput.ElementFrame.Visible = false
+            UI_GM.IgnoreEnemyDD:Set(settings.IgnoreEnemy or "Kiito")
+        else
+            frame.Visible = false
+            UI_GM.WaveInput.ElementFrame.Visible = true
+        end
     end
 end
 
@@ -2310,7 +2328,19 @@ UI_GM.KeyToggle = FM_Add("Gamemodes", MainTab:Toggle({
         end
     end
 }))
-
+UI_GM.IgnoreEnemyDD = FM_Add("Gamemodes", MainTab:Dropdown({
+    Title = "Ignore Enemy (Don't Kill)",
+    Desc = "Select which enemy to ignore during Invasion",
+    Values = {"Kiito"}, -- Anda bisa menambah daftar musuh di sini
+    Value = "Kiito",
+    AllowNone = true,
+    Callback = function(v)
+        if SelectedGamemodeName == "SwordsmanInvasion" then
+            GamemodeSettings["SwordsmanInvasion"].IgnoreEnemy = v
+            SaveGMSettings()
+        end
+    end
+}))
 -- Initial Update (Penting agar UI langsung sinkron saat start)
 UpdateGM_UI("Raid")
 -- ============================================================================
