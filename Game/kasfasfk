@@ -5034,7 +5034,13 @@ task.spawn(function()
         task.wait(1)
     end
 end)
-SupremeInfoLabel = nil
+
+
+-- 3. Info Display (Price & Drops)
+local SupremeInfoLabel = FM_Add("Bosses", MainTab:Paragraph({
+    Title = "Requirement & Drops",
+    Desc = "Select a Boss to see details."
+}))
 -- ============================================================================
 --  SUPREME BOSSES FEATURE
 -- ============================================================================
@@ -5062,7 +5068,6 @@ local function UpdateSupremeUI()
         SupremeInfoLabel:SetDesc(infoText)
     end
 end
-FM_Add("Bosses", MainTab:Paragraph({Title = "Supreme Bosses", Desc = "Auto Spawn, Teleport, and Kill Supreme Bosses."}))
 
 local SupremeBossList = {}
 for name, _ in pairs(GlobalSupremeBossDB) do table.insert(SupremeBossList, name) end
@@ -5089,13 +5094,6 @@ FM_Add("Bosses", MainTab:Dropdown({
         selectedSupremeDiff = v 
         UpdateSupremeUI() -- Tambahkan ini
     end
-}))
-
-
--- 3. Info Display (Price & Drops)
-local SupremeInfoLabel = FM_Add("Bosses", MainTab:Paragraph({
-    Title = "Requirement & Drops",
-    Desc = "Select a Boss to see details."
 }))
 -- Toggle Auto Supreme
 FM_Add("Bosses", MainTab:Toggle({
