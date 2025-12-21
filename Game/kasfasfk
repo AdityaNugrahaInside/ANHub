@@ -111,6 +111,12 @@ SelectedRuneToAct = "Damage Rune"
 isAutoPrestige = false
 AutoPrestigeDelay = 0.5
 
+-- [DATABASE SUPREME BOSSES]
+GlobalSupremeBossDB = {}
+local selectedSupremeBoss = nil
+local selectedSupremeDiff = "Easy"
+local isAutoSupreme = false
+
 
 -- Anti-AFK
 LocalPlayer.Idled:Connect(function()
@@ -830,6 +836,70 @@ local function IsInGamemode()
     return false
 end
 
+
+local function LoadSupremeBossData()
+    local path = ReplicatedStorage:WaitForChild("Shared"):FindFirstChild("SupremeBosses")
+    if path then
+        for _, module in pairs(path:GetChildren()) do
+            if module:IsA("ModuleScript") then
+                local success, data = pcall(require, module)
+                if success then
+                    GlobalSupremeBossDB[module.Name] = data
+                end
+            end
+        end
+    end
+end
+LoadSupremeBossData()
+
+-- [HELPER] Cek ketersediaan material Supreme Boss
+local function HasSupremeMaterials()
+    if not selectedSupremeBoss or not GlobalSupremeBossDB[selectedSupremeBoss] then return false end
+    
+    local pData = getgenv().PlayerData
+    local data = GlobalSupremeBossDB[selectedSupremeBoss]
+    local diffData = data.Difficulties[selectedSupremeDiff]
+    
+    if pData and diffData then
+        local priceItem = data.Price.Item
+        local myBalance = (pData.Items and pData.Items[priceItem]) or 0
+        return myBalance >= diffData.Price
+    end
+    return false
+end
+
+-- [HELPER] Pengecekan Status Boss & Material yang Aman
+local function GetSupremeStatus()
+    local pData = getgenv().PlayerData
+    if not isAutoSupreme or not pData or not selectedSupremeBoss then return false, false end
+    
+    -- 1. Pengecekan Path Folder secara Aman (Mencegah Error nil)
+    local server = workspace:FindFirstChild("Server")
+    local enemies = server and server:FindFirstChild("Enemies")
+    local gamemodes = enemies and enemies:FindFirstChild("Gamemodes")
+    local supremeFolder = gamemodes and gamemodes:FindFirstChild("SupremeBosses")
+    
+    -- Boss dianggap hidup jika folder ada DAN ada model musuh di dalamnya
+    local isBossAlive = false
+    if supremeFolder then
+        local children = supremeFolder:GetChildren()
+        if #children > 0 then
+            isBossAlive = true
+        end
+    end
+    
+    -- 2. Pengecekan Material
+    local hasMaterials = false
+    local data = GlobalSupremeBossDB[selectedSupremeBoss]
+    local diffData = data and data.Difficulties[selectedSupremeDiff]
+    if data and diffData then
+        local priceItem = data.Price.Item
+        local myBalance = (pData.Items and pData.Items[priceItem]) or 0
+        hasMaterials = myBalance >= diffData.Price
+    end
+    
+    return isBossAlive, hasMaterials
+end
 -- ============================================================================
 --  FARMING LOGIC (SERVER SIDE PARTS + CFRAME) [UPDATED: ANTI-FLOAT]
 -- ============================================================================
@@ -945,7 +1015,12 @@ end
 -- Loop Utama Eksekusi Farm
 task.spawn(function()
     while not Window.Destroyed do
-        if isFarm1 and not isGlobalBossActive and not isTransitioning and not IsInGamemode() and not IsSwordsmanActive() then
+        -- Cari baris ini:
+        local isBossStillThere, canSpawnNew = GetSupremeStatus()
+        local shouldFocusSupreme = isAutoSupreme and (isBossStillThere or canSpawnNew)
+
+        -- Ganti baris pengecekan isFarm1 menjadi:
+        if isFarm1 and not isGlobalBossActive and not isTransitioning and not IsInGamemode() and not IsSwordsmanActive() and not shouldFocusSupreme then
             FarmServerEnemies()
         end
         task.wait(0.1)
@@ -4922,6 +4997,134 @@ task.spawn(function()
             end
         end
         task.wait(1)
+    end
+end)
+-- ============================================================================
+--  SUPREME BOSSES FEATURE
+-- ============================================================================
+local function UpdateSupremeUI()
+    local pData = getgenv().PlayerData
+    if not pData or not selectedSupremeBoss or not GlobalSupremeBossDB[selectedSupremeBoss] then return end
+
+    local data = GlobalSupremeBossDB[selectedSupremeBoss]
+    local diffData = data.Difficulties[selectedSupremeDiff]
+    if not diffData then return end
+
+    local priceItem = data.Price.Item
+    local itemInfo = GetItemInfo(data.Price.Type, data.Price.Item)
+    local IconItem = (itemInfo and itemInfo.Icon) or ""
+    local myBalance = (pData.Items and pData.Items[priceItem]) or 0
+    local cost = diffData.Price
+    
+    local infoText = string.format(
+        "Target: %s (%s)\nCost: %s%s %d/%d\nHealth: %s",
+        selectedSupremeBoss, selectedSupremeDiff,
+        IconItem, priceItem, myBalance, cost, diffData.Health
+    )
+    
+    if SupremeInfoLabel then
+        SupremeInfoLabel:SetDesc(infoText)
+    end
+end
+FM_Add("Bosses", MainTab:Paragraph({Title = "Supreme Bosses", Desc = "Auto Spawn, Teleport, and Kill Supreme Bosses."}))
+
+local SupremeBossList = {}
+for name, _ in pairs(GlobalSupremeBossDB) do table.insert(SupremeBossList, name) end
+
+-- Dropdown Pilih Boss
+FM_Add("Bosses", MainTab:Dropdown({
+    Title = "Select Supreme Boss",
+    Values = SupremeBossList,
+    Flag = "AutoSupremeListDropdown_Cfg",
+    Multi = false,
+    Callback = function(v) 
+        selectedSupremeBoss = v 
+        UpdateSupremeUI() -- Tambahkan ini
+    end
+}))
+
+-- Dropdown Kesulitan
+FM_Add("Bosses", MainTab:Dropdown({
+    Title = "Supreme Difficulty",
+    Values = {"Easy", "Medium", "Hard"},
+    Flag = "AutoSupremeDropdown_Cfg",
+    Value = "Easy",
+    Callback = function(v) 
+        selectedSupremeDiff = v 
+        UpdateSupremeUI() -- Tambahkan ini
+    end
+}))
+
+
+-- 3. Info Display (Price & Drops)
+local SupremeInfoLabel = FM_Add("Bosses", MainTab:Paragraph({
+    Title = "Requirement & Drops",
+    Desc = "Select a Boss to see details."
+}))
+-- Toggle Auto Supreme
+FM_Add("Bosses", MainTab:Toggle({
+    Title = "Enable Auto Supreme Boss",
+    Flag = "AutoSupreme_Cfg",
+    Callback = function(v) isAutoSupreme = v end
+}))
+
+task.spawn(function()
+    local lastInfoUpdate = ""
+    while not Window.Destroyed do
+        task.wait(1)
+
+        local pData = getgenv().PlayerData
+        if not pData or not selectedSupremeBoss or not GlobalSupremeBossDB[selectedSupremeBoss] then continue end
+
+        -- A. Ambil Status Terbaru (Boss Hidup? Material Ada?)
+        local isBossAlive, hasMaterials = GetSupremeStatus()
+        local data = GlobalSupremeBossDB[selectedSupremeBoss]
+        local targetMap = data.Map or "Christmas Event 2025"
+
+        -- Update UI berkala untuk saldo
+        if not Window.Closed then UpdateSupremeUI() end
+
+        -- B. Logika Keluar: Jika toggle mati ATAU (boss mati DAN material habis)
+        if not isAutoSupreme or (not isBossAlive and not hasMaterials) then
+            continue
+        end
+
+        -- C. Pengecekan Lokasi Map (Smart Teleport)
+        if pData.Map ~= targetMap then
+            Notify("Supreme Boss", "Boss active or materials ready! Heading to Map...", "map")
+            OmniRef.Signal:Fire("Player", "Teleport", "Teleport", targetMap, selectedSupremeBoss .. " Supreme Boss")
+            task.wait(3)
+            continue
+        end
+
+        -- D. Logika Menyerang
+        local server = workspace:FindFirstChild("Server")
+        local supremeFolder = server and server.Enemies.Gamemodes:FindFirstChild("SupremeBosses")
+
+        if supremeFolder then
+            -- 1. Spawn jika belum ada boss tapi material cukup
+            if not isBossAlive and hasMaterials then
+                ReplicatedStorage.BridgeNet2.dataRemoteEvent:FireServer({
+                    {"General", "SupremeBosses", "Spawn", selectedSupremeBoss, selectedSupremeDiff, n = 5}, 
+                    "\2"
+                })
+                task.wait(2)
+            end
+
+            -- 2. Serang Boss
+            for _, bossMob in ipairs(supremeFolder:GetChildren()) do
+                while isAutoSupreme and bossMob and bossMob.Parent do
+                    local hp = bossMob:GetAttribute("Health") or 0
+                    if hp <= 0 then break end
+                    
+                    local targetCFrame = bossMob:IsA("Model") and bossMob:GetPivot() or bossMob.CFrame
+                    if targetCFrame and hrp then
+                        hrp.CFrame = targetCFrame * CFrame.new(0, 0, 5)
+                    end
+                    task.wait()
+                end
+            end
+        end
     end
 end)
 -- SETTINGS TAB
