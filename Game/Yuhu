@@ -253,6 +253,31 @@ if MainController then
     getgenv().EnemiesData = MainController.Enemies
 end
 
+
+-- [1] Load Config Tambahan (Zone & Enemies) untuk Display Name
+ZonesConfig = ZonesConfig or {}
+
+pcall(function()
+    local ZonesMod = ReplicatedStorage.Scripts.Configs.Zones
+    if ZonesMod then ZonesConfig = require(ZonesMod) end
+end)
+
+-- Helper: Get Display Name for Enemy
+function GetEnemyDisplayName(enemyId)
+    if EnemiesConfig and EnemiesConfig[enemyId] and EnemiesConfig[enemyId].Display then
+        return EnemiesConfig[enemyId].Display
+    end
+    return enemyId -- Fallback ke ID jika tidak ketemu
+end
+
+-- Helper: Get Zone Display Name
+function GetZoneDisplayName(zoneId)
+    if ZonesConfig and ZonesConfig[zoneId] then
+        return ZonesConfig[zoneId].Name or zoneId
+    end
+    return zoneId
+end
+
 function DiscoverRollTypes()
     local set = {}
     local cfgRoot = ConfigsPath
@@ -1338,67 +1363,48 @@ FarmToggle = FarmTab:Toggle({
     end
 });
 FM_Add("Farm", FarmToggle);
-MegaBossToggle = FarmTab:Toggle({
-    Title = "Auto Farm Mega Boss",
-    Desc = "Auto teleport to Mega Boss when spawned (Chat Detection). Pauses other tasks.",
-    Flag = "AutoMegaBoss_Cfg",
-    Callback = function(val)
-        Config.AutoMegaBoss = val
-        if not val then
-            MegaBossState.IsActive = false
-            MegaBossState.ReturnZone = nil
-        end
-    end
-})
-FM_Add("Farm", MegaBossToggle)
+
+-- [REVISI LOOP METEOR] - Tambahkan Logika Auto Hit
 task.spawn(function()
     while not Window.Destroyed do
-        if Config.AutoMeteor then
-            -- 1. Validasi Dasar & Fighting Zone
-            if CheckIsFightingZone() then
-                -- Jika sedang perang (Raid/Dungeon), abaikan Meteor
-                task.wait(1)
-            
-            elseif MeteorState.IsActive and MeteorState.Position and MeteorState.Zone then
+        if Config.AutoMeteor and MeteorState.IsActive and MeteorState.Position then
+            if not CheckIsFightingZone() then
                 local currentMap = GetCurrentMapStatus()
-                local pData = getgenv().PlayerData
                 
-                -- 2. Cek Apakah Kita di Zone yang Tepat?
                 if currentMap ~= MeteorState.Zone then
+                    -- Teleport ke Zone Meteor
                     if not IsTeleporting then
-                        Notify("Meteor Event", "Teleporting to Meteor Zone: " .. MeteorState.Zone, "rocket")
                         if Reliable then
-                            pcall(function()
-                                Reliable:FireServer("Zone Teleport", { MeteorState.Zone })
-                            end)
+                            pcall(function() Reliable:FireServer("Zone Teleport", { MeteorState.Zone }) end)
                         end
-                        IsTeleporting = true -- Flag manual biar gak spam
-                        task.wait(4) -- Tunggu loading screen
+                        IsTeleporting = true
+                        task.wait(3)
                         IsTeleporting = false
                     end
                 else
-                    -- 3. Jika Sudah di Zone, Tunggu Meteor Mendarat
-                    local timeLeft = MeteorState.LandTime - os.time()
+                    -- Sudah di Zone, cek apakah sudah mendarat
+                    local timeLeft = MeteorState.LandTime - tick()
                     
-                    if timeLeft > 0 then
-                        -- Meteor sedang jatuh (di udara), kita tunggu sebentar
-                        -- Opsional: Bisa teleport ke dekatnya dulu biar siap
+                    if timeLeft <= 0 then
                         if hrp then
-                             -- Teleport aman di udara (dikit) sambil nunggu
-                             -- hrp.CFrame = CFrame.new(MeteorState.Position + Vector3.new(0, 50, 0))
-                             -- Tapi user minta pas di tanah, jadi kita diam saja atau mendekat pelan
-                        end
-                    else
-                        -- 4. Meteor Sudah Mendarat -> Teleport Pas di Tanah
-                        if hrp then
-                            -- Target: Posisi Meteor + 4 Stud Y (Biar berdiri pas di tanah)
+                            -- Teleport ke posisi meteor
                             local targetPos = MeteorState.Position + Vector3.new(0, 4, 0)
-                            
-                            -- Cek jarak biar ga spam teleport kalo udah dekat
                             if (hrp.Position - targetPos).Magnitude > 5 then
                                 hrp.CFrame = CFrame.new(targetPos)
-                                -- Reset Velocity biar gak mental
-                                hrp.AssemblyLinearVelocity = Vector3.new(0,0,0) 
+                                hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                            end
+                            
+                            -- AUTO HIT METEOR (Mencari objek di Terrain)
+                            for _, obj in pairs(workspace.Terrain:GetChildren()) do
+                                -- Berdasarkan decompile, meteor adalah model/part yang baru muncul
+                                if obj:IsA("BasePart") or obj:IsA("Model") then
+                                    if (obj:GetPivot().Position - MeteorState.Position).Magnitude < 10 then
+                                        -- Kirim Remote Hit (Gunakan Remote yang biasa dipakai farm)
+                                        if UnReliable then
+                                            UnReliable:FireServer("Hit", {obj}) 
+                                        end
+                                    end
+                                end
                             end
                         end
                     end
@@ -3023,6 +3029,45 @@ function RefreshVaultUI()
     end
 end
 
+-- [SISTEM FILTER MAP MEGA BOSS]
+local MegaBossZoneOptions = {}
+-- Mengambil data dari ZonesConfig yang kamu berikan
+for id, data in pairs(ZonesConfig) do
+    if id ~= "Dungeon" then -- Biasanya Dungeon tidak ada Mega Boss, bisa di-skip
+        table.insert(MegaBossZoneOptions, {
+            Title = data.Name or id,
+            Order = data.Order,
+            Value = id
+        })
+    end
+end
+table.sort(MegaBossZoneOptions, function(a, b) return a.Order < b.Order end)
+
+MegaBossFilterDrop = FM_Add("Upgrade: Mega Boss", FarmTab:Dropdown({
+    Title = "Mega Boss Map Filter",
+    Desc = "Select the maps you want to SKIP (Ignore)",
+    Multi = true,
+    AllowNone = true,
+    Values = MegaBossZoneOptions,
+    Flag = "MegaBossFilter_Cfg",
+    Callback = function(val)
+        Config.MegaBossFilter = val -- Stores the table of selected zone IDs
+    end
+}))
+
+MegaBossToggle = FarmTab:Toggle({
+    Title = "Auto Farm Mega Boss",
+    Desc = "Auto teleport to Mega Boss when spawned (Chat Detection). Pauses other tasks.",
+    Flag = "AutoMegaBoss_Cfg",
+    Callback = function(val)
+        Config.AutoMegaBoss = val
+        if not val then
+            MegaBossState.IsActive = false
+            MegaBossState.ReturnZone = nil
+        end
+    end
+})
+FM_Add("Upgrade: Mega Boss", MegaBossToggle)
 MegaBossToggles = {}
 if MegaBossUpgradeConfig then
     CreateUpgradeSection(FarmTab, "Upgrade: Mega Boss", MegaBossUpgradeConfig, "AutoMegaBossUp_", MegaBossToggles, nil)
@@ -3569,13 +3614,13 @@ if Reliable then
             MeteorState.IsActive = true
             Notify("Meteor Event", "Shower Started in: " .. tostring(zone))
             
+        -- [REVISI LISTENER] - Gunakan tick() untuk presisi
         elseif msg == "Meteor Spawn" then
-            -- Server kirim Posisi Vector3 sebagai argumen (cek MeteorEvent.c Baris 87)
             local pos = args
             if typeof(pos) == "Vector3" then
                 MeteorState.Position = pos
-                -- Set waktu mendarat = Waktu sekarang + 5 detik (Durasi jatuh)
-                MeteorState.LandTime = os.time() + 5 
+                -- Menggunakan tick() agar sinkron dengan METEOR_FALL_DURATION (5 detik)
+                MeteorState.LandTime = tick() + 5 
                 MeteorState.IsActive = true
             end
 
@@ -3591,52 +3636,52 @@ task.spawn(function()
     local TCS = game:GetService("TextChatService")
     local ChatConnection = nil -- Variabel untuk menyimpan koneksi
 
-    -- Hubungkan Event
     ChatConnection = TCS.MessageReceived:Connect(function(msgObj)
-        -- [SAFETY CHECK 1] Jika Window sudah hancur saat event ini berjalan, hentikan.
-        if Window.Destroyed then 
-            if ChatConnection then
-                ChatConnection:Disconnect() -- Ini bagus!
-                ChatConnection = nil
-            end
+        if Window.Destroyed then -- Safety check
+            if ChatConnection then ChatConnection:Disconnect() end
             return 
         end
 
-        -- Validasi dasar
         if not Config.AutoMegaBoss then return end
         if not msgObj or not msgObj.Text then return end
         
         local zoneDisplayName = string.match(msgObj.Text, "Mega Boss Spawned at (.-)!")
         
         if zoneDisplayName then
-            -- 1. Cek apakah kita sedang di Dungeon/Raid?
-            if CheckIsFightingZone() then 
-                if Notify then Notify("Mega Boss", "Ignored: You are in a Dungeon/Raid.") end
-                return 
-            end
+            if CheckIsFightingZone() then return end
 
-            -- 2. Convert Nama Display ke ID Internal
             local targetZoneID = ZoneDisplayToID[zoneDisplayName]
             
             if targetZoneID then
-                -- 3. Simpan Lokasi Saat Ini (Return Zone)
+                -- [LOGIKA FILTER MAP BARU]
+                if Config.MegaBossFilter and #Config.MegaBossFilter > 0 then
+                    local isFiltered = false
+                    for _, filteredID in ipairs(Config.MegaBossFilter) do
+                        if targetZoneID == filteredID.Value then
+                            isFiltered = true
+                            break
+                        end
+                    end
+
+                    if isFiltered then
+                        return -- Berhenti di sini, tidak lanjut teleport
+                    end
+                end
+                -- [AKHIR LOGIKA FILTER]
+
                 if not MegaBossState.IsActive then
                     MegaBossState.ReturnZone = GetCurrentMapStatus()
                 end
 
-                -- 4. Set State Active
                 MegaBossState.TargetZone = targetZoneID
                 MegaBossState.IsActive = true
                 MegaBossState.BossDeadCheck = 0
                 
                 if Notify then Notify("Mega Boss", "Spawned at " .. zoneDisplayName .. "! Teleporting...") end
                 
-                -- 5. Eksekusi Teleport
                 if Reliable and targetZoneID ~= getgenv().PlayerData.Attributes.Zone then
                     pcall(function() Reliable:FireServer("Zone Teleport", { targetZoneID }) end)
                 end
-            else
-                warn("Mega Boss Spawned but Zone ID not found for: " .. tostring(zoneDisplayName))
             end
         end
     end)
@@ -3735,12 +3780,6 @@ task.spawn(function()
             local cfg = CM:GetConfig(DefaultConfig) or CM:CreateConfig(DefaultConfig);
             cfg:Load();
             LoadZoneDB();
-            UI:Notify({
-                Title = "Config",
-                Content = "Restored ANConfig",
-                Icon = "check",
-                Duration = 2
-            });
         else
             CM:CreateConfig(DefaultConfig);
         end;
@@ -3885,6 +3924,23 @@ function Optimizer.Update_Ascension_Logic(pData)
         if Optimizer.Cache.LastAscensionDesc ~= newDesc then
             AscUI.Status:SetDesc(newDesc)
             Optimizer.Cache.LastAscensionDesc = newDesc -- Simpan ke cache
+        end
+    end
+
+    -- [FEATURE] Auto Distribute Stat Point
+    local availablePoints = LevelUpModule.CountPoints(pData)
+    if availablePoints > 0 then
+        for statName, isEnabled in pairs(Config.AutoStat) do
+            if isEnabled then
+                -- Menyesuaikan dengan remote di LevelUpStats.c
+                -- Pastikan StatPointAmount di set (misal 1 atau 10) agar tidak lambat
+                if Reliable then
+                    pcall(function()
+                        -- Kita kirim request distribusi ke server
+                        Reliable:FireServer("Distribute Stat Point", {statName})
+                    end)
+                end
+            end
         end
     end
 
@@ -4092,44 +4148,94 @@ end
 
 function Optimizer.Update_Roll_Logic(pData)
     if not pData.Vault then return end
+    
     for rollType, toggle in pairs(RollToggleUI) do
-        local config = RollConfigs[rollType] or { Cost = 1, MaterialKey = rollType.."Token", List = {} }
+        local config = RollConfigs[rollType]
+        if not config then continue end -- Lewati jika config tidak ada
+
         local tokenKey = config.MaterialKey or (rollType .. "Token")
-        local currentCount = pData.Materials[tokenKey] or 0
+        local currentCount = (pData.Materials and pData.Materials[tokenKey]) or 0
         
-        -- Logic Visual
-        local currentImage, currentRarity, currentItemName = GetRollIconAsset(rollType), nil, nil
+        -- 1. Cari Index Tertinggi yang dimiliki di Vault
         local foundBestIndex = 0
         if pData.Vault[rollType] then
             for k, v in pairs(pData.Vault[rollType]) do
                 local idx = tonumber(k)
-                if v == true and idx and idx > foundBestIndex then foundBestIndex = idx end
+                -- Pastikan v == true (berarti item tersebut dimiliki)
+                if v == true and idx and idx > foundBestIndex then 
+                    foundBestIndex = idx 
+                end
             end
         end
+
+        -- 2. Tentukan Data Visual (Image, Rarity, Name) berdasarkan Index Tertinggi
+        local currentImage = GetIcon(84366761557806) -- Default Icon
+        local currentRarity = nil
+        local currentItemName = rollType
+        
         if foundBestIndex > 0 and config.List and config.List[foundBestIndex] then
             local itemData = config.List[foundBestIndex]
             if itemData then
                 if itemData.Template then currentImage = GetIcon(itemData.Template) end
                 currentRarity = itemData.Rarity
-                currentItemName = itemData.Display
+                currentItemName = itemData.Display or rollType
             end
+        elseif config.ImageId then
+            currentImage = GetIcon(config.ImageId)
         end
 
+        -- 3. Update Deskripsi (Jumlah Token)
         local lastState = Optimizer.Cache.Roll[rollType] or {}
-        if lastState.Count ~= currentCount then pcall(function() toggle:SetDesc(GetIcon(MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Template) .. (MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display) .. ":" .. UtilsModule.ToText(currentCount)) end) end
+        if lastState.Count ~= currentCount then
+            local matInfo = MaterialsModule[tokenKey]
+            local matDisplay = matInfo and matInfo.Display or tokenKey
+            local matIcon = (matInfo and matInfo.Template) and GetIcon(matInfo.Template) or ""
+            
+            pcall(function() 
+                toggle:SetDesc(string.format("%s %s: %s", matIcon, matDisplay, UtilsModule.ToText(currentCount))) 
+            end)
+        end
         
+        -- 4. Update Gambar Utama (SetMainImage) - HANYA jika berubah
+        -- Kita tambahkan check 'currentRarity' agar tidak nil
         if (lastState.Image ~= currentImage) or (lastState.Rarity ~= currentRarity) then
-            pcall(function() if not Window.Closed and toggle.SetMainImage and currentRarity then toggle:SetMainImage({ Image = currentImage, Quantity = currentRarity, Title = currentItemName or rollType, Gradient = GetGameGradient(currentRarity) }, 50) end end)
-            Optimizer.Cache.Roll[rollType] = { Image = currentImage, Rarity = currentRarity, Count = currentCount, IsMaxed = lastState.IsMaxed }
+            pcall(function() 
+                if not Window.Closed and toggle.SetMainImage and currentRarity then 
+                    toggle:SetMainImage({ 
+                        Image = currentImage, 
+                        Quantity = currentRarity, 
+                        Title = currentItemName, 
+                        Gradient = GetGameGradient(currentRarity) 
+                    }, 50) 
+                end 
+            end)
+            -- Simpan state terbaru ke cache
+            Optimizer.Cache.Roll[rollType] = { 
+                Image = currentImage, 
+                Rarity = currentRarity, 
+                Count = currentCount, 
+                IsMaxed = lastState.IsMaxed 
+            }
         else
+            -- Jika hanya jumlah token yang berubah, update count saja di cache
             lastState.Count = currentCount
             Optimizer.Cache.Roll[rollType] = lastState
         end
 
+        -- 5. Logika Auto Lock jika sudah MAX
         local isMaxed = (config.List and #config.List > 0 and foundBestIndex >= #config.List)
         if isMaxed and not lastState.IsMaxed then
-            pcall(function() toggle:Lock(); toggle:SetTitle(rollType .. " [MAX]"); if Config["AutoRoll" .. rollType] then Config["AutoRoll" .. rollType] = false; toggle:Set(false) end end)
-            local c = Optimizer.Cache.Roll[rollType] or {}; c.IsMaxed = true; Optimizer.Cache.Roll[rollType] = c
+            pcall(function() 
+                toggle:Lock("Maximum Tier Reached")
+                toggle:SetTitle(rollType .. " [MAX]") 
+                if Config["AutoRoll" .. rollType] then 
+                    Config["AutoRoll" .. rollType] = false
+                    toggle:Set(false) 
+                end 
+            end)
+            local c = Optimizer.Cache.Roll[rollType] or {}
+            c.IsMaxed = true
+            Optimizer.Cache.Roll[rollType] = c
         end
     end
 end
@@ -4889,34 +4995,6 @@ function Optimizer.Update_Main_Data_Logic(pData)
             tIcon
         )
     end
-end
-
--- ============================================================================
--- [SECRET QUESTS FEATURE - FINAL UPDATE]
--- ============================================================================
-
--- [1] Load Config Tambahan (Zone & Enemies) untuk Display Name
-ZonesConfig = ZonesConfig or {}
-
-pcall(function()
-    local ZonesMod = ReplicatedStorage.Scripts.Configs.Zones
-    if ZonesMod then ZonesConfig = require(ZonesMod) end
-end)
-
--- Helper: Get Display Name for Enemy
-function GetEnemyDisplayName(enemyId)
-    if EnemiesConfig and EnemiesConfig[enemyId] and EnemiesConfig[enemyId].Display then
-        return EnemiesConfig[enemyId].Display
-    end
-    return enemyId -- Fallback ke ID jika tidak ketemu
-end
-
--- Helper: Get Zone Display Name
-function GetZoneDisplayName(zoneId)
-    if ZonesConfig and ZonesConfig[zoneId] then
-        return ZonesConfig[zoneId].Name or zoneId
-    end
-    return zoneId
 end
 
 -- ============================================================================
