@@ -4126,45 +4126,75 @@ function Optimizer.Update_Enchantments_Logic(pData)
 end
 
 function Optimizer.Update_Reforge_Logic(pData)
-    local reforgeData = pData.Reforging -- Data proses dari server
+    if not pData then return end
+    local reforgeData = pData.Reforging 
     local cache = Optimizer.Cache
     
+    -- [[ 1. LOGIKA REFRESH DROPDOWN OTOMATIS ]] --
+    -- Kita buat "fingerprint" sederhana berdasarkan jumlah senjata Tier 3
+    local tier3Count = 0
+    if pData.Weapons then
+        for _, w in pairs(pData.Weapons) do
+            if w.Tier == 3 and not w.Locked and not w.Reforged then
+                tier3Count = tier3Count + 1
+            end
+        end
+    end
+
+    -- Jika jumlah senjata Tier 3 berubah, refresh list di Dropdown
+    if cache.LastTier3Count ~= tier3Count then
+        if ReforgeMainDrop and ReforgeMainDrop.Refresh then
+            ReforgeMainDrop:Refresh(RefreshReforgeDropdown())
+        end
+        cache.LastTier3Count = tier3Count
+    end
+
+    -- [[ 2. LOGIKA VISUAL STATUS ]] --
     if reforgeData then
-        -- 1. LOGIKA TIMER (1 JAM)
         local timePassed = os.time() - reforgeData.Timestamp
-        local timeLeft = 3600 - timePassed -- 3600 detik = 1 jam
+        local timeLeft = 3600 - timePassed 
         
         if timeLeft > 0 then
-            local timeStr = shared.Utils.FormatTimer(timeLeft) -- Format 00:00:00
+            local timeStr = UtilsModule.ToText(timeLeft) -- Gunakan formatter yang tersedia di script Anda
+            -- Jika tidak ada formatter waktu khusus, gunakan math sederhana:
+            local m = math.floor(timeLeft / 60)
+            local s = timeLeft % 60
+            local displayTime = string.format("%02d:%02d", m, s)
+            
             local pct = math.clamp(timePassed / 3600, 0, 1)
             local bar = string.rep("█", math.floor(pct * 10)) .. string.rep("▒", 10 - math.floor(pct * 10))
             
-            local desc = string.format("Status: <font color='#ffaa00'>FORGING</font>\nTime: %s\n[%s] %d%%", timeStr, bar, math.floor(pct * 100))
+            local desc = string.format("Status: <font color='#ffaa00'>FORGING</font>\nTime: %s\n[%s] %d%%", displayTime, bar, math.floor(pct * 100))
             if cache.LastReforgeText ~= desc then
                 ReforgeStatusPara:SetDesc(desc)
                 cache.LastReforgeText = desc
             end
         else
-            -- 2. LOGIKA CLAIM
             if cache.LastReforgeText ~= "Ready" then
                 ReforgeStatusPara:SetDesc("Status: <font color='#00ff00'>READY TO CLAIM</font>\nClick Claim or wait for Auto.")
                 cache.LastReforgeText = "Ready"
             end
             
             if Config.AutoReforge and Reliable then
-                Reliable:FireServer("Reforge Claim") -- Remote claim dari decompile
+                Reliable:FireServer("Reforge Claim") 
                 Notify("Reforge", "Weapon Claimed! +50% Mastery Boost applied.")
             end
         end
     else
-        -- 3. LOGIKA START REFORGE (1 Main + 2 Materials)
+        -- Jika tidak ada proses reforge yang berjalan
+        local idleDesc = "Status: <font color='#aaaaaa'>IDLE</font>\nSelect a Tier 3 weapon and enable Auto."
+        if cache.LastReforgeText ~= idleDesc then
+            ReforgeStatusPara:SetDesc(idleDesc)
+            cache.LastReforgeText = idleDesc
+        end
+
+        -- Auto Start Logic
         if Config.AutoReforge and Config.SelectedReforgeMainUID then
             local mainUID = Config.SelectedReforgeMainUID
-            local mainData = pData.Weapons[mainUID]
+            local mainData = pData.Weapons and pData.Weapons[mainUID]
             
-            if mainData and not mainData.Locked then
+            if mainData and not mainData.Locked and not mainData.Reforged then
                 local materials = {}
-                -- Cari 2 bahan dengan Index yang sama
                 for uid, wData in pairs(pData.Weapons) do
                     if uid ~= mainUID and wData.Index == mainData.Index and wData.Tier == 3 and not wData.Locked and not wData.Reforged then
                         table.insert(materials, uid)
@@ -4173,7 +4203,6 @@ function Optimizer.Update_Reforge_Logic(pData)
                 end
                 
                 if #materials == 2 and Reliable then
-                    -- Remote start: Main UID, Tabel Materials
                     Reliable:FireServer("Reforge Start", { mainUID, materials })
                     Notify("Reforge", "Process Started (1 Hour)")
                 end
@@ -4181,6 +4210,7 @@ function Optimizer.Update_Reforge_Logic(pData)
         end
     end
 end
+
 function Optimizer.Update_Exchange_Logic(pData)
     -- [1] AUTO UPDATE DESKRIPSI (STOK) TIAP ITEM DI DALAM LIST DROPDOWN
     for _, item in ipairs(ExchangeList) do
@@ -5308,7 +5338,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Main_Data_Logic, pData)
             pcall(Optimizer.Update_Ascension_Logic, pData)
             pcall(Optimizer.Update_Enchantments_Logic, pData)
-            pcall(Optimizer.Update_Reforge_Logic)
+            pcall(Optimizer.Update_Reforge_Logic,pData)
             pcall(Optimizer.Update_Exchange_Logic, pData)
             pcall(Optimizer.Update_Roll_Logic, pData)
             pcall(Optimizer.Update_Craft_Logic, pData)
