@@ -466,7 +466,7 @@ Window = UI:CreateWindow({
     Title = "AN Hub - Anime Weapons",
     Icon = "rbxassetid://84366761557806",
     Author = "Aditya Nugraha",
-    Folder = FolderPath,
+    Folder = "AnimeWeapons",
     Size = UDim2.fromOffset(580, 460),
     Acrylic = true,
     Theme = "Dark",
@@ -853,7 +853,8 @@ function GetCurrentMapStatus()
 end
 function CheckIsFightingZone()
     local mapName = GetCurrentMapStatus()
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate"}
+    -- Tambahkan "Christmas" ke dalam tabel di bawah ini
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate", "Christmas"}
 
     for _, keyword in ipairs(fightingKeywords) do
         if string.find(mapName, keyword) then 
@@ -1451,7 +1452,7 @@ function LogicGamemodes()
 
         local EnemiesFolder = Workspace:FindFirstChild("Enemies")
         local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
-        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
+        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "Christmas") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "ChristmasRaid" or currentMap == "Christmas"))
         
         if currentMap == "Raid" then isFightingZone = true 
         elseif currentMap == "Defense" then isFightingZone = hasEnemies
@@ -1606,6 +1607,7 @@ function LogicGamemodes()
                 
                 -- Daftar prioritas pengecekan mode
                 local CheckList = {
+                    {ID="ChristmasRaid", DB=nil, Cfg=Config.TargetChristmas, Key="ChristmasModeKey", CanOpen=true},
                     {ID="PirateTower", DB=nil,       Cfg=Config.TargetPirateTower, Key="PirateTowerModeKey", CanOpen=true},
                     {ID="ShadowGate",  DB=nil,       Cfg=Config.TargetShadowGate,  Key="ShadowPortalModeKey",CanOpen=true},
                     {ID="Raid",        DB=raidDB,    Cfg=Config.TargetRaid,        Key="RaidModeKey",        CanOpen=true},
@@ -1772,7 +1774,35 @@ function LoadDefenseData()
     end;
 end;
 LoadDefenseData();
+function LoadChristmasData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.ChristmasRaid)
+    end)
+    
+    if success and module then
+        christmasList, christmasDB = {}, {}
+        -- Gunakan "Christmas Raid" sebagai kunci tampilan, tapi pastikan ID internal sinkron
+        local rName = "Christmas Raid" 
+        
+        local hpCalc = (module.HealthBase or 0) // 50
+        local desc = "HP: " .. UtilsModule.ToText(hpCalc)
+        local rewardCards = GenerateCardRewards(module.ChanceReward)
 
+        table.insert(christmasList, {
+            Title = rName,
+            Desc = desc,
+            Value = rName, -- Value ini harus sama dengan kunci di christmasDB
+            Images = rewardCards
+        })
+        
+        christmasDB[rName] = {
+            ID = nil, -- Dikosongkan agar tidak menambah ":" pada string remote
+            Times = module.START_TIMES or {0, 30},
+            BaseDesc = desc
+        }
+    end
+end
+LoadChristmasData()
 function BuildGameModesDropdownValues()
     local out = {}
 
@@ -1806,6 +1836,9 @@ function BuildGameModesDropdownValues()
     AddList("Dungeon", dungeonList, true)
     AddList("Raid", raidList, true)
     AddList("Defense", defenseList, true)
+    if IsPremium then
+        AddList("Christmas", christmasList, true)
+    end
     AddList("", pirateTowerList, false) -- Pirate Tower tidak butuh prefix
     AddList("", shadowGateList, false)  -- Shadow Gate tidak butuh prefix
 
@@ -1821,7 +1854,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Callback = function(val)
-        local dungeonT, raidT, defenseT, pirateT, shadowT = {}, {}, {}, {}, {}
+        local dungeonT, raidT, defenseT, christmasT, pirateT, shadowT = {}, {}, {}, {}, {}, {}
 
         for _, v in pairs(val) do
             -- Ambil Value murni
@@ -1835,6 +1868,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                     if mode == "Dungeon" then table.insert(dungeonT, name)
                     elseif mode == "Raid" then table.insert(raidT, name)
                     elseif mode == "Defense" then table.insert(defenseT, name)
+                    elseif mode == "Christmas" then table.insert(christmasT, name)
                     end
                 else
                     -- Handle Single Mode (tanpa titik dua)
@@ -1844,7 +1878,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                 end
             end
         end
-
+        Config.TargetChristmas = christmasT
         Config.TargetDungeon = dungeonT
         Config.TargetRaid = raidT
         Config.TargetDefense = defenseT
@@ -2755,8 +2789,8 @@ end
 VaultModes = {"Mastery", "Damage", "Yen", "Luck"}
 
 FM_Add("Vault", FarmTab:Dropdown({
-    Title = "Auto Equip Best (GameMode)",
-    Desc = "Auto equip best stat inside GameModes",
+    Title = "Auto Equip Best (GameMode or Xmas)",
+    Desc = "Auto equip best stat inside GameModes or Xmas Map",
     Values = VaultModes,
     Multi = false,
     AllowNone = true,
@@ -2811,7 +2845,8 @@ task.spawn(function()
         if Config.AutoEquipVaultMode or Config.AutoEquipVaultFarm or Config.AutoEquipVaultMegaBoss then
             
             local currentMap = GetCurrentMapStatus()
-            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
+            -- Cari baris ini di sekitar baris 1452 dan ganti dengan ini:
+            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "Christmas") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "ChristmasRaid" or currentMap == "Christmas"))
 
             -- [PRIORITAS 1: MEGA BOSS]
             -- Jika Mega Boss Aktif (via Auto Mega Boss) DAN config equip Mega Boss dipilih
@@ -2834,7 +2869,7 @@ task.spawn(function()
                             pcall(function()
                                 Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultMode })
                             end)
-                            if Notify then Notify("Vault Auto", "Equip (GameMode): " .. tostring(Config.AutoEquipVaultMode)) end
+                            if Notify then Notify("Vault Auto", "Equip (GameMode or Xmas): " .. tostring(Config.AutoEquipVaultMode)) end
                         end
                         
                         LastVaultState = "GameMode"
@@ -3910,6 +3945,7 @@ function Optimizer.Update_Gamemode_Dropdowns()
     AddSummary(Config.TargetDungeon, dungeonDB, "Dgn")
     AddSummary(Config.TargetRaid, raidDB, "Raid")
     AddSummary(Config.TargetDefense, defenseDB, "Def")
+    AddSummary(Config.TargetChristmas, christmasDB, "Xmas")
     
     if Config.TargetPirateTower and #Config.TargetPirateTower > 0 then
         table.insert(summaryItems, "• Pirate Tower")
@@ -5049,7 +5085,7 @@ function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule,
                 end
                 
                 -- Format: Icon Cost | Cur: Value \n Buff: +%
-                newDesc = string.format("%s Cost: %s | Cur: %s\nBuff: +%s%%", 
+                newDesc = string.format("%s Cost: %s/%s\nBuff: +%s%%", 
                     currencyIcon, UtilsModule.ToText(cost), UtilsModule.ToText(currencyVal), UtilsModule.ToText(buff))
                 
                 -- Buka kunci jika belum Max
