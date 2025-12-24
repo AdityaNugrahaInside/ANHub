@@ -1664,28 +1664,41 @@ Config.AutoHatch = {
     SelectedMap = "Piece Village"
 }
 
+-- [[ ULTRA SPEED HATCH - BYPASS HOOK ]] --
+
 local SummonPath = LocalPlayer.PlayerScripts.MetaService.Client.Summon
 local HatchEgg = require(SummonPath.HatchEgg)
 local EggAnimate = require(SummonPath.EggAnimate)
 local UnitsModule = require(ReplicatedStorage.Modules.Units)
 
--- [[ 2. BYPASS / HOOK SYSTEM ]] --
--- Force busy status to false to allow spamming without waiting for animations to finish
-task.spawn(function()
-    while not Window.Destroyed do
-        local premium = (getgenv().IsPremium == true)
-        if premium and Config.AutoHatch.Enabled then
+-- Simpan fungsi asli untuk normalisasi nanti
+local OriginalHandleRequest = HatchEgg.HandleRequest
+local OriginalCreateEgg = EggAnimate.CreateEgg
+
+-- [[ THE HOOKS ]] --
+local function ApplyFastHooks(enable)
+    if enable then
+        -- Hook HandleRequest agar tidak mengecek UI Visible dan tidak memutar animasi
+        HatchEgg.HandleRequest = function(data)
             HatchEgg.IsHatching = false
             EggAnimate.IsPlaying = false
-            
-            -- Ensure Summon UI is logically considered visible by the game script
-            local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
-            if summonUI then summonUI.Visible = true end
+            -- Langsung jalankan logika Auto Sell/Feed tanpa animasi telur
+            if EggAnimate.processAutoActions then
+                EggAnimate.processAutoActions(data.RolledPets)
+            end
         end
-        task.wait(0.2)
+        
+        -- Hook CreateEgg agar animasi 3D tidak pernah dibuat
+        EggAnimate.CreateEgg = function() 
+            EggAnimate.IsPlaying = false 
+            return 
+        end
+    else
+        -- Normalisasi (Kembali ke fungsi asli)
+        HatchEgg.HandleRequest = OriginalHandleRequest
+        EggAnimate.CreateEgg = OriginalCreateEgg
     end
-end)
-
+end
 -- [[ 3. UI GENERATION ]] --
 
 -- List of maps available for Eggs
@@ -1699,7 +1712,7 @@ end
 HatchMapDropdown = FarmTab:Dropdown({
     Title = "Select Egg (Map)",
     Values = EggMapList,
-    Desc = "Make sure you are near the Summon model.",
+    Desc = "Make sure you are near the Summon models.",
     Default = "Piece Village",
     Callback = function(val) 
         Config.AutoHatch.SelectedMap = type(val) == "table" and val.Value or val 
@@ -1731,32 +1744,34 @@ AutoHatchToggle = FarmTab:Toggle({
 FM_Add("Hatch", HatchMapDropdown)
 FM_Add("Hatch", AutoHatchToggle)
 
--- [[ 4. MAIN LOOP LOGIC ]] --
+-- [[ MAIN EXECUTION ]] --
 task.spawn(function()
     while not Window.Destroyed do
-        local premium = (getgenv().IsPremium == true)
-        if premium and Config.AutoHatch.Enabled then
+        if Config.AutoHatch.Enabled then
+            ApplyFastHooks(true) -- Aktifkan Hook
+            
             pcall(function()
                 local map = Config.AutoHatch.SelectedMap
-                local hatchType = "Single"
-                local price = UnitsModule.GetPrice(map, getgenv().PlayerData)
+                local tipe = "Single"
+                local price = UnitsModule.GetPrice(map, getgenv().PlayerData) --
                 local currentYen = getgenv().PlayerData.Yens or 0
 
-                -- Balance Validation
                 if currentYen >= price then
-                    -- Send Request Directly to Server
-                    MetaService.Bridge:Fire("Summon", "Request", {hatchType, map})
+                    -- FIRE Tanpa Tunggu Animasi
+                    MetaService.Bridge:FireServer("Summon", "Request", {tipe, map})
                     
-                    -- Small delay to prevent server rate-limiting (Adjustable)
-                    task.wait(0.3) 
+                    -- KECEPATAN: Ganti 0.35 menjadi 0.1 atau 0.05 untuk kecepatan maksimal
+                    -- Peringatan: Terlalu cepat bisa menyebabkan lag pada inventory
+                    task.wait() 
                 else
-                    Notify("Warning", "Insufficient Yen to summon!", "alert-circle")
                     Config.AutoHatch.Enabled = false
-                    task.wait(2)
+                    ApplyFastHooks(false) -- Matikan Hook jika berhenti
                 end
             end)
+        else
+            ApplyFastHooks(false) -- Pastikan Hook mati jika toggle OFF
+            task.wait(0.5)
         end
-        task.wait(0.1)
     end
 end)
 
