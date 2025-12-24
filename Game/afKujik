@@ -12,6 +12,7 @@ ReplicatedFirst = game:GetService("ReplicatedFirst")
 HttpService = game:GetService("HttpService")
 RunService = game:GetService("RunService")
 VirtualUser = game:GetService("VirtualUser")
+UserInputService = game:GetService("UserInputService")
 FolderPath = "ANUI/AnimeFrontiers"
 ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 local IsPremium = false
@@ -37,6 +38,35 @@ function Notify(title, content, icon)
     end)
 end
 
+local _lastInputAt = os.clock()
+pcall(function()
+    if UserInputService and UserInputService.InputBegan then
+        UserInputService.InputBegan:Connect(function()
+            _lastInputAt = os.clock()
+        end)
+    end
+    if UserInputService and UserInputService.InputChanged then
+        UserInputService.InputChanged:Connect(function()
+            _lastInputAt = os.clock()
+        end)
+    end
+end)
+
+task.spawn(function()
+    local warnAfterSeconds = 18 * 60
+    local repeatEverySeconds = 60
+    local lastWarnAt = 0
+    while true do
+        local now = os.clock()
+        local idleFor = now - _lastInputAt
+        if idleFor >= warnAfterSeconds and (now - lastWarnAt) >= repeatEverySeconds then
+            lastWarnAt = now
+            Notify("AFK Warning", "Kamu sudah idle lama. Lakukan input agar tidak AFK.", "alert-triangle")
+        end
+        task.wait(10)
+    end
+end)
+
 -- [[ SISTEM PROFILE ]] --
 GameIconURL = string.format("rbxthumb://type=GameIcon&id=%d&w=150&h=150", game.GameId)
 BaseProfile = {
@@ -54,20 +84,6 @@ BaseProfile = {
         }
     }
 }
-
-
-
--- Anti-AFK
-LocalPlayer.Idled:Connect(function()
-    local vu = VirtualUser
-    if not vu then
-        return
-    end
-    pcall(function()
-        vu:CaptureController()
-        vu:ClickButton2(Vector2.new())
-    end)
-end)
 
 function MakeProfile(data)
     local p = table.clone(BaseProfile)
