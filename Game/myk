@@ -1656,11 +1656,11 @@ task.spawn(function()
     end
 end)
 
--- [[ 1. KONFIGURASI & MODULES ]] --
-FM_CategoryDescriptions["Hatch"] = "Auto hatch egg dari map yang kamu pilih."
+-- [[ 1. CONFIGURATION & MODULES ]] --
+FM_CategoryDescriptions["Hatch"] = "Auto hatch eggs from your selected map."
 Config.AutoHatch = {
     Enabled = false,
-    Type = "Single", -- "Single" atau "Triple"
+    Type = "Single", -- "Single" or "Triple"
     SelectedMap = "Piece Village"
 }
 
@@ -1670,7 +1670,7 @@ local EggAnimate = require(SummonPath.EggAnimate)
 local UnitsModule = require(ReplicatedStorage.Modules.Units)
 
 -- [[ 2. BYPASS / HOOK SYSTEM ]] --
--- Memaksa status busy menjadi false agar bisa spam tanpa menunggu animasi selesai
+-- Force busy status to false to allow spamming without waiting for animations to finish
 task.spawn(function()
     while not Window.Destroyed do
         local premium = (getgenv().IsPremium == true)
@@ -1678,7 +1678,7 @@ task.spawn(function()
             HatchEgg.IsHatching = false
             EggAnimate.IsPlaying = false
             
-            -- Memastikan UI Summon dianggap visible secara logika oleh script game
+            -- Ensure Summon UI is logically considered visible by the game script
             local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
             if summonUI then summonUI.Visible = true end
         end
@@ -1690,7 +1690,7 @@ end)
 local HatchGroup = FarmTab:Group({ Title = "Egg Summoner" })
 FM_Add("Hatch", HatchGroup)
 
--- List Map yang tersedia untuk Egg
+-- List of maps available for Eggs
 local EggMapList = {}
 for mapName, _ in pairs(HatchEgg.MapEggs) do
     if mapName ~= "Exclusives" then
@@ -1701,7 +1701,7 @@ end
 HatchMapDropdown = HatchGroup:Dropdown({
     Title = "Select Egg (Map)",
     Values = EggMapList,
-    Desc = "Pastikan kamu dekat dengan model Summon.",
+    Desc = "Make sure you are near the Summon model.",
     Default = "Piece Village",
     Callback = function(val) 
         Config.AutoHatch.SelectedMap = type(val) == "table" and val.Value or val 
@@ -1710,26 +1710,26 @@ HatchMapDropdown = HatchGroup:Dropdown({
 
 AutoHatchToggle = HatchGroup:Toggle({
     Title = "Auto Hatch",
-    Desc = "Otomatis hatch egg dari map yang dipilih.\nAktifkan saat kamu sudah dekat Summon.",
+    Desc = "Automatically hatch eggs from the selected map.\nEnable this when you are near the Summon area.",
     Default = false,
     Callback = function(val)
         Config.AutoHatch.Enabled = val
         
-        -- LOGIKA NORMALISASI SAAT OFF
+        -- NORMALIZATION LOGIC WHEN DISABLED
         if not val then
-            -- 1. Kembalikan UI ke kondisi tertutup agar tidak menutupi layar
+            -- 1. Reset UI to closed state so it doesn't obstruct the screen
             local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
             if summonUI then 
                 summonUI.Visible = false
             end
             
-            -- 2. Beri jeda kecil lalu biarkan modul asli mengambil alih state kembali
+            -- 2. Brief delay then let the original module regain state control
             task.delay(0.1, function()
                 HatchEgg.IsHatching = false
                 EggAnimate.IsPlaying = false
             end)
             
-            Notify("Auto Hatch", "Dikembalikan ke kondisi normal.", "check")
+            Notify("Auto Hatch", "Returned to normal state.", "check")
         end
     end
 })
@@ -1741,19 +1741,19 @@ task.spawn(function()
         if premium and Config.AutoHatch.Enabled then
             pcall(function()
                 local map = Config.AutoHatch.SelectedMap
-                local tipe = "Single"
+                local hatchType = "Single"
                 local price = UnitsModule.GetPrice(map, getgenv().PlayerData)
                 local currentYen = getgenv().PlayerData.Yens or 0
 
-                -- Validasi Saldo
+                -- Balance Validation
                 if currentYen >= price then
-                    -- Kirim Request Langsung ke Server
-                    MetaService.Bridge:Fire("Summon", "Request", {tipe, map})
+                    -- Send Request Directly to Server
+                    MetaService.Bridge:Fire("Summon", "Request", {hatchType, map})
                     
-                    -- Jeda kecil untuk mencegah rate-limit server (Adjustable)
+                    -- Small delay to prevent server rate-limiting (Adjustable)
                     task.wait(0.3) 
                 else
-                    Notify("Warning", "Yen tidak cukup untuk summon!", "alert-circle")
+                    Notify("Warning", "Insufficient Yen to summon!", "alert-circle")
                     Config.AutoHatch.Enabled = false
                     task.wait(2)
                 end
