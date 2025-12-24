@@ -683,7 +683,7 @@ task.spawn(function()
             ApplySavedEnemyForMap(currentMap, newList)
             currentTargetID = Config.SelectedEnemy
         end
-        task.wait()
+        task.wait(0.5)
     end
 end)
 
@@ -769,7 +769,7 @@ task.spawn(function()
                 end
             end
         end)
-        task.wait() -- Update setiap 0.2 detik agar terasa sangat realtime
+        task.wait(0.2)
     end
 end)
 
@@ -1237,8 +1237,9 @@ end
 -- [[ LOOPING LOGIKA AUTO UPGRADE SCRAP ]] --
 task.spawn(function()
     while not Window.Destroyed do
+        local premium = (getgenv().IsPremium == true)
         local pData = MetaService.Data
-        if pData then
+        if premium and pData then
             for mapName, sides in pairs(ScrapConfig.Upgrades) do
                 for _, side in ipairs({"Left", "Right"}) do
                     local sideData = sides[side]
@@ -1270,16 +1271,17 @@ task.spawn(function()
                     end
 
                     -- Update Deskripsi UI
-                    if toggleUI then
+                    if toggleUI and not Window.Closed then
                         local status = GetScrapSideDesc(mapName, side, sideData)
-                        if not Window.Closed then
+                        if _Scrap_LastStatus[side][mapName] ~= status then
                             toggleUI:SetDesc(status)
+                            _Scrap_LastStatus[side][mapName] = status
                         end
                     end
                 end
             end
         end
-        task.wait(0.5)
+        task.wait(premium and 0.5 or 1.0)
     end
 end)
 
@@ -1348,8 +1350,9 @@ end
 -- [[ LOOPING LOGIKA AUTO UPGRADE DEVIL ]] --
 task.spawn(function()
     while not Window.Destroyed do
+        local premium = (getgenv().IsPremium == true)
         local pData = MetaService.Data
-        if pData then
+        if premium and pData then
             for mapName, sides in pairs(DevilConfig.Upgrades) do
                 for _, side in ipairs({"Left", "Right"}) do
                     local sideData = sides[side]
@@ -1383,16 +1386,17 @@ task.spawn(function()
                     end
 
                     -- Update Deskripsi UI (Real-time Optimization)
-                    if toggleUI then
+                    if toggleUI and not Window.Closed then
                         local status = GetDevilSideDesc(mapName, side, sideData)
-                        if not Window.Closed then
+                        if _Devil_LastStatus[side][mapName] ~= status then
                             toggleUI:SetDesc(status)
+                            _Devil_LastStatus[side][mapName] = status
                         end
                     end
                 end
             end
         end
-        task.wait(0.5) -- Delay loop agar tidak membebani CPU
+        task.wait(premium and 0.5 or 1.0)
     end
 end)
 
@@ -1459,6 +1463,7 @@ end
 -- [[ LOGIKA AUTO UPGRADE ]] --
 task.spawn(function()
     while not Window.Destroyed do
+        local premium = (getgenv().IsPremium == true)
         local pData = MetaService.Data
         
         for mapName, lbData in pairs(LB_Config.Data) do
@@ -1481,173 +1486,141 @@ task.spawn(function()
                 end
 
                 -- Update Status Deskripsi (Real-time)
-                local currentStatus = GetLBDesc(mapName, lbData)
-                if not Window.Closed then
-                    toggleUI:SetDesc(currentStatus)
+                if not Window.Closed and premium then
+                    local currentStatus = GetLBDesc(mapName, lbData)
+                    if _LB_LastStatus[mapName] ~= currentStatus then
+                        toggleUI:SetDesc(currentStatus)
+                        _LB_LastStatus[mapName] = currentStatus
+                    end
                 end
             end
         end
-        task.wait(0.5)
+        task.wait(premium and 0.5 or 1.0)
     end
 end)
 
 task.spawn(function()
-    while not Window.Destroyed do
-        local premium = (getgenv().IsPremium == true)
-        local pData = MetaService and MetaService.Data
-        
-        if not premium then
-            Config.AutoDungeon = false
-            if AutoDungeonToggle and AutoDungeonToggle.Value then
-                pcall(function()
-                    AutoDungeonToggle:Set(false)
-                end)
+    local lastPremium = nil
+    local lockState = {}
+    local lbLockState = {}
+    local scrapLockState = { Left = {}, Right = {} }
+    local devilLockState = { Left = {}, Right = {} }
+
+    local function keyForReason(reason)
+        return reason or ""
+    end
+
+    local function setLock(ui, reason, cache, k)
+        if not ui then return end
+        local state = keyForReason(reason)
+        if cache[k] == state then return end
+        cache[k] = state
+        pcall(function()
+            if reason and reason ~= "" then
+                ui:Lock(reason)
+            else
+                ui:Unlock()
             end
-            
-            if DifficultyDropdown then
-                pcall(function()
-                    DifficultyDropdown:Lock("Premium Only")
-                end)
-            end
-            if AutoDungeonToggle then
-                pcall(function()
-                    AutoDungeonToggle:Lock("Premium Only")
-                end)
-            end
-            
-            for mapName, toggleUI in pairs(LB_ToggleObjects) do
+        end)
+    end
+
+    local function setOffIfOn(ui)
+        if ui and ui.Value then
+            pcall(function()
+                ui:Set(false)
+            end)
+        end
+    end
+
+    local function applyMaxLocks(pData)
+        for mapName, toggleUI in pairs(LB_ToggleObjects) do
+            local lbData = LB_Config and LB_Config.Data and LB_Config.Data[mapName]
+            local currentLvl = (pData and pData.LimitBreaks and pData.LimitBreaks[mapName]) or 0
+            if toggleUI and lbData and currentLvl >= lbData.MaxLevel then
                 Config.AutoLimitBreaks[mapName] = false
-                if toggleUI and toggleUI.Value then
-                    pcall(function()
-                        toggleUI:Set(false)
-                    end)
-                end
-                if toggleUI then
-                    pcall(function()
-                        toggleUI:Lock("Premium Only")
-                    end)
-                end
+                setOffIfOn(toggleUI)
+                setLock(toggleUI, "MAX", lbLockState, mapName)
+            else
+                setLock(toggleUI, nil, lbLockState, mapName)
             end
-            
-            for mapName, sides in pairs(ScrapConfig.Upgrades) do
-                for _, side in ipairs({"Left", "Right"}) do
+        end
+
+        for mapName, sides in pairs(ScrapConfig.Upgrades) do
+            for _, side in ipairs({"Left", "Right"}) do
+                local sideData = sides[side]
+                local toggleUI = ScrapToggleObjects[side][mapName]
+                local currentLvl = (pData and pData.ScrapUpgrades and pData.ScrapUpgrades[mapName] and pData.ScrapUpgrades[mapName][side]) or 0
+                if toggleUI and sideData and currentLvl >= sideData.MaxLevel then
                     Config.AutoScrap[side][mapName] = false
-                    local toggleUI = ScrapToggleObjects[side][mapName]
-                    if toggleUI and toggleUI.Value then
-                        pcall(function()
-                            toggleUI:Set(false)
-                        end)
-                    end
-                    if toggleUI then
-                        pcall(function()
-                            toggleUI:Lock("Premium Only")
-                        end)
-                    end
-                end
-            end
-            
-            for mapName, sides in pairs(DevilConfig.Upgrades) do
-                for _, side in ipairs({"Left", "Right"}) do
-                    Config.AutoDevil[side][mapName] = false
-                    local toggleUI = DevilToggleObjects[side][mapName]
-                    if toggleUI and toggleUI.Value then
-                        pcall(function()
-                            toggleUI:Set(false)
-                        end)
-                    end
-                    if toggleUI then
-                        pcall(function()
-                            toggleUI:Lock("Premium Only")
-                        end)
-                    end
-                end
-            end
-        else
-            if DifficultyDropdown then
-                pcall(function()
-                    DifficultyDropdown:Unlock()
-                end)
-            end
-            if AutoDungeonToggle then
-                pcall(function()
-                    AutoDungeonToggle:Unlock()
-                end)
-            end
-            
-            for mapName, toggleUI in pairs(LB_ToggleObjects) do
-                local lbData = LB_Config and LB_Config.Data and LB_Config.Data[mapName]
-                local currentLvl = (pData and pData.LimitBreaks and pData.LimitBreaks[mapName]) or 0
-                if toggleUI then
-                    if lbData and currentLvl >= lbData.MaxLevel then
-                        Config.AutoLimitBreaks[mapName] = false
-                        if toggleUI.Value then
-                            pcall(function()
-                                toggleUI:Set(false)
-                            end)
-                        end
-                        pcall(function()
-                            toggleUI:Lock("MAX")
-                        end)
-                    else
-                        pcall(function()
-                            toggleUI:Unlock()
-                        end)
-                    end
-                end
-            end
-            
-            for mapName, sides in pairs(ScrapConfig.Upgrades) do
-                for _, side in ipairs({"Left", "Right"}) do
-                    local sideData = sides[side]
-                    local toggleUI = ScrapToggleObjects[side][mapName]
-                    local currentLvl = (pData and pData.ScrapUpgrades and pData.ScrapUpgrades[mapName] and pData.ScrapUpgrades[mapName][side]) or 0
-                    if toggleUI then
-                        if sideData and currentLvl >= sideData.MaxLevel then
-                            Config.AutoScrap[side][mapName] = false
-                            if toggleUI.Value then
-                                pcall(function()
-                                    toggleUI:Set(false)
-                                end)
-                            end
-                            pcall(function()
-                                toggleUI:Lock("MAX")
-                            end)
-                        else
-                            pcall(function()
-                                toggleUI:Unlock()
-                            end)
-                        end
-                    end
-                end
-            end
-            
-            for mapName, sides in pairs(DevilConfig.Upgrades) do
-                for _, side in ipairs({"Left", "Right"}) do
-                    local sideData = sides[side]
-                    local toggleUI = DevilToggleObjects[side][mapName]
-                    local currentLvl = (pData and pData.DevilUpgrades and pData.DevilUpgrades[mapName] and pData.DevilUpgrades[mapName][side]) or 0
-                    if toggleUI then
-                        if sideData and currentLvl >= sideData.MaxLevel then
-                            Config.AutoDevil[side][mapName] = false
-                            if toggleUI.Value then
-                                pcall(function()
-                                    toggleUI:Set(false)
-                                end)
-                            end
-                            pcall(function()
-                                toggleUI:Lock("MAX")
-                            end)
-                        else
-                            pcall(function()
-                                toggleUI:Unlock()
-                            end)
-                        end
-                    end
+                    setOffIfOn(toggleUI)
+                    setLock(toggleUI, "MAX", scrapLockState[side], mapName)
+                else
+                    setLock(toggleUI, nil, scrapLockState[side], mapName)
                 end
             end
         end
-        
-        task.wait(0.5)
+
+        for mapName, sides in pairs(DevilConfig.Upgrades) do
+            for _, side in ipairs({"Left", "Right"}) do
+                local sideData = sides[side]
+                local toggleUI = DevilToggleObjects[side][mapName]
+                local currentLvl = (pData and pData.DevilUpgrades and pData.DevilUpgrades[mapName] and pData.DevilUpgrades[mapName][side]) or 0
+                if toggleUI and sideData and currentLvl >= sideData.MaxLevel then
+                    Config.AutoDevil[side][mapName] = false
+                    setOffIfOn(toggleUI)
+                    setLock(toggleUI, "MAX", devilLockState[side], mapName)
+                else
+                    setLock(toggleUI, nil, devilLockState[side], mapName)
+                end
+            end
+        end
+    end
+
+    while not Window.Destroyed do
+        local premium = (getgenv().IsPremium == true)
+        local pData = MetaService and MetaService.Data
+
+        if premium ~= lastPremium then
+            if not premium then
+                Config.AutoDungeon = false
+                setOffIfOn(AutoDungeonToggle)
+                setLock(DifficultyDropdown, "Premium Only", lockState, "DifficultyDropdown")
+                setLock(AutoDungeonToggle, "Premium Only", lockState, "AutoDungeonToggle")
+
+                for mapName, toggleUI in pairs(LB_ToggleObjects) do
+                    Config.AutoLimitBreaks[mapName] = false
+                    setOffIfOn(toggleUI)
+                    setLock(toggleUI, "Premium Only", lbLockState, mapName)
+                end
+
+                for mapName, sides in pairs(ScrapConfig.Upgrades) do
+                    for _, side in ipairs({"Left", "Right"}) do
+                        Config.AutoScrap[side][mapName] = false
+                        local toggleUI = ScrapToggleObjects[side][mapName]
+                        setOffIfOn(toggleUI)
+                        setLock(toggleUI, "Premium Only", scrapLockState[side], mapName)
+                    end
+                end
+
+                for mapName, sides in pairs(DevilConfig.Upgrades) do
+                    for _, side in ipairs({"Left", "Right"}) do
+                        Config.AutoDevil[side][mapName] = false
+                        local toggleUI = DevilToggleObjects[side][mapName]
+                        setOffIfOn(toggleUI)
+                        setLock(toggleUI, "Premium Only", devilLockState[side], mapName)
+                    end
+                end
+            else
+                setLock(DifficultyDropdown, nil, lockState, "DifficultyDropdown")
+                setLock(AutoDungeonToggle, nil, lockState, "AutoDungeonToggle")
+                applyMaxLocks(pData)
+            end
+            lastPremium = premium
+        elseif premium then
+            applyMaxLocks(pData)
+        end
+
+        task.wait(premium and 1.0 or 2.0)
     end
 end)
 -- [[ Settings Tab ]] --
