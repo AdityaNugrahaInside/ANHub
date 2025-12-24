@@ -222,7 +222,6 @@ FM_Categories = {}
 FM_CategoryDescriptions = {
     ["Farm"] = "Auto farm enemies and specific targets.",
     ["Rank"] = "Auto increase your rank and view progress."
-    -- ["Hatch"] = "Auto open eggs and manage pets/heroes."
 }
 
 function FM_GetElementFrame(elem)
@@ -296,6 +295,7 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Rank", Icon = "rbxassetid://98029673359001"},
         {Title = "Roll", Icon = "rbxassetid://139336076943135"},
         {Title = "Limit Breaks", Icon = "rbxassetid://101194034780669"},
+        {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
         {Title = "Dungeons", Icon = "rbxassetid://84653254384417"}
     },
     Callback = FM_OnChange
@@ -1521,6 +1521,7 @@ task.spawn(function()
     local lbLockState = {}
     local scrapLockState = { Left = {}, Right = {} }
     local devilLockState = { Left = {}, Right = {} }
+    local hatchState = {}
 
     local function keyForReason(reason)
         return reason or ""
@@ -1545,6 +1546,20 @@ task.spawn(function()
             pcall(function()
                 ui:Set(false)
             end)
+        end
+    end
+
+    local function enforceHatch(premium)
+        if not premium then
+            if Config and Config.AutoHatch then
+                Config.AutoHatch.Enabled = false
+            end
+            setOffIfOn(AutoHatchToggle)
+            setLock(HatchMapDropdown, "Premium Only", hatchState, "HatchMapDropdown")
+            setLock(AutoHatchToggle, "Premium Only", hatchState, "AutoHatchToggle")
+        else
+            setLock(HatchMapDropdown, nil, hatchState, "HatchMapDropdown")
+            setLock(AutoHatchToggle, nil, hatchState, "AutoHatchToggle")
         end
     end
 
@@ -1636,9 +1651,115 @@ task.spawn(function()
             applyMaxLocks(pData)
         end
 
+        enforceHatch(premium)
         task.wait(premium and 1.0 or 2.0)
     end
 end)
+
+-- [[ 1. CONFIGURATION & MODULES ]] --
+FM_CategoryDescriptions["Hatch"] = "Auto hatch eggs from your selected map."
+Config.AutoHatch = {
+    Enabled = false,
+    Type = "Single", -- "Single" or "Triple"
+    SelectedMap = "Piece Village"
+}
+
+local SummonPath = LocalPlayer.PlayerScripts.MetaService.Client.Summon
+local HatchEgg = require(SummonPath.HatchEgg)
+local EggAnimate = require(SummonPath.EggAnimate)
+local UnitsModule = require(ReplicatedStorage.Modules.Units)
+
+-- [[ 2. BYPASS / HOOK SYSTEM ]] --
+-- Force busy status to false to allow spamming without waiting for animations to finish
+task.spawn(function()
+    while not Window.Destroyed do
+        local premium = (getgenv().IsPremium == true)
+        if premium and Config.AutoHatch.Enabled then
+            HatchEgg.IsHatching = false
+            EggAnimate.IsPlaying = false
+            
+            -- Ensure Summon UI is logically considered visible by the game script
+            local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
+            if summonUI then summonUI.Visible = true end
+        end
+        task.wait(0.2)
+    end
+end)
+
+-- [[ 3. UI GENERATION ]] --
+
+-- List of maps available for Eggs
+local EggMapList = {}
+for mapName, _ in pairs(HatchEgg.MapEggs) do
+    if mapName ~= "Exclusives" then
+        table.insert(EggMapList, { Title = mapName, Value = mapName })
+    end
+end
+
+HatchMapDropdown = FarmTab:Dropdown({
+    Title = "Select Egg (Map)",
+    Values = EggMapList,
+    Desc = "Make sure you are near the Summon model.",
+    Default = "Piece Village",
+    Callback = function(val) 
+        Config.AutoHatch.SelectedMap = type(val) == "table" and val.Value or val 
+    end
+})
+AutoHatchToggle = FarmTab:Toggle({
+    Title = "Auto Hatch",
+    Desc = "Automatically hatch eggs from the selected map.\nEnable this when you are near the Summon area.\nRejoin If UI Gone",
+    Default = false,
+    Callback = function(val)
+        Config.AutoHatch.Enabled = val
+        
+        -- NORMALIZATION LOGIC WHEN DISABLED
+        if not val then
+            -- 1. Reset UI to closed state so it doesn't obstruct the screen
+            local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
+            if summonUI then 
+                summonUI.Visible = false
+            end
+            
+            -- 2. Brief delay then let the original module regain state control
+            task.delay(0.1, function()
+                HatchEgg.IsHatching = false
+                EggAnimate.IsPlaying = true
+            end)
+        end
+    end
+})
+FM_Add("Hatch", HatchMapDropdown)
+FM_Add("Hatch", AutoHatchToggle)
+
+-- [[ 4. MAIN LOOP LOGIC ]] --
+task.spawn(function()
+    while not Window.Destroyed do
+        local premium = (getgenv().IsPremium == true)
+        if premium and Config.AutoHatch.Enabled then
+            pcall(function()
+                local map = Config.AutoHatch.SelectedMap
+                local hatchType = "Single"
+                local price = UnitsModule.GetPrice(map, getgenv().PlayerData)
+                local currentYen = getgenv().PlayerData.Yens or 0
+
+                -- Balance Validation
+                if currentYen >= price then
+                    -- Send Request Directly to Server
+                    MetaService.Bridge:Fire("Summon", "Request", {hatchType, map})
+                    
+                    -- Small delay to prevent server rate-limiting (Adjustable)
+                    task.wait() 
+                else
+                    Notify("Warning", "Insufficient Yen to summon!", "alert-circle")
+                    Config.AutoHatch.Enabled = false
+                    task.wait(2)
+                end
+            end)
+        end
+        task.wait()
+    end
+end)
+
 -- [[ Settings Tab ]] --
 SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings-2" });
 SettingsTab:Section({ Title = "Config Manager", Icon = "save", Opened = true });
