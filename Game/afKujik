@@ -1,7 +1,7 @@
 if game.PlaceId ~= 104470677863797 then return end
 repeat task.wait() until game:IsLoaded()
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading3.lua"))()
 
 -- [[ Services & Dasar ]] --
 Players = game:GetService("Players")
