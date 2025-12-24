@@ -1687,8 +1687,6 @@ task.spawn(function()
 end)
 
 -- [[ 3. UI GENERATION ]] --
-local HatchGroup = FarmTab:Group({ Title = "Egg Summoner" })
-FM_Add("Hatch", HatchGroup)
 
 -- List of maps available for Eggs
 local EggMapList = {}
@@ -1698,7 +1696,7 @@ for mapName, _ in pairs(HatchEgg.MapEggs) do
     end
 end
 
-HatchMapDropdown = HatchGroup:Dropdown({
+HatchMapDropdown = FarmTab:Dropdown({
     Title = "Select Egg (Map)",
     Values = EggMapList,
     Desc = "Make sure you are near the Summon model.",
@@ -1707,10 +1705,9 @@ HatchMapDropdown = HatchGroup:Dropdown({
         Config.AutoHatch.SelectedMap = type(val) == "table" and val.Value or val 
     end
 })
-
-AutoHatchToggle = HatchGroup:Toggle({
+AutoHatchToggle = FarmTab:Toggle({
     Title = "Auto Hatch",
-    Desc = "Automatically hatch eggs from the selected map.\nEnable this when you are near the Summon area.",
+    Desc = "Automatically hatch eggs from the selected map.\nEnable this when you are near the Summon area.\nRejoin If UI Gone",
     Default = false,
     Callback = function(val)
         Config.AutoHatch.Enabled = val
@@ -1726,13 +1723,13 @@ AutoHatchToggle = HatchGroup:Toggle({
             -- 2. Brief delay then let the original module regain state control
             task.delay(0.1, function()
                 HatchEgg.IsHatching = false
-                EggAnimate.IsPlaying = false
+                EggAnimate.IsPlaying = true
             end)
-            
-            Notify("Auto Hatch", "Returned to normal state.", "check")
         end
     end
 })
+FM_Add("Hatch", HatchMapDropdown)
+FM_Add("Hatch", AutoHatchToggle)
 
 -- [[ 4. MAIN LOOP LOGIC ]] --
 task.spawn(function()
