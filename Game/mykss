@@ -315,6 +315,7 @@ local RanksModule = require(ReplicatedStorage.Modules.Ranks)
 task.spawn(function()
     while not Window.Destroyed do
         getgenv().PlayerData = MetaService.Data
+        -- print(getgenv().PlayerData.TotalStats["Total Power"])
         getgenv().EnemiesData = MetaService.Cache.Enemies
         task.wait()
     end
@@ -1507,6 +1508,8 @@ task.spawn(function()
     end
 end)
 
+local ToggleNoCooldown
+
 task.spawn(function()
     local lastPremium = nil
     local lockState = {}
@@ -1514,6 +1517,7 @@ task.spawn(function()
     local scrapLockState = { Left = {}, Right = {} }
     local devilLockState = { Left = {}, Right = {} }
     local hatchState = {}
+    local fastAttackState = {}
 
     local function keyForReason(reason)
         return reason or ""
@@ -1552,6 +1556,21 @@ task.spawn(function()
         else
             setLock(HatchMapDropdown, nil, hatchState, "HatchMapDropdown")
             setLock(AutoHatchToggle, nil, hatchState, "AutoHatchToggle")
+        end
+    end
+
+    local function enforceFastAttack(premium)
+        if not premium then
+            Config.NoCooldownAttack = false
+            if ToggleNoCooldown then
+                pcall(function()
+                    ToggleNoCooldown(false)
+                end)
+            end
+            setOffIfOn(FarmTabFast)
+            setLock(FarmTabFast, "Premium Only", fastAttackState, "FarmTabFast")
+        else
+            setLock(FarmTabFast, nil, fastAttackState, "FarmTabFast")
         end
     end
 
@@ -1644,6 +1663,7 @@ task.spawn(function()
         end
 
         enforceHatch(premium)
+        enforceFastAttack(premium)
         task.wait(premium and 1.0 or 2.0)
     end
 end)
@@ -1661,20 +1681,21 @@ local HatchEgg = require(SummonPath.HatchEgg)
 local EggAnimate = require(SummonPath.EggAnimate)
 local UnitsModule = require(ReplicatedStorage.Modules.Units)
 
--- [[ 2. BYPASS / HOOK SYSTEM ]] --
--- Force busy status to false to allow spamming without waiting for animations to finish
+-- [[ BYPASS / HOOK SYSTEM ]] --
+
+-- Bypass Kecepatan (Tambahkan ini)
+HatchEgg.GetHatchSpeed = function()
+    return 0.01 -- Selalu instan
+end
+
 task.spawn(function()
     while not Window.Destroyed do
         local premium = (getgenv().IsPremium == true)
         if premium and Config.AutoHatch.Enabled then
             HatchEgg.IsHatching = false
             EggAnimate.IsPlaying = false
-            
-            -- Ensure Summon UI is logically considered visible by the game script
-            local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
-            if summonUI then summonUI.Visible = true end
         end
-        task.wait(0.2)
+        task.wait(0.1)
     end
 end)
 
@@ -1772,7 +1793,7 @@ end
 
 -- [[ THE HOOK ]] --
 -- Mengubah semua nilai cooldown di modul Clickers menjadi 0 secara instan
-local function ToggleNoCooldown(state)
+ToggleNoCooldown = function(state)
     if state then
         -- Hooking cooldown values
         if Clickers and Clickers.ClickCooldowns then
@@ -1912,7 +1933,7 @@ local function CreateTraitToggle(Parent, traitName)
             Title = data.Rarity,
             Quantity = string.format("%.1f%%", data.Weight)
         },
-        ImageSize = 40,
+        ImageSize = 60,
         Callback = function(v) 
             Config.Traits.SelectedTraits[traitName] = v 
         end
