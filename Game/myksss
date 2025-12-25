@@ -313,11 +313,23 @@ local MetaService = require(LocalPlayer.PlayerScripts.MetaService)
 local Utility = require(ReplicatedStorage.Modules.Utility)
 local RanksModule = require(ReplicatedStorage.Modules.Ranks)
 task.spawn(function()
+    local lastPower = nil -- Variabel untuk menyimpan nilai terakhir
+    
     while not Window.Destroyed do
-        getgenv().PlayerData = MetaService.Data
-        -- print(getgenv().PlayerData.TotalStats["Total Power"])
+        local data = MetaService.Data
+        if data and data.TotalStats then
+            getgenv().PlayerData = data
+            local currentPower = data.TotalStats["Total Power"]
+            
+            -- Hanya print jika power berubah
+            if currentPower ~= lastPower then
+                print("Power Updated: " .. tostring(currentPower))
+                lastPower = currentPower
+            end
+        end
+        
         getgenv().EnemiesData = MetaService.Cache.Enemies
-        task.wait()
+        task.wait(0.1) -- Gunakan jeda sedikit lebih lama (0.1s sudah cukup responsif)
     end
 end)
 function GetCurrentMapName()
@@ -1965,6 +1977,7 @@ local AutoTraitToggle = FarmTab:Toggle({
 
 FM_Add("Traits", TraitStatus)
 FM_Add("Traits", UnitSelector)
+FM_Add("Traits", UnitRefresh)
 FM_Add("Traits", AutoTraitToggle)
 
 -- [[ 4. EXECUTION LOGIC WITH WINDOW CHECK ]] --
