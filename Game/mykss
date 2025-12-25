@@ -38,33 +38,24 @@ function Notify(title, content, icon)
     end)
 end
 
-local _lastInputAt = os.clock()
-pcall(function()
-    if UserInputService and UserInputService.InputBegan then
-        UserInputService.InputBegan:Connect(function()
-            _lastInputAt = os.clock()
-        end)
-    end
-    if UserInputService and UserInputService.InputChanged then
-        UserInputService.InputChanged:Connect(function()
-            _lastInputAt = os.clock()
-        end)
-    end
-end)
-
+-- [[ OTOMATISASI ANTI-AFK & DISABLE REJOIN GAME ]] --
 task.spawn(function()
-    local warnAfterSeconds = 18 * 60
-    local repeatEverySeconds = 60
-    local lastWarnAt = 0
-    while true do
-        local now = os.clock()
-        local idleFor = now - _lastInputAt
-        if idleFor >= warnAfterSeconds and (now - lastWarnAt) >= repeatEverySeconds then
-            lastWarnAt = now
-            Notify("AFK Warning", "Kamu sudah idle lama. Lakukan input agar tidak AFK.", "alert-triangle")
-        end
-        task.wait(10)
-    end
+    -- Tunggu sampai LocalPlayer benar-benar tersedia
+    repeat task.wait() until game:GetService("Players").LocalPlayer
+    local LP = game:GetService("Players").LocalPlayer
+
+    -- 1. Set AFKModeEnabled ke false secara otomatis agar tidak Rejoin otomatis
+    LP:SetAttribute("AFKModeEnabled", false)
+    
+    -- 2. Jalankan Anti-AFK Internal Roblox (Mencegah Kick 20 Menit)
+    -- Ini mendeteksi saat karakter idle dan mengirim input virtual ke kamera
+    LP.Idled:Connect(function()
+        LP:SetAttribute("AFKModeEnabled", false)
+        local VirtualUser = game:GetService("VirtualUser")
+        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
 end)
 
 -- [[ SISTEM PROFILE ]] --
@@ -295,6 +286,7 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Rank", Icon = "rbxassetid://98029673359001"},
         {Title = "Roll", Icon = "rbxassetid://139336076943135"},
         {Title = "Limit Breaks", Icon = "rbxassetid://101194034780669"},
+        {Title = "Traits", Icon = "rbxassetid://112306765267998"}, -- Tambahkan ini
         {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
         {Title = "Dungeons", Icon = "rbxassetid://84653254384417"}
     },
@@ -1762,10 +1754,21 @@ end)
 
 -- [[ FEATURE: NO COOLDOWN ATTACK ]] --
 local AttackPath = LocalPlayer.PlayerScripts.MetaService.Client.Attack
+local AutoAttackModule = require(ReplicatedStorage.Modules.AutoAttack)
 local Clickers = require(ReplicatedStorage.Modules.Clickers)
 local AttackModule = require(AttackPath)
-
 Config.NoCooldownAttack = false
+
+-- Melakukan hook pada fungsi perhitungan Studs
+local oldStudsAtLevel = AutoAttackModule.StudsAtLevel
+AutoAttackModule.StudsAtLevel = function(level)
+    local baseRange = oldStudsAtLevel(level)
+    -- Jika fitur Fast Auto Attack aktif, kembalikan nilai 2x lipat
+    if Config.NoCooldownAttack then
+        return baseRange + 2
+    end
+    return baseRange
+end
 
 -- [[ THE HOOK ]] --
 -- Mengubah semua nilai cooldown di modul Clickers menjadi 0 secara instan
@@ -1794,19 +1797,199 @@ local function ToggleNoCooldown(state)
     end
 end
 
--- [[ UI INTEGRATION ]] --
+-- Cari bagian FarmTabFast dan ubah Callback-nya menjadi seperti ini:
 FarmTabFast = FarmTab:Toggle({
     Title = "Fast Auto Attack",
-    Desc = "Attack at maximum speed More Faster From GamePass",
+    Desc = "Attack at maximum speed & Double Range",
     Default = false,
     Flag = "AutoFastAttack",
     Callback = function(val)
         Config.NoCooldownAttack = val
         ToggleNoCooldown(Config.NoCooldownAttack)
+        
+        -- Memaksa modul internal game untuk menerapkan jarak baru
+        if AttackModule and AttackModule.ApplyRange then
+            AttackModule.ApplyRange()
+        end
     end
 })
 FM_Add("Farm", FarmTabFast)
 
+-- [[ 1. DATA MAPPING FROM GAME LOGIC (DECOMPILE) ]] --
+local TraitImages = {
+    ["Superior"] = "rbxassetid://70884355735385",
+    ["Prodigy"] = "rbxassetid://80226407452888",
+    ["Focused"] = "rbxassetid://125939681851804",
+    ["Time Traveller"] = "rbxassetid://115981664692797",
+    ["Charm"] = "rbxassetid://80716839302728",
+    ["Bloodline"] = "rbxassetid://92926227272011",
+    ["Evangelist"] = "rbxassetid://132353218742445"
+}
+
+local TraitAttributes = {
+    ["Superior"] = "<font color='#73ff5d'>| +*number% </font> Power Multiplier",
+    ["Prodigy"] = "<font color='#ff0000'>| -*number% </font> Decrease unit exp requirement",
+    ["Focused"] = "<font color='#73ff5d'>| +*number% </font> Power for 5 seconds every 30 seconds",
+    ["Time Traveller"] = "",
+    ["Charm"] = "<font color='#73ff5d'>| +*number% </font> Yen Multiplier",
+    ["Bloodline"] = "<font color='#73ff5d'>| +*number% </font> Power per ally with mythic trait",
+    ["Evangelist"] = "<font color='#73ff5d'>| +*number% </font> Power per equipped ally"
+}
+
+local RarityColors = {
+    ["Common"] = Color3.fromRGB(160, 160, 160),
+    ["Rare"] = Color3.fromRGB(0, 150, 255),
+    ["Epic"] = Color3.fromRGB(190, 0, 255),
+    ["Legendary"] = Color3.fromRGB(255, 180, 0),
+    ["Mythic"] = Color3.fromRGB(255, 0, 80)
+}
+
+-- [[ 2. DYNAMIC CONFIGURATION ]] --
+FM_CategoryDescriptions["Traits"] = "Auto-roll Traits And Filter The specific."
+Config.Traits = {
+    AutoRoll = false,
+    SelectedUnitID = nil,
+    SelectedTraits = {} 
+}
+
+local TraitsModule = require(game:GetService("ReplicatedStorage").Modules.TraitsModule)
+
+local function FormatTraitDesc(traitName)
+    local data = TraitsModule[traitName]
+    if not data then return "" end
+    local template = TraitAttributes[data.Type] or ""
+    local val = tostring(data.Attribute * 100)
+    return string.gsub(template, "*number", val)
+end
+
+local function GetInventoryUnits()
+    local unitOptions = {}
+    local pData = getgenv().PlayerData
+    if pData and pData.Inventory and pData.Inventory.Pets then
+        for id, data in pairs(pData.Inventory.Pets) do
+            table.insert(unitOptions, {
+                Title = data.PetOriginName .. " [" .. data.Traits .. "]",
+                Value = id
+            })
+        end
+    end
+    if #unitOptions == 0 then table.insert(unitOptions, {Title = "No Units Found", Value = "None"}) end
+    return unitOptions
+end
+
+-- [[ 3. UI ELEMENTS ]] --
+
+local TraitStatus = FarmTab:Paragraph({
+    Title = "Trait Status",
+    Content = "Please select a unit to view information."
+})
+
+local UnitSelector = FarmTab:Dropdown({
+    Title = "Select Unit to Roll",
+    Values = GetInventoryUnits(),
+    Default = 1,
+    Callback = function(val)
+        Config.Traits.SelectedUnitID = type(val) == "table" and val.Value or val
+    end
+})
+
+-- Dynamic Filter Groups (2 items per Group)
+local SortedTraitNames = {}
+for name, _ in pairs(TraitsModule) do table.insert(SortedTraitNames, name) end
+table.sort(SortedTraitNames, function(a, b) 
+    return (TraitsModule[a].Weight or 0) < (TraitsModule[b].Weight or 0) 
+end)
+
+local function CreateTraitToggle(Parent, traitName)
+    local data = TraitsModule[traitName]
+    Parent:Toggle({
+        Title = traitName,
+        Desc = FormatTraitDesc(traitName),
+        Default = false,
+        Image = {
+            Image = TraitImages[data.Type] or "",
+            Gradient = RarityColors[data.Rarity] or Color3.new(1,1,1),
+            Title = data.Rarity,
+            Quantity = string.format("%.1f%%", data.Weight)
+        },
+        ImageSize = 40,
+        Callback = function(v) 
+            Config.Traits.SelectedTraits[traitName] = v 
+        end
+    })
+end
+
+for i = 1, #SortedTraitNames, 2 do
+    local TraitGroup = FarmTab:Group({
+        Title = i == 1 and "Trait Selection (Stop if Got)" or ""
+    })
+    
+    FM_Add("Traits", TraitGroup)
+    CreateTraitToggle(TraitGroup, SortedTraitNames[i])
+    if SortedTraitNames[i+1] then
+        CreateTraitToggle(TraitGroup, SortedTraitNames[i+1])
+    end
+end
+
+local AutoTraitToggle = FarmTab:Toggle({
+    Title = "Auto Roll Traits",
+    Desc = "Automatically roll traits until one of the selections above is obtained.",
+    Default = false,
+    Callback = function(v) Config.Traits.AutoRoll = v end
+})
+
+FM_Add("Traits", TraitStatus)
+FM_Add("Traits", UnitSelector)
+FM_Add("Traits", AutoTraitToggle)
+
+-- [[ 4. EXECUTION LOGIC WITH WINDOW CHECK ]] --
+
+task.spawn(function()
+    while not Window.Destroyed do
+        if Config.Traits.AutoRoll and Config.Traits.SelectedUnitID and Config.Traits.SelectedUnitID ~= "None" then
+            pcall(function()
+                local pData = getgenv().PlayerData
+                local unit = pData.Inventory.Pets[Config.Traits.SelectedUnitID]
+                local shards = pData.Inventory.Items.TraitShards or 0
+                
+                if unit then
+                    local currentTrait = unit.Traits
+                    
+                    -- [OPTIMIZATION] Update UI only if Window is NOT closed/minimized
+                    if not Window.Closed then
+                        local displayInfo = "Current Trait: " .. tostring(currentTrait)
+                        TraitStatus:SetDesc(displayInfo .. "\nAvailable Shards: " .. shards)
+                    end
+
+                    -- Stop Logic
+                    if Config.Traits.SelectedTraits[currentTrait] then
+                        Notify("Traits", "Target Trait [" .. currentTrait .. "] Obtained!", "check")
+                        Config.Traits.AutoRoll = false
+                        AutoTraitToggle:Set(false)
+                    -- Roll Logic
+                    elseif shards >= 1 then
+                        MetaService.Bridge:Fire("Traits", "Roll", Config.Traits.SelectedUnitID)
+                        task.wait(0.8) 
+                    else
+                        Notify("Warning", "Trait Shards Exhausted!", "alert-triangle")
+                        Config.Traits.AutoRoll = false
+                        AutoTraitToggle:Set(false)
+                    end
+                end
+            end)
+        end
+        task.wait(0.1)
+    end
+end)
+
+task.spawn(function()
+    while not Window.Destroyed do
+        if not Config.Traits.AutoRoll and UnitSelector then
+            UnitSelector:Refresh(GetInventoryUnits(), true)
+        end
+        task.wait(10)
+    end
+end)
 -- [[ Settings Tab ]] --
 SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings-2" });
 SettingsTab:Section({ Title = "Config Manager", Icon = "save", Opened = true });
