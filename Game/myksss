@@ -3,32 +3,35 @@ repeat task.wait() until game:IsLoaded()
 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading3.lua"))()
 
--- [[ Services & Dasar ]] --
-Players = game:GetService("Players")
-LocalPlayer = Players.LocalPlayer
-Workspace = game:GetService("Workspace")
-ReplicatedStorage = game:GetService("ReplicatedStorage")
-ReplicatedFirst = game:GetService("ReplicatedFirst")
-HttpService = game:GetService("HttpService")
-RunService = game:GetService("RunService")
-VirtualUser = game:GetService("VirtualUser")
-UserInputService = game:GetService("UserInputService")
-FolderPath = "ANUI/AnimeFrontiers"
-ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
+
+local FolderPath = "ANUI/AnimeFrontiers"
+local ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 local IsPremium = false
 local ValidKeys = {"ANHUB-2025"}
-MapDBFile = "Map_Database.json"
-Config = {
+local MapDBFile = "Map_Database.json"
+local Config = {
     SelectedEnemy = nil,
     MapConfigurations = {},
     AutoFarm = false
 }
-ConfigName = "ANConfig"
-CurrentMapEnemiesCache = {}
-IsLoadingConfig = false
-IsLoadingMapSelection = false
--- [[ Fungsi Notify ]] --
-function Notify(title, content, icon)
+local ConfigName = "ANConfig"
+local CurrentMapEnemiesCache = {}
+local IsLoadingConfig = false
+local IsLoadingMapSelection = false
+
+local UI
+local Window
+
+local function Notify(title, content, icon)
     task.spawn(function()
         pcall(function()
             if UI and UI.Notify then
@@ -38,17 +41,11 @@ function Notify(title, content, icon)
     end)
 end
 
--- [[ OTOMATISASI ANTI-AFK & DISABLE REJOIN GAME ]] --
 task.spawn(function()
-    -- Tunggu sampai LocalPlayer benar-benar tersedia
     repeat task.wait() until game:GetService("Players").LocalPlayer
     local LP = game:GetService("Players").LocalPlayer
-
-    -- 1. Set AFKModeEnabled ke false secara otomatis agar tidak Rejoin otomatis
     LP:SetAttribute("AFKModeEnabled", false)
-    
-    -- 2. Jalankan Anti-AFK Internal Roblox (Mencegah Kick 20 Menit)
-    -- Ini mendeteksi saat karakter idle dan mengirim input virtual ke kamera
+
     LP.Idled:Connect(function()
         LP:SetAttribute("AFKModeEnabled", false)
         local VirtualUser = game:GetService("VirtualUser")
@@ -58,9 +55,8 @@ task.spawn(function()
     end)
 end)
 
--- [[ SISTEM PROFILE ]] --
-GameIconURL = string.format("rbxthumb://type=GameIcon&id=%d&w=150&h=150", game.GameId)
-BaseProfile = {
+local GameIconURL = string.format("rbxthumb://type=GameIcon&id=%d&w=150&h=150", game.GameId)
+local BaseProfile = {
     Banner = "rbxassetid://124762019485618", 
     Avatar = "rbxassetid://84366761557806", 
     Status = true,
@@ -76,13 +72,13 @@ BaseProfile = {
     }
 }
 
-function MakeProfile(data)
+local function MakeProfile(data)
     local p = table.clone(BaseProfile)
     for k, v in pairs(data or {}) do p[k] = v end
     return p
 end
 
-function SecureWipe()
+local function SecureWipe()
     if not isfile or (not delfile) or (not readfile) or (not listfiles) then
         return
     end
@@ -131,7 +127,7 @@ pcall(function()
     end
 end)
 
-function LoadKeySystemData()
+local function LoadKeySystemData()
     local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key.txt"
     local success, response = pcall(function()
         return game:HttpGet(url)
@@ -157,7 +153,6 @@ end
 LoadKeySystemData()
 getgenv().IsPremium = IsPremium
 
--- [[ Inisialisasi Window ]] --
 UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
 
 Window = UI:CreateWindow({
@@ -177,13 +172,20 @@ Window = UI:CreateWindow({
     }
 })
 
--- Sidebar Animation
 task.delay(1.0, function() Window:CollapseSidebar() end)
 task.delay(3.0, function() Window:ExpandSidebar() end)
 Window:Tab({
     Profile = MakeProfile({ Title = "ANHub Script", Desc = "Anime Celestial" }),
     SidebarProfile = true
 })
+
+local function IsWindowAlive()
+    return Window and not Window.Destroyed
+end
+
+local function IsWindowOpen()
+    return IsWindowAlive() and not Window.Closed
+end
 
 do
     if IsPremium then
@@ -208,19 +210,17 @@ pcall(function()
     end
 end)
 
--- [[ LOGIKA CATEGORY MANAGER ]] --
-FM_Categories = {}
-FM_CategoryDescriptions = {
+local FM_Categories = {}
+local FM_CategoryDescriptions = {
     ["Farm"] = "Auto farm enemies and specific targets.",
     ["Rank"] = "Auto increase your rank and view progress."
 }
 
-function FM_GetElementFrame(elem)
+local function FM_GetElementFrame(elem)
     return rawget(elem, "ElementFrame") or (elem.UIElements and elem.UIElements.Main) or rawget(elem, "GroupFrame")
 end
 
--- Fungsi Update Profile Header (Kembali Ditambahkan)
-function FM_UpdateTabProfile(selected)
+local function FM_UpdateTabProfile(selected)
     local desc = FM_CategoryDescriptions[selected] or ""
     local containers = {}
     if FarmTab and FarmTab.UIElements then
@@ -245,7 +245,7 @@ function FM_UpdateTabProfile(selected)
     end
 end
 
-function FM_Add(cat, elem)
+local function FM_Add(cat, elem)
     if not FM_Categories[cat] then FM_Categories[cat] = {} end
     table.insert(FM_Categories[cat], elem)
     local frame = FM_GetElementFrame(elem)
@@ -253,7 +253,7 @@ function FM_Add(cat, elem)
     return elem
 end
 
-function FM_OnChange(selected)
+local function FM_OnChange(selected)
     for name, elems in pairs(FM_Categories) do
         local vis = (name == selected)
         for _, e in ipairs(elems) do
@@ -261,7 +261,6 @@ function FM_OnChange(selected)
             if f then f.Visible = vis end
         end
     end
-    -- Panggil update profile saat ganti kategori
     pcall(function() FM_UpdateTabProfile(selected) end)
 end
 
@@ -284,7 +283,7 @@ FM_CategorySelector = FarmTab:Category({
     Options = {
         {Title = "Farm", Icon = "sword"},
         {Title = "Rank", Icon = "rbxassetid://98029673359001"},
-        {Title = "Roll", Icon = "rbxassetid://139336076943135"},
+        {Title = "Roll", Icon = "rbxassetid://135040669708982"},
         {Title = "Limit Breaks", Icon = "rbxassetid://101194034780669"},
         {Title = "Traits", Icon = "rbxassetid://112306765267998"}, -- Tambahkan ini
         {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
@@ -332,14 +331,15 @@ task.spawn(function()
         task.wait(0.1) -- Gunakan jeda sedikit lebih lama (0.1s sudah cukup responsif)
     end
 end)
-function GetCurrentMapName()
+local function GetCurrentMapName()
     local PlayerData = getgenv().PlayerData
     if PlayerData and PlayerData.Map and PlayerData.Map ~= "" then
         return PlayerData.Map
     end
     return "Unknown"
 end
-function LoadMapDB()
+
+local function LoadMapDB()
     local path = FolderPath .. "/" .. MapDBFile
     if not isfile or not isfile(path) then return end
     local success, result = pcall(function()
@@ -349,7 +349,8 @@ function LoadMapDB()
         Config.MapConfigurations = result
     end
 end
-function SaveMapConfig(mapName, selectedItem)
+
+local function SaveMapConfig(mapName, selectedItem)
     if not mapName or mapName == "" or mapName == "Unknown" then return end
     if not selectedItem then return end
     local val = type(selectedItem) == "table" and selectedItem.Value or selectedItem
@@ -380,7 +381,8 @@ function SaveMapConfig(mapName, selectedItem)
         end)
     end
 end
-function ApplySavedEnemyForMap(mapName, enemiesList)
+
+local function ApplySavedEnemyForMap(mapName, enemiesList)
     if not mapName or mapName == "" or mapName == "Unknown" then return end
     
     local savedEntry = Config.MapConfigurations[mapName]
@@ -400,8 +402,7 @@ function ApplySavedEnemyForMap(mapName, enemiesList)
     if foundEnemyTable then
         Config.SelectedEnemy = foundEnemyTable.Value
         pcall(function()
-            if EnemyDropdown and EnemyDropdown.Select then
-                -- KIRIM FULL TABLE agar library ANUI bisa mencocokkan Title visualnya
+            if IsWindowOpen() and EnemyDropdown and EnemyDropdown.Select then
                 EnemyDropdown:Select(foundEnemyTable) 
             end
         end)
@@ -468,7 +469,7 @@ local function GetClosestEnemy()
     return closestPart, closestID
 end
 
-function GetEnemiesForCurrentMap()
+local function GetEnemiesForCurrentMap()
     local currentNames = {}
     local addedEnemies = {} 
     
@@ -595,7 +596,7 @@ task.spawn(function()
             if Config.AutoFarm then
                 Config.AutoFarm = false
             end
-            if EnemyFarm and EnemyFarm.Value then
+            if EnemyFarm and EnemyFarm.Value and IsWindowOpen() then
                 AutoFarmInternalChange = true
                 pcall(function()
                     EnemyFarm:Set(false)
@@ -605,7 +606,7 @@ task.spawn(function()
         else
             if AutoFarmWanted and not Config.AutoFarm then
                 Config.AutoFarm = true
-                if EnemyFarm and not EnemyFarm.Value then
+                if EnemyFarm and not EnemyFarm.Value and IsWindowOpen() then
                     AutoFarmInternalChange = true
                     pcall(function()
                         EnemyFarm:Set(true)
@@ -675,33 +676,37 @@ end)
 -- Perbaikan Loop Map Sync dengan Retry Logic
 task.spawn(function()
     local lastMap = nil
+    local lastUISyncedMap = nil
     while not Window.Destroyed do
         local currentMap = GetCurrentMapName()
-        
-        -- Deteksi Perubahan Map
+
         if currentMap and currentMap ~= lastMap and currentMap ~= "Unknown" then
             lastMap = currentMap
-            
-            -- [1] RESET TOTAL: Hapus target lama seketika agar tidak menyerang musuh map sebelumnya
+
             Config.SelectedEnemy = nil
             currentTargetID = nil
-            if EnemyDropdown and EnemyDropdown.Select then
-                EnemyDropdown:Select(nil)
-            end
 
-            -- [2] RETRY LOGIC: Tunggu sampai musuh di map baru benar-benar muncul di MetaService
             local newList = GetEnemiesForCurrentMap()
-
             CurrentMapEnemiesCache = newList
-            
-            -- [3] Refresh UI & Terapkan Config
-            LoadMapDB() 
-            if EnemyDropdown and EnemyDropdown.Refresh then
-                EnemyDropdown:Refresh(newList)
-            end
-            
-            -- Panggil fungsi apply untuk memilih musuh otomatis
+
+            LoadMapDB()
             ApplySavedEnemyForMap(currentMap, newList)
+            currentTargetID = Config.SelectedEnemy
+        end
+
+        if IsWindowOpen() and currentMap and currentMap ~= "Unknown" and currentMap ~= lastUISyncedMap then
+            lastUISyncedMap = currentMap
+
+            pcall(function()
+                if EnemyDropdown and EnemyDropdown.Select then
+                    EnemyDropdown:Select(nil)
+                end
+                if EnemyDropdown and EnemyDropdown.Refresh then
+                    EnemyDropdown:Refresh(CurrentMapEnemiesCache)
+                end
+            end)
+
+            ApplySavedEnemyForMap(currentMap, CurrentMapEnemiesCache)
             currentTargetID = Config.SelectedEnemy
         end
         task.wait(0.5)
@@ -726,7 +731,7 @@ AutoRankToggle = FarmTab:Toggle({
 FM_Add("Rank", RankLabel)
 FM_Add("Rank", AutoRankToggle)
 -- [[ UPDATE RANK PROGRESS DENGAN PROGRESS BAR REALTIME ]] --
-local _RankCache = "" -- Untuk mencegah flickering/update berlebih jika data tidak berubah
+local _RankCache = ""
 
 local function formatNum(n)
     local formatter = MetaService.Utils and MetaService.Utils.Number
@@ -776,11 +781,11 @@ task.spawn(function()
                     )
                 end
 
-                -- Update UI hanya jika ada perubahan (Realtime Optimization)
-                if _RankCache ~= infoText then
+                local uiCache = titleText .. "\n" .. infoText
+                if IsWindowOpen() and _RankCache ~= uiCache then
                     RankLabel:SetTitle(titleText)
                     RankLabel:SetDesc(infoText)
-                    _RankCache = infoText
+                    _RankCache = uiCache
                 end
 
                 -- Logika Auto Rank Up
@@ -810,7 +815,7 @@ local Road = RoadsModule.Roads
 Config.AutoRollMaps = {} -- Tabel untuk menyimpan status toggle tiap map
 
 -- Fungsi untuk mengecek apakah bisa Roll (berdasarkan logika decompile v_u_62)
-function CanRoll(mapName)
+local function CanRoll(mapName)
     if not (mapName and RoadFunctions and RoadFunctions.GetCurrencyFromMap) then return false end
     
     local currency = RoadFunctions:GetCurrencyFromMap(mapName)
@@ -873,7 +878,7 @@ local function CreateMapToggle(Parent, mapData)
 
     -- LOGIKA REALTIME: LOCKING, IMAGE PREVIEW, & MATERIAL INFO
     task.spawn(function()
-        local _ImageCache = nil -- Cache per toggle
+        local _ImageCache = nil
         while not Window.Destroyed do
             local pData = getgenv().PlayerData
             local pMaps = pData and pData.Inventory and pData.Inventory.Maps
@@ -881,26 +886,35 @@ local function CreateMapToggle(Parent, mapData)
             if pMaps then
                 local isMapUnlocked = pMaps[mapName]
                 if isMapUnlocked == false then
-                    if MapToggle.Value then MapToggle:Set(false) end
-                    MapToggle:Lock("Open Map First")
+                    Config.AutoRollMaps[mapName] = false
+                    if IsWindowOpen() then
+                        if MapToggle.Value then
+                            MapToggle:Set(false)
+                        end
+                        MapToggle:Lock("Open Map First")
+                    end
                 else
-                    MapToggle:Unlock()
+                    if IsWindowOpen() then
+                        MapToggle:Unlock()
+                    end
                     
                     local unitName = pData.Gachas and pData.Gachas[mapName] or "None"
-                    if _ImageCache ~= unitName then
-                        if unitName ~= "None" and RoadFunctions.GetGachaFromName then
-                            local unitData = RoadFunctions:GetGachaFromName(mapName, unitName)
-                            if unitData then
-                                MapToggle:SetMainImage({
-                                    Image = RoadBoosts[mapName].Image or "",
-                                    Gradient = GetRarityGradient(unitData.Rarity),
-                                    Title = unitData.Name or unitName,
-                                    Quantity = unitData.Rarity
-                                }, 60)
+                    if IsWindowOpen() and _ImageCache ~= unitName then
+                        pcall(function()
+                            if unitName ~= "None" and RoadFunctions.GetGachaFromName then
+                                local unitData = RoadFunctions:GetGachaFromName(mapName, unitName)
+                                if unitData then
+                                    MapToggle:SetMainImage({
+                                        Image = RoadBoosts[mapName].Image or "",
+                                        Gradient = GetRarityGradient(unitData.Rarity),
+                                        Title = unitData.Name or unitName,
+                                        Quantity = unitData.Rarity
+                                    }, 60)
+                                end
+                            else
+                                MapToggle:SetMainImage(mapData.Icon, 35)
                             end
-                        else
-                            MapToggle:SetMainImage(mapData.Icon, 35)
-                        end
+                        end)
                         _ImageCache = unitName
                     end
                 end
@@ -952,8 +966,7 @@ task.spawn(function()
                         -- Jalankan Roll
                         local success = MetaService.Fetch:Fire("Roads", "Roll")
                         if success then
-                            -- Update UI sebelum menunggu animasi agar responsif
-                            if _LastStatusCache[mapName] ~= statusText then
+                            if IsWindowOpen() and _LastStatusCache[mapName] ~= statusText then
                                 toggleUI:SetDesc(statusText)
                                 _LastStatusCache[mapName] = statusText
                             end
@@ -972,8 +985,7 @@ task.spawn(function()
                 statusText = GetBaseDesc(mapName)
             end
 
-            -- UPDATE UI: Hanya jika ada perubahan data/status (Optimasi)
-            if _LastStatusCache[mapName] ~= statusText then
+            if IsWindowOpen() and _LastStatusCache[mapName] ~= statusText then
                 toggleUI:SetDesc(statusText)
                 _LastStatusCache[mapName] = statusText
             end
@@ -986,12 +998,13 @@ end)
 -- [[ DUNGEON DATA FETCH ]] --
 local DungeonsModule = require(ReplicatedStorage.Modules.DungeonsModule)
 
-function GetDynamicDifficulties()
+local function GetDynamicDifficulties()
     local difficulties = DungeonsModule.Difficulties
     return difficulties
 end
 
-Config.AutoDungeon = false
+Config.AutoDungeonCreate = false
+Config.AutoDungeonKill = false
 Config.SelectedDifficulty = nil -- Akan diisi otomatis
 -- [[ DUNGEONS CATEGORY - ROOM 50 FIX ]] --
 FM_CategoryDescriptions["Dungeons"] = "Auto Dungeon: Room-by-room clearing with Room 50 & Anti-Lag fix."
@@ -1041,7 +1054,7 @@ local function IsGateOpen()
 end
 
 -- 4. Targeting: Perbaikan filter SeenRoom untuk Room 50
-function GetDungeonTarget()
+local function GetDungeonTarget()
     if not LocalPlayer.Character then return nil end
 
     -- Jangan cari target jika gerbang fisik masih tertutup
@@ -1109,47 +1122,42 @@ end
 task.spawn(function()
     local lastRoomName = ""
     while not Window.Destroyed do
-        if Config.AutoDungeon then
+        if Config.AutoDungeonCreate or Config.AutoDungeonKill then
             pcall(function()
                 local GameplayUI = LocalPlayer.PlayerGui.Main.Gameplay
                 local DungeonHUD = GameplayUI:FindFirstChild("Dungeon_em_andamento")
                 local TopView = DungeonHUD and DungeonHUD:FindFirstChild("Top_view")
                 local FinishUI = DungeonHUD and DungeonHUD:FindFirstChild("Acabamento da dungeon")
 
-                -- Jika Dungeon selesai, berhenti teleport
                 if FinishUI and FinishUI.Visible then
                     FinishUI.Visible = false
                 end
                 
-                -- B. Jika Berada di Lobi (Dungeon Belum Start)
                 if not (TopView and TopView.Visible) then
-                    if GetCurrentMapName() == "Piece Village" then
+                    if Config.AutoDungeonCreate and GetCurrentMapName() == "Piece Village" then
                         local Bridge = MetaService.Bridge
                         local session = GetDungeonSession()
                         if Bridge and Bridge.Fire and not session then
-                            
-                            -- RESET TOTAL: Memanggil EndScreen sebelum Create
-                            -- Ini memastikan musik reset, koneksi diputus, dan lobi bersih
                             ForceEndDungeon()
-                            task.wait(1.5) -- Jeda agar efek transisi EndScreen selesai
+                            task.wait(0.5)
 
-                            -- Create Dungeon
                             Bridge:Fire("Dungeon", "Create")
                             task.wait(0.8)
                             
-                            -- Pilih Difficulty
                             if Config.SelectedDifficulty then
                                 Bridge:Fire("Dungeon", "ChangeDifficulty", Config.SelectedDifficulty)
                                 task.wait(0.5)
                             end
 
-                            -- Start Dungeon
                             Bridge:Fire("Dungeon", "Start")
                             task.wait(2)
                         end
                     end
                 else
-                    -- C. Logika Farming di Dalam Dungeon
+                    if not Config.AutoDungeonKill then
+                        return
+                    end
+
                     local roomModels = GetActiveRoomModels()
                     local currentRoom = roomModels and roomModels.Current
                     local currentName = currentRoom and currentRoom.Name or ""
@@ -1161,9 +1169,11 @@ task.spawn(function()
 
                     local target = GetDungeonTarget()
                     if target then
-                        local root = LocalPlayer.Character.HumanoidRootPart
-                        local targetCF = target:IsA("Model") and target.HumanoidRootPart.CFrame or target.CFrame
-                        root.CFrame = targetCF * CFrame.new(0, 0, 3)
+                        local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            local targetCF = target:IsA("Model") and target:FindFirstChild("HumanoidRootPart") and target.HumanoidRootPart.CFrame or target.CFrame
+                            root.CFrame = targetCF * CFrame.new(0, 0, 3)
+                        end
                     end
                 end
             end)
@@ -1183,15 +1193,24 @@ DifficultyDropdown = FarmTab:Dropdown({
 })
 
 AutoDungeonToggle = FarmTab:Toggle({
-    Title = "Auto Dungeon",
+    Title = "Auto Create Dungeon",
+    Desc = "Automatically create and start dungeon",
+    Default = false,
+    Flag = "AutoDungeonCreate_Setting",
+    Callback = function(val) Config.AutoDungeonCreate = val end
+})
+
+AutoDungeonKillToggle = FarmTab:Toggle({
+    Title = "Auto Kill (In Dungeon)",
     Desc = "Only targets enemies in CurrentRoom after door opens",
     Default = false,
-    Flag = "AutoDungeon_Setting",
-    Callback = function(val) Config.AutoDungeon = val end
+    Flag = "AutoDungeonKill_Setting",
+    Callback = function(val) Config.AutoDungeonKill = val end
 })
 
 FM_Add("Dungeons", DifficultyDropdown)
 FM_Add("Dungeons", AutoDungeonToggle)
+FM_Add("Dungeons", AutoDungeonKillToggle)
 
 -- [[ SCRAP UPGRADES FEATURE - GROUP STRUCTURE ]] --
 local ScrapConfig = require(ReplicatedStorage.Modules.ScrapConfig)
@@ -1292,7 +1311,7 @@ task.spawn(function()
                     end
 
                     -- Update Deskripsi UI
-                    if toggleUI and not Window.Closed then
+                    if toggleUI and IsWindowOpen() then
                         local status = GetScrapSideDesc(mapName, side, sideData)
                         if _Scrap_LastStatus[side][mapName] ~= status then
                             toggleUI:SetDesc(status)
@@ -1407,7 +1426,7 @@ task.spawn(function()
                     end
 
                     -- Update Deskripsi UI (Real-time Optimization)
-                    if toggleUI and not Window.Closed then
+                    if toggleUI and IsWindowOpen() then
                         local status = GetDevilSideDesc(mapName, side, sideData)
                         if _Devil_LastStatus[side][mapName] ~= status then
                             toggleUI:SetDesc(status)
@@ -1428,24 +1447,34 @@ Config.AutoLimitBreaks = {}
 local LB_ToggleObjects = {}
 local _LB_LastStatus = {}
 
--- Fungsi untuk membuat deskripsi status (Level, Bonus, Biaya)
+-- Fungsi untuk membuat deskripsi status (Level, Bonus, Biaya) dengan gaya Scrap/Devil Upgrade
 local function GetLBDesc(mapName, mapData)
     local pData = MetaService.Data
     if not pData then return "Loading..." end
     
     local currentLvl = (pData.LimitBreaks and pData.LimitBreaks[mapName]) or 0
-    local currency = mapData.Currency
-    local owned = (pData.Inventory and pData.Inventory.Items[currency]) or 0
-    local cost = mapData.GetCost(currentLvl + 1)
+    local nextLvl = currentLvl + 1
     local multiplier = LB_Config.GetMultiplier(mapName, currentLvl) * 100
     
+    -- Tampilan jika sudah level maksimal
     if currentLvl >= mapData.MaxLevel then
         return string.format("Level: %d (MAX)\nBonus: +%.1f%% %s", currentLvl, multiplier, mapData.StatType)
     end
     
-    return string.format("Level: %d/%d (+%.1f%% %s)\n%s%s %s/%s", 
-        currentLvl, mapData.MaxLevel, multiplier, mapData.StatType, Items[currency].Icon,Items[currency].Name,
-        formatNum(owned), formatNum(cost))
+    -- Logika Biaya dan Warna (Mengikuti gaya Scrap/Devil Upgrade)
+    local currency = mapData.Currency
+    local cost = mapData.GetCost(nextLvl)
+    local owned = (pData.Inventory and pData.Inventory.Items[currency]) or 0
+    local itemInfo = Items[currency]
+    
+    -- Warna: Hijau (#44ff44) jika cukup, Merah (#ff4444) jika kurang
+    local color = owned >= cost and "#44ff44" or "#ff4444"
+    local costString = string.format("<font color='%s'>%s/%s</font> %s%s", 
+        color, formatNum(owned), formatNum(cost), itemInfo.Name, itemInfo.Icon)
+
+    -- Format akhir yang lebih bersih
+    return string.format("Level: %d/%d (+%.1f%% %s)\nCost: %s", 
+        currentLvl, mapData.MaxLevel, multiplier, mapData.StatType, costString)
 end
 
 -- Looping untuk membuat Group per Map
@@ -1507,7 +1536,7 @@ task.spawn(function()
                 end
 
                 -- Update Status Deskripsi (Real-time)
-                if not Window.Closed and premium then
+                if IsWindowOpen() and premium then
                     local currentStatus = GetLBDesc(mapName, lbData)
                     if _LB_LastStatus[mapName] ~= currentStatus then
                         toggleUI:SetDesc(currentStatus)
@@ -1523,7 +1552,6 @@ end)
 local ToggleNoCooldown
 
 task.spawn(function()
-    local lastPremium = nil
     local lockState = {}
     local lbLockState = {}
     local scrapLockState = { Left = {}, Right = {} }
@@ -1539,6 +1567,7 @@ task.spawn(function()
         if not ui then return end
         local state = keyForReason(reason)
         if cache[k] == state then return end
+        if not IsWindowOpen() then return end
         cache[k] = state
         pcall(function()
             if reason and reason ~= "" then
@@ -1550,6 +1579,9 @@ task.spawn(function()
     end
 
     local function setOffIfOn(ui)
+        if not IsWindowOpen() then
+            return
+        end
         if ui and ui.Value then
             pcall(function()
                 ui:Set(false)
@@ -1634,43 +1666,42 @@ task.spawn(function()
         local premium = (getgenv().IsPremium == true)
         local pData = MetaService and MetaService.Data
 
-        if premium ~= lastPremium then
-            if not premium then
-                Config.AutoDungeon = false
-                setOffIfOn(AutoDungeonToggle)
-                setLock(DifficultyDropdown, "Premium Only", lockState, "DifficultyDropdown")
-                setLock(AutoDungeonToggle, "Premium Only", lockState, "AutoDungeonToggle")
+        if not premium then
+            Config.AutoDungeonCreate = false
+            Config.AutoDungeonKill = false
+            setOffIfOn(AutoDungeonToggle)
+            setOffIfOn(AutoDungeonKillToggle)
+            setLock(DifficultyDropdown, "Premium Only", lockState, "DifficultyDropdown")
+            setLock(AutoDungeonToggle, "Premium Only", lockState, "AutoDungeonCreateToggle")
+            setLock(AutoDungeonKillToggle, "Premium Only", lockState, "AutoDungeonKillToggle")
 
-                for mapName, toggleUI in pairs(LB_ToggleObjects) do
-                    Config.AutoLimitBreaks[mapName] = false
-                    setOffIfOn(toggleUI)
-                    setLock(toggleUI, "Premium Only", lbLockState, mapName)
-                end
-
-                for mapName, sides in pairs(ScrapConfig.Upgrades) do
-                    for _, side in ipairs({"Left", "Right"}) do
-                        Config.AutoScrap[side][mapName] = false
-                        local toggleUI = ScrapToggleObjects[side][mapName]
-                        setOffIfOn(toggleUI)
-                        setLock(toggleUI, "Premium Only", scrapLockState[side], mapName)
-                    end
-                end
-
-                for mapName, sides in pairs(DevilConfig.Upgrades) do
-                    for _, side in ipairs({"Left", "Right"}) do
-                        Config.AutoDevil[side][mapName] = false
-                        local toggleUI = DevilToggleObjects[side][mapName]
-                        setOffIfOn(toggleUI)
-                        setLock(toggleUI, "Premium Only", devilLockState[side], mapName)
-                    end
-                end
-            else
-                setLock(DifficultyDropdown, nil, lockState, "DifficultyDropdown")
-                setLock(AutoDungeonToggle, nil, lockState, "AutoDungeonToggle")
-                applyMaxLocks(pData)
+            for mapName, toggleUI in pairs(LB_ToggleObjects) do
+                Config.AutoLimitBreaks[mapName] = false
+                setOffIfOn(toggleUI)
+                setLock(toggleUI, "Premium Only", lbLockState, mapName)
             end
-            lastPremium = premium
-        elseif premium then
+
+            for mapName, sides in pairs(ScrapConfig.Upgrades) do
+                for _, side in ipairs({"Left", "Right"}) do
+                    Config.AutoScrap[side][mapName] = false
+                    local toggleUI = ScrapToggleObjects[side][mapName]
+                    setOffIfOn(toggleUI)
+                    setLock(toggleUI, "Premium Only", scrapLockState[side], mapName)
+                end
+            end
+
+            for mapName, sides in pairs(DevilConfig.Upgrades) do
+                for _, side in ipairs({"Left", "Right"}) do
+                    Config.AutoDevil[side][mapName] = false
+                    local toggleUI = DevilToggleObjects[side][mapName]
+                    setOffIfOn(toggleUI)
+                    setLock(toggleUI, "Premium Only", devilLockState[side], mapName)
+                end
+            end
+        else
+            setLock(DifficultyDropdown, nil, lockState, "DifficultyDropdown")
+            setLock(AutoDungeonToggle, nil, lockState, "AutoDungeonCreateToggle")
+            setLock(AutoDungeonKillToggle, nil, lockState, "AutoDungeonKillToggle")
             applyMaxLocks(pData)
         end
 
@@ -1984,6 +2015,12 @@ FM_Add("Traits", AutoTraitToggle)
 
 task.spawn(function()
     while not Window.Destroyed do
+        pcall(function()
+            if IsWindowOpen() and AutoTraitToggle and AutoTraitToggle.Value ~= Config.Traits.AutoRoll then
+                AutoTraitToggle:Set(Config.Traits.AutoRoll)
+            end
+        end)
+
         if Config.Traits.AutoRoll and Config.Traits.SelectedUnitID and Config.Traits.SelectedUnitID ~= "None" then
             pcall(function()
                 local pData = getgenv().PlayerData
@@ -1993,25 +2030,26 @@ task.spawn(function()
                 if unit then
                     local currentTrait = unit.Traits
                     
-                    -- [OPTIMIZATION] Update UI only if Window is NOT closed/minimized
-                    if not Window.Closed then
+                    if IsWindowOpen() then
                         local displayInfo = "Current Trait: " .. tostring(currentTrait)
                         TraitStatus:SetDesc(displayInfo .. "\nAvailable Shards: " .. shards)
                     end
 
-                    -- Stop Logic
                     if Config.Traits.SelectedTraits[currentTrait] then
                         Notify("Traits", "Target Trait [" .. currentTrait .. "] Obtained!", "check")
                         Config.Traits.AutoRoll = false
-                        AutoTraitToggle:Set(false)
-                    -- Roll Logic
+                        if IsWindowOpen() then
+                            AutoTraitToggle:Set(false)
+                        end
                     elseif shards >= 1 then
                         MetaService.Bridge:Fire("Traits", "Roll", Config.Traits.SelectedUnitID)
                         task.wait(0.8) 
                     else
                         Notify("Warning", "Trait Shards Exhausted!", "alert-triangle")
                         Config.Traits.AutoRoll = false
-                        AutoTraitToggle:Set(false)
+                        if IsWindowOpen() then
+                            AutoTraitToggle:Set(false)
+                        end
                     end
                 end
             end)
