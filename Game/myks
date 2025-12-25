@@ -1731,14 +1731,20 @@ HatchEgg.GetHatchSpeed = function()
     return 0.01 -- Selalu instan
 end
 
+-- [[ 2. BYPASS / HOOK SYSTEM ]] --
+-- Force busy status to false to allow spamming without waiting for animations to finish
 task.spawn(function()
     while not Window.Destroyed do
         local premium = (getgenv().IsPremium == true)
         if premium and Config.AutoHatch.Enabled then
             HatchEgg.IsHatching = false
             EggAnimate.IsPlaying = false
+            
+            -- Ensure Summon UI is logically considered visible by the game script
+            local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
+            if summonUI then summonUI.Visible = true end
         end
-        task.wait(0.1)
+        task.wait(0.2)
     end
 end)
 
@@ -1787,6 +1793,7 @@ AutoHatchToggle = FarmTab:Toggle({
 FM_Add("Hatch", HatchMapDropdown)
 FM_Add("Hatch", AutoHatchToggle)
 
+
 -- [[ 4. MAIN LOOP LOGIC ]] --
 task.spawn(function()
     while not Window.Destroyed do
@@ -1815,6 +1822,7 @@ task.spawn(function()
         task.wait()
     end
 end)
+
 
 -- [[ FEATURE: NO COOLDOWN ATTACK ]] --
 local AttackPath = LocalPlayer.PlayerScripts.MetaService.Client.Attack
