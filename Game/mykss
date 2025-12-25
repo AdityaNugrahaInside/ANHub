@@ -1730,7 +1730,51 @@ local UnitsModule = require(ReplicatedStorage.Modules.Units)
 HatchEgg.GetHatchSpeed = function()
     return 0.01 -- Selalu instan
 end
+-- [[ TOTAL ANIMATION BYPASS - LIVE SETTINGS FIXED ]] --
+EggAnimate.CreateEgg = function(eggModel, amount, rolledPets, speed)
+    EggAnimate.IsPlaying = true
 
+    -- Jangan membuat tabel 'actions' yang statis. 
+    -- Tarik data langsung dari EggAnimate.AutoRarities di dalam loop.
+    
+    if type(rolledPets) == "table" then
+        for _, pet in ipairs(rolledPets) do
+            -- Kita cek untuk setiap aksi: Lock, Sell, dan Feed
+            local categories = {"Lock", "Sell", "Feed"}
+            
+            for _, catName in ipairs(categories) do
+                local config = EggAnimate.AutoRarities[catName] -- Mengambil tabel LIVE dari UI
+                local actionName = ""
+                
+                -- Mapping action name sesuai modul asli
+                if catName == "Lock" then actionName = "FavoritePet"
+                elseif catName == "Sell" then actionName = "SellPet"
+                elseif catName == "Feed" then actionName = "FeedPet" end
+
+                if config and actionName ~= "" then
+                    -- Cek apakah pet ini Shiny (untuk filter 'Units/Types') atau normal (Rarity)
+                    local isShiny = string.find(pet.PetOriginName, "Shiny") ~= nil
+                    local filterTable = isShiny and config.Types or config.Rarities
+                    
+                    -- Debug: jika ingin memastikan daftar yang dibaca sudah benar
+                    -- print("Checking " .. catName .. " for " .. pet.PetOriginName .. " in current list")
+
+                    if table.find(filterTable, pet.Rarity) then
+                        local arg = pet.UUID
+                        if actionName == "SellPet" then arg = { pet.UUID }
+                        elseif actionName == "FeedPet" then arg = { {pet.UUID}, EggAnimate.SelectedForFeed } end
+                        
+                        MetaService.Bridge:Fire("PetsManager", actionName, arg)
+                        break -- Jika sudah diproses satu aksi (misal Lock), jangan lanjut ke Sell
+                    end
+                end
+            end
+        end
+    end
+
+    EggAnimate.IsPlaying = false
+    print(string.format("[ANHub] Hatched %s pets instantly with updated filters.", tostring(amount)))
+end
 -- [[ 2. BYPASS / HOOK SYSTEM ]] --
 -- Force busy status to false to allow spamming without waiting for animations to finish
 task.spawn(function()
