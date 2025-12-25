@@ -1900,12 +1900,12 @@ end
 
 -- [[ 3. UI ELEMENTS ]] --
 
-local TraitStatus = FarmTab:Paragraph({
+TraitStatus = FarmTab:Paragraph({
     Title = "Trait Status",
     Content = "Please select a unit to view information."
 })
 
-local UnitSelector = FarmTab:Dropdown({
+UnitSelector = FarmTab:Dropdown({
     Title = "Select Unit to Roll",
     Values = GetInventoryUnits(),
     Default = 1,
@@ -1913,7 +1913,11 @@ local UnitSelector = FarmTab:Dropdown({
         Config.Traits.SelectedUnitID = type(val) == "table" and val.Value or val
     end
 })
-
+UnitRefresh = FarmTab:Button({
+            Title = "Refresh Unit",
+            Icon = "refresh-cw",
+            Callback = function() if UnitSelector then UnitSelector:Refresh(GetInventoryUnits()) end end
+        })
 -- Dynamic Filter Groups (2 items per Group)
 local SortedTraitNames = {}
 for name, _ in pairs(TraitsModule) do table.insert(SortedTraitNames, name) end
@@ -2000,15 +2004,6 @@ task.spawn(function()
             end)
         end
         task.wait(0.1)
-    end
-end)
-
-task.spawn(function()
-    while not Window.Destroyed do
-        if not Config.Traits.AutoRoll and UnitSelector then
-            UnitSelector:Refresh(GetInventoryUnits(), true)
-        end
-        task.wait(10)
     end
 end)
 -- [[ Settings Tab ]] --
