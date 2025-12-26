@@ -286,6 +286,7 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Roll", Icon = "rbxassetid://135040669708982"},
         {Title = "Limit Breaks", Icon = "rbxassetid://101194034780669"},
         {Title = "Traits", Icon = "rbxassetid://112306765267998"}, -- Tambahkan ini
+        {Title = "Devil Shop", Icon = "rbxassetid://132353218742445"},
         {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
         {Title = "Dungeons", Icon = "rbxassetid://84653254384417"}
     },
@@ -799,9 +800,6 @@ task.spawn(function()
     end
 end)
 
--- [[ 1. UPDATE SELECTOR KATEGORI ]] --
--- Cari FM_CategorySelector kamu dan tambahkan "Roll" ke Options:
--- {Title = "Roll", Icon = "rbxassetid://139336076943135"}
 
 FM_CategoryDescriptions["Roll"] = "Auto roll roads for each map."
 
@@ -2096,6 +2094,138 @@ task.spawn(function()
             end)
         end
         task.wait(0.1)
+    end
+end)
+
+-- [[ DEVIL SHOP FEATURE - OPTIMIZED UI UPDATE ]] --
+
+-- 1. Inisialisasi Module & Deskripsi Kategori
+local DevilShopConfig = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("DevilShopConfig"))
+FM_CategoryDescriptions["Devil Shop"] = "Auto-purchase items when stock is available with optimized UI rendering."
+
+Config.AutoBuyDevilShop = {} 
+local DevilToggleObjects = {}
+local _DevilShop_UI_Cache = {}
+
+-- 2. Logika Deskripsi (Stok & Harga Dinamis)
+local function GetDevilItemDesc(itemName, itemInfo)
+    local pData = getgenv().PlayerData
+    if not pData then return "Loading..." end
+
+    -- Perhitungan Waktu & Stok
+    local interval = DevilShopConfig.ResetInterval or 43200
+    local currentCycle = math.floor(os.time() / interval)
+    local savedCycle = pData.DevilShopCycle or 0
+    local history = (savedCycle ~= currentCycle) and {} or (pData.DevilShopHistory or {})
+    
+    local bought = history[itemName] or 0
+    local stockLeft = math.max(0, itemInfo.MaxStock - bought)
+    local colorStock = stockLeft > 0 and "#44ff44" or "#ff4444"
+
+    -- Perhitungan Harga (Gaya Upgrades)
+    local currency = DevilShopConfig.Currency
+    local price = itemInfo.Price
+    local owned = (pData.Inventory and pData.Inventory.Items[currency]) or 0
+    local itemCurrencyInfo = Items[currency]
+    
+    local priceColor = owned >= price and "#44ff44" or "#ff4444"
+    local priceString = string.format("<font color='%s'>%s/%s</font> %s%s", 
+        priceColor, formatNum(owned), formatNum(price), itemCurrencyInfo.Name, itemCurrencyInfo.Icon)
+
+    return string.format("Stock: <font color='%s'>%d/%d</font>\nCost: %s", 
+        colorStock, stockLeft, itemInfo.MaxStock, priceString)
+end
+
+-- 3. UI Reset Timer
+local DevilShopTimer = FarmTab:Paragraph({
+    Title = "Shop Reset Timer",
+    Content = "Calculating time..."
+})
+FM_Add("Devil Shop", DevilShopTimer)
+
+-- 4. Pembuatan Toggle Otomatis (Grid 2 Kolom)
+local ShopItems = {}
+for name, info in pairs(DevilShopConfig.ShopData) do 
+    table.insert(ShopItems, {Name = name, Info = info}) 
+end
+
+for i = 1, #ShopItems, 2 do
+    local ShopGroup = FarmTab:Group({})
+    FM_Add("Devil Shop", ShopGroup)
+
+    for j = 0, 1 do
+        local item = ShopItems[i + j]
+        if item then
+            local itemName = item.Name
+            local info = item.Info
+            local itemDetail = Items[info.ItemKey]
+
+            local ItemToggle = ShopGroup:Toggle({
+                Title = itemName,
+                Desc = GetDevilItemDesc(itemName, info),
+                Default = false,
+                Flag = "AutoBuyDevil_" .. itemName:gsub(" ", ""),
+                Callback = function(val) Config.AutoBuyDevilShop[itemName] = val end
+            })
+
+            -- Ikon Item
+            if itemDetail then
+                ItemToggle:SetMainImage(itemDetail.Icon, 30)
+            end
+
+            DevilToggleObjects[itemName] = ItemToggle
+        end
+    end
+end
+
+-- 5. Main Loop: Auto Buy & Conditional UI Update
+task.spawn(function()
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        if pData then
+            -- 1. Update Timer (Hanya jika UI Terbuka)
+            local interval = DevilShopConfig.ResetInterval or 43200
+            local timeLeft = interval - (os.time() % interval)
+            
+            if IsWindowOpen() then 
+                DevilShopTimer:SetDesc(string.format("Devil Shop Resets in: %dh %dm %ds", 
+                    math.floor(timeLeft/3600), math.floor((timeLeft%3600)/60), math.floor(timeLeft%60))) 
+            end
+
+            -- 2. Proses Item
+            for itemName, info in pairs(DevilShopConfig.ShopData) do
+                local isActive = Config.AutoBuyDevilShop[itemName]
+                local uiToggle = DevilToggleObjects[itemName]
+
+                -- UPDATE DESKRIPSI: Cek jika jendela terbuka sebelum memperbarui
+                if IsWindowOpen() and uiToggle then
+                    local currentDesc = GetDevilItemDesc(itemName, info)
+                    if _DevilShop_UI_Cache[itemName] ~= currentDesc then
+                        uiToggle:SetDesc(currentDesc)
+                        _DevilShop_UI_Cache[itemName] = currentDesc
+                    end
+                end
+
+                -- LOGIKA AUTO BUY (Berjalan di background)
+                if isActive then
+                    local currentCycle = math.floor(os.time() / interval)
+                    local savedCycle = pData.DevilShopCycle or 0
+                    local history = (savedCycle ~= currentCycle) and {} or (pData.DevilShopHistory or {})
+                    
+                    local stockLeft = info.MaxStock - (history[itemName] or 0)
+                    local myCoins = (pData.Inventory and pData.Inventory.Items[DevilShopConfig.Currency]) or 0
+
+                    if stockLeft > 0 and myCoins >= info.Price then
+                        MetaService.Bridge:FireServer("Devil Shop", "BuyItem", {
+                            ["Key"] = itemName,
+                            ["Amount"] = 1
+                        })
+                        task.wait(0.5) 
+                    end
+                end
+            end
+        end
+        task.wait(1)
     end
 end)
 -- [[ Settings Tab ]] --
