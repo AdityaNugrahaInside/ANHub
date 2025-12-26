@@ -328,7 +328,7 @@ task.spawn(function()
         end
         
         getgenv().EnemiesData = MetaService.Cache.Enemies
-        task.wait(0.1) -- Gunakan jeda sedikit lebih lama (0.1s sudah cukup responsif)
+        task.wait(10)
     end
 end)
 local function GetCurrentMapName()
@@ -1875,17 +1875,6 @@ local Clickers = require(ReplicatedStorage.Modules.Clickers)
 local AttackModule = require(AttackPath)
 Config.NoCooldownAttack = false
 
--- Melakukan hook pada fungsi perhitungan Studs
-local oldStudsAtLevel = AutoAttackModule.StudsAtLevel
-AutoAttackModule.StudsAtLevel = function(level)
-    local baseRange = oldStudsAtLevel(level)
-    -- Jika fitur Fast Auto Attack aktif, kembalikan nilai 2x lipat
-    if Config.NoCooldownAttack then
-        return baseRange + 2
-    end
-    return baseRange
-end
-
 -- [[ THE HOOK ]] --
 -- Mengubah semua nilai cooldown di modul Clickers menjadi 0 secara instan
 ToggleNoCooldown = function(state)
@@ -1898,10 +1887,10 @@ ToggleNoCooldown = function(state)
         end
         -- Hooking Click Speeds (opsional, untuk mempercepat loop internal game)
         if Clickers and Clickers.Speeds then
-            Clickers.Speeds.AutoClicker = 0.0001
-            Clickers.Speeds.AutoClickerWithFast = 0.0001
-            Clickers.Speeds.SlowClicker = 0.0001
-            Clickers.Speeds.FastClicker = 0.0001
+            Clickers.Speeds.AutoClicker = 0
+            Clickers.Speeds.AutoClickerWithFast = 0
+            Clickers.Speeds.SlowClicker = 0
+            Clickers.Speeds.FastClicker = 0
         end
     else
         -- Kembalikan ke nilai normal (Contoh nilai default, sesuaikan dengan aslinya)
