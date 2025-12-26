@@ -1136,7 +1136,7 @@ task.spawn(function()
                         local Bridge = MetaService.Bridge
                         local session = GetDungeonSession()
                         if Bridge and Bridge.Fire and not session then
-                            ForceEndDungeon()
+                            -- ForceEndDungeon()
                             task.wait(0.5)
 
                             Bridge:Fire("Dungeon", "Create")
