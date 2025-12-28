@@ -1724,10 +1724,48 @@ local UnitsModule = require(ReplicatedStorage.Modules.Units)
 
 -- [[ BYPASS / HOOK SYSTEM ]] --
 
--- Bypass Kecepatan (Tambahkan ini)
+-- [[ 2. BYPASS / HOOK SYSTEM ]] --
+
+-- 1. Bypass Kecepatan Hatch (Selalu Instant)
 HatchEgg.GetHatchSpeed = function()
-    return 0.01 -- Selalu instan
+    return 0.01 
 end
+
+-- 2. BYPASS OpenEgg (Menghilangkan pengecekan Rolling_UI.Enabled)
+HatchEgg.OpenEgg = function(self, p9, p10)
+    -- Langsung tembak remote tanpa cek UI
+    if p9 and p10 then
+        MetaService.Bridge:FireServer("Summon", "Request", { p9, p10 })
+    end
+end
+
+-- 3. BYPASS HandleRequest (Menghilangkan pengecekan Summon_a.Visible)
+-- Ini penting agar animasi hatch tetap muncul/selesai meskipun UI tertutup
+HatchEgg.HandleRequest = function(p51)
+    HatchEgg.IsHatching = false
+    EggAnimate.IsPlaying = false
+
+    if p51 and (p51.CurrentMap and HatchEgg.MapEggs[p51.CurrentMap]) then
+        local v54 = HatchEgg.GetHatchSpeed()
+        -- Langsung panggil CreateEgg tanpa cek v53.Visible
+        EggAnimate.CreateEgg(HatchEgg.MapEggs[p51.CurrentMap], p51.Amount, p51.RolledPets, v54)
+        
+        if HatchEgg.OnFinish then
+            HatchEgg.OnFinish()
+        end
+    end
+end
+
+-- 4. Loop State Management (Agar script game tidak mengunci status 'Busy')
+task.spawn(function()
+    while not Window.Destroyed do
+        if getgenv().IsPremium then
+            HatchEgg.IsHatching = false
+            EggAnimate.IsPlaying = false
+        end
+        task.wait(0.1)
+    end
+end)
 -- [[ TOTAL ANIMATION BYPASS - LIVE SETTINGS FIXED ]] --
 EggAnimate.CreateEgg = function(eggModel, amount, rolledPets, speed)
     EggAnimate.IsPlaying = true
@@ -1778,13 +1816,14 @@ end
 task.spawn(function()
     while not Window.Destroyed do
         local premium = (getgenv().IsPremium == true)
-        if premium and Config.AutoHatch.Enabled then
+        if premium then
             HatchEgg.IsHatching = false
             EggAnimate.IsPlaying = false
-            
-            -- Ensure Summon UI is logically considered visible by the game script
-            local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
-            if summonUI then summonUI.Visible = true end
+            if Config.AutoHatch.Enabled then 
+                -- Ensure Summon UI is logically considered visible by the game script
+                local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
+                if summonUI then summonUI.Visible = true end
+            end
         end
         task.wait(0.2)
     end
@@ -1827,7 +1866,7 @@ AutoHatchToggle = FarmTab:Toggle({
             -- 2. Brief delay then let the original module regain state control
             task.delay(0.1, function()
                 HatchEgg.IsHatching = false
-                EggAnimate.IsPlaying = true
+                EggAnimate.IsPlaying = false
             end)
         end
     end
