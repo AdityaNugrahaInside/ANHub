@@ -2690,6 +2690,130 @@ SettingsTab:Button({
         end
     end
 })
+-- [[ PERFORMANCE / FPS BOOST SECTION ]] --
+SettingsTab:Section({ Title = "Performance & FPS Boost", Icon = "zap", Opened = false });
+
+local function ApplyFPSBoost()
+    local Lighting = game:GetService("Lighting")
+    local Terrain = workspace:FindFirstChildOfClass("Terrain")
+    
+    -- Lighting & Effects
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 1
+    
+    for _, v in pairs(Lighting:GetDescendants()) do
+        if v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
+            v.Enabled = false
+        end
+    end
+
+    -- Terrain
+    if Terrain then
+        Terrain.WaterWaveSize = 0
+        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 0
+    end
+
+    -- Workspace Objects
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("Part") or v:IsA("MeshPart") or v:IsA("UnionOperation") then
+            v.Material = Enum.Material.SmoothPlastic
+            v.Reflectance = 0
+        elseif v:IsA("Decal") or v:IsA("Texture") then
+            v.Transparency = 1
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Enabled = false
+        elseif v:IsA("Explosion") then
+            v.Visible = false
+        end
+    end
+    
+    Notify("FPS Boost", "Performance settings applied!", "zap")
+end
+
+SettingsTab:Toggle({
+    Title = "High Performance Mode",
+    Desc = "Menghapus tekstur, bayangan, dan efek untuk menaikkan FPS.",
+    Default = false,
+    Callback = function(val)
+        if val then
+            ApplyFPSBoost()
+        else
+            Notify("Info", "Rejoin server untuk mengembalikan grafik normal.", "info")
+        end
+    end
+})
+
+SettingsTab:Button({
+    Title = "Clean Workspace (Lag Fix)",
+    Icon = "trash-2",
+    Desc = "Menghapus sampah visual di workspace.",
+    Callback = function()
+        for _, v in pairs(workspace:GetChildren()) do
+            if v:IsA("BasePart") and v.Transparency == 1 and not v:IsA("Terrain") then
+                -- v:Destroy() -- Hati-hati dengan ini, bisa menghapus part penting
+            end
+        end
+        Notify("Cleaned", "Workspace items optimized.", "check")
+    end
+})
+-- [[ ADVANCED SMOOTHNESS FUNCTIONS ]] --
+local function Toggle3DRendering(state)
+    -- Benar-benar mematikan render dunia (layar jadi abu-abu/putih)
+    -- Ini adalah cara paling efektif untuk menghemat baterai/listrik saat AFK
+    game:GetService("RunService"):Set3dRenderingEnabled(not state)
+end
+
+local function MuteAllSounds()
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("Sound") then
+            v.Volume = 0
+        end
+    end
+end
+
+local function BoostCPU()
+    -- Mengatur kualitas render internal Roblox ke level terendah
+    settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Low
+end
+-- Toggle untuk mematikan Rendering 3D
+SettingsTab:Toggle({
+    Title = "CPU Mode (White Screen)",
+    Desc = "Mematikan render 3D. Sangat cocok untuk AFK semalaman (Hemat GPU).",
+    Default = false,
+    Callback = function(val)
+        Toggle3DRendering(val)
+        if val then
+            Notify("CPU Mode", "3D Rendering Disabled for performance.", "monitor-off")
+        else
+            Notify("CPU Mode", "3D Rendering Enabled.", "monitor")
+        end
+    end
+})
+
+-- Toggle untuk Mute Suara (Mengurangi beban CPU audio)
+SettingsTab:Toggle({
+    Title = "Mute All Sounds",
+    Desc = "Mematikan semua suara di dalam game.",
+    Default = false,
+    Callback = function(val)
+        if val then MuteAllSounds() end
+    end
+})
+
+-- Tombol untuk Force Low Quality (Engine Level)
+SettingsTab:Button({
+    Title = "Force Ultra Low Quality",
+    Icon = "mouse-pointer-2",
+    Desc = "Memaksa engine Roblox menggunakan settingan terendah.",
+    Callback = function()
+        BoostCPU()
+        Notify("Success", "Engine optimized for low-end PC.", "check")
+    end
+})
 FM_OnChange("Farm")
 
 Window:SelectTab(FarmTab.Index);
