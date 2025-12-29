@@ -286,10 +286,10 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Roll", Icon = "rbxassetid://135040669708982"},
         {Title = "Limit Breaks", Icon = "rbxassetid://101194034780669"},
         {Title = "Traits", Icon = "rbxassetid://112306765267998"}, -- Tambahkan ini
+        {Title = "Christmas", Icon = "rbxassetid://102564250948171"},
         {Title = "Devil Shop", Icon = "rbxassetid://132353218742445"},
         {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
-        {Title = "Dungeons", Icon = "rbxassetid://84653254384417"}
-    },
+        {Title = "Dungeons", Icon = "rbxassetid://79471637683543"},    },
     Callback = FM_OnChange
 })
 
@@ -2277,6 +2277,168 @@ task.spawn(function()
     end
 end)
 
+-- [[ CHRISTMAS FEATURE - EXCHANGER & SHOP FIXED ]] --
+local ChristmasConfig = require(ReplicatedStorage.Modules.ChristmasExchangerConfig)
+local ChristmasShopConfig = require(ReplicatedStorage.Modules.ChristmasShopConfig)
+FM_CategoryDescriptions["Christmas"] = "Auto-exchange items and Auto-buy Christmas Shop limited stock."
+
+Config.Christmas = { AutoExchanges = {}, Amounts = {} }
+Config.ChristmasShop = { AutoBuy = {} }
+
+-- 1. CHRISTMAS SHOP TIMER (Diletakkan paling atas agar selalu terlihat)
+local XmasShopTimer = FarmTab:Paragraph({
+    Title = "Christmas Shop Timer",
+    Content = "Calculating reset time..."
+})
+FM_Add("Christmas", XmasShopTimer)
+
+-- [[ BAGIAN A: CHRISTMAS EXCHANGER (2 ITEMS PER GROUP) ]] --
+local function GetExchangeDesc(exchangeKey, data)
+    local amount = Config.Christmas.Amounts[exchangeKey] or 1
+    local result = amount * data.Ratio
+    return string.format("Mode: %s ➔ %s\nRatio: 1:%s\nCost: %s %s", 
+        data.Left, data.Right, formatNum(data.Ratio), formatNum(result), data.Left)
+end
+
+local SortedExchanges = {}
+for key, data in pairs(ChristmasConfig.Exchanges) do table.insert(SortedExchanges, {Key = key, Data = data}) end
+
+for i = 1, #SortedExchanges, 2 do
+    local ChristmasGroup = FarmTab:Group({ Title = i == 1 and "Christmas Event Exchanger" or "" })
+    FM_Add("Christmas", ChristmasGroup)
+    for j = 0, 1 do
+        local exchange = SortedExchanges[i + j]
+        if exchange then
+            local eKey, eData = exchange.Key, exchange.Data
+            ChristmasGroup:Input({
+                Title = "Amount: " .. eKey:gsub("_", " "),
+                Placeholder = "Amount...",
+                Default = "1",
+                Flag = "XmasAmount_" .. eKey,
+                Callback = function(val) Config.Christmas.Amounts[eKey] = tonumber(val) or 0 end
+            })
+            local ExchangeToggle = ChristmasGroup:Toggle({
+                Title = "Auto " .. eKey:gsub("_", " "),
+                Desc = GetExchangeDesc(eKey, eData),
+                Default = false,
+                Flag = "XmasAuto_" .. eKey,
+                Callback = function(val) Config.Christmas.AutoExchanges[eKey] = val end
+            })
+            task.spawn(function()
+                while not Window.Destroyed do
+                    if IsWindowOpen() then
+                        local currentDesc = GetExchangeDesc(eKey, eData)
+                        if ExchangeToggle.Desc ~= currentDesc then ExchangeToggle:SetDesc(currentDesc) end
+                    end
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+end
+
+local function GetXmasShopDesc(itemName, itemData)
+    local pData = getgenv().PlayerData
+    if not pData then return "Loading..." end
+
+    -- Perhitungan Waktu & Stok (History)
+    local interval = ChristmasShopConfig.ResetInterval or 43200
+    local currentCycle = math.floor(os.time() / interval)
+    local savedCycle = pData.ChristmasShopCycle or 0
+    local history = (savedCycle ~= currentCycle) and {} or (pData.ChristmasShopHistory or {})
+    
+    local bought = history[itemName] or 0
+    local stockLeft = math.max(0, itemData.MaxStock - bought)
+    local colorStock = stockLeft > 0 and "#44ff44" or "#ff4444"
+
+    -- Perhitungan Harga & Warna Berdasarkan Saldo
+    local currency = ChristmasShopConfig.Currency
+    local price = itemData.Price
+    local owned = (pData.Inventory and pData.Inventory.Items[currency]) or 0
+    local itemCurrencyInfo = Items[currency]
+    
+    local priceColor = owned >= price and "#44ff44" or "#ff4444"
+    
+    -- Format String Harga dengan Ikon dan Warna
+    local priceString = string.format("<font color='%s'>%s/%s</font> %s%s", 
+        priceColor, 
+        formatNum(owned), 
+        formatNum(price), 
+        (itemCurrencyInfo and itemCurrencyInfo.Name or currency),
+        (itemCurrencyInfo and itemCurrencyInfo.Icon or "")
+    )
+
+    return string.format("Stock: <font color='%s'>%d/%d</font>\nCost: %s", 
+        colorStock, stockLeft, itemData.MaxStock, priceString)
+end
+
+local XmasShopItems = {}
+for name, info in pairs(ChristmasShopConfig.ShopData) do table.insert(XmasShopItems, {Name = name, Info = info}) end
+
+for i = 1, #XmasShopItems, 2 do
+    local ShopGroup = FarmTab:Group({ Title = i == 1 and "Christmas Shop (Limited Stock)" or "" })
+    FM_Add("Christmas", ShopGroup)
+    for j = 0, 1 do
+        local item = XmasShopItems[i + j]
+        if item then
+            local itemName, info = item.Name, item.Info
+            local ShopToggle = ShopGroup:Toggle({
+                Title = "Auto " .. itemName,
+                Desc = GetXmasShopDesc(itemName, info),
+                Default = false,
+                Flag = "XmasShopAuto_" .. info.ItemKey,
+                Callback = function(val) Config.ChristmasShop.AutoBuy[itemName] = val end
+            })
+            if Items[info.ItemKey] and Items[info.ItemKey].Icon then ShopToggle:SetMainImage(Items[info.ItemKey].Icon, 30) end
+            task.spawn(function()
+                while not Window.Destroyed do
+                    if IsWindowOpen() then
+                        local d = GetXmasShopDesc(itemName, info)
+                        if ShopToggle.Desc ~= d then ShopToggle:SetDesc(d) end
+                    end
+                    task.wait(1)
+                end
+            end)
+        end
+    end
+end
+
+-- [[ LOGIKA EKSEKUSI BACKGROUND (TIMER & AUTO ACTION) ]] --
+task.spawn(function()
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        if pData then
+            -- 1. UPDATE TIMER (DI LUAR CEK MAP - AGAR SELALU KELIHATAN)
+            local interval = ChristmasShopConfig.ResetInterval or 43200
+            local timeLeft = interval - (os.time() % interval)
+            if IsWindowOpen() then
+                XmasShopTimer:SetDesc(string.format("Christmas Shop Resets in: %dh %dm %ds", 
+                    math.floor(timeLeft/3600), math.floor((timeLeft%3600)/60), math.floor(timeLeft%60)))
+            end
+                -- Auto Exchange
+                for eKey, _ in pairs(ChristmasConfig.Exchanges) do
+                    if Config.Christmas.AutoExchanges[eKey] and (Config.Christmas.Amounts[eKey] or 0) > 0 then
+                        MetaService.Bridge:Fire("ChristmasExchanger", "Exchange", {
+                            ["Key"] = eKey, ["Amount"] = Config.Christmas.Amounts[eKey], ["Inverted"] = false
+                        })
+                    end
+                end
+                -- Auto Buy Shop
+                for itemName, info in pairs(ChristmasShopConfig.ShopData) do
+                    if Config.ChristmasShop.AutoBuy[itemName] then
+                        local history = (math.floor(os.time() / interval) ~= (pData.ChristmasShopCycle or 0)) and {} or (pData.ChristmasShopHistory or {})
+                        local stockAvailable = info.MaxStock - (history[itemName] or 0)
+                        local ownedSnow = (pData.Inventory and pData.Inventory.Items[ChristmasShopConfig.Currency]) or 0
+                        if stockAvailable > 0 and ownedSnow >= info.Price then
+                            MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = 1 })
+                            task.wait(0.5)
+                        end
+                    end
+                end
+        end
+        task.wait(1)
+    end
+end)
 -- [[ Settings Tab ]] --
 SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings-2" });
 SettingsTab:Section({ Title = "Config Manager", Icon = "save", Opened = true });
@@ -2333,7 +2495,24 @@ SettingsTab:Button({
         Notify("Success", "Deleted!", "trash")
     end
 })
+SettingsTab:Button({
+    Title = "Rejoin Server",
+    Icon = "rotate-cw",
+    Callback = function()
+        local TeleportService = game:GetService("TeleportService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
 
+        -- Melakukan teleportasi ulang ke PlaceId yang sama
+        if #Players:GetPlayers() <= 1 then
+            LocalPlayer:Kick("\nRejoining...")
+            task.wait(0.5)
+            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+        else
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+        end
+    end
+})
 FM_OnChange("Farm")
 
 Window:SelectTab(FarmTab.Index);
