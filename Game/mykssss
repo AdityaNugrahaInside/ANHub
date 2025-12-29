@@ -286,6 +286,7 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Roll", Icon = "rbxassetid://135040669708982"},
         {Title = "Limit Breaks", Icon = "rbxassetid://101194034780669"},
         {Title = "Traits", Icon = "rbxassetid://112306765267998"}, -- Tambahkan ini
+        {Title = "Avatars", Icon = "rbxassetid://109265521428766"}, -- Tambahkan ini
         {Title = "Christmas", Icon = "rbxassetid://102564250948171"},
         {Title = "Devil Shop", Icon = "rbxassetid://132353218742445"},
         {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
@@ -2437,6 +2438,128 @@ task.spawn(function()
                 end
         end
         task.wait(1)
+    end
+end)
+-- [[ AVATARS FEATURE LOGIC ]] --
+local AvatarsModule = require(ReplicatedStorage.Modules.Avatars)
+FM_CategoryDescriptions["Avatars"] = "Manage your avatars and auto-level them using Enemies Essence."
+
+Config.Avatars = {
+    AutoLevel = false,
+    SelectedAvatarID = nil
+}
+
+-- Fungsi untuk mendapatkan daftar avatar yang dimiliki
+local function GetOwnedAvatars()
+    local options = {}
+    local pData = getgenv().PlayerData
+    if pData and pData.Avatars and pData.Avatars.Owned then
+        for id, _ in pairs(pData.Avatars.Owned) do
+            local info = AvatarsModule.Get(id)
+            if info then
+                table.insert(options, {
+                    Title = info.DisplayName or info.Name,
+                    Value = id,
+                    -- Desc awal sebelum diupdate oleh loop
+                    Desc = "Rarity: " .. (info.Rarity or "Unknown")
+                })
+            end
+        end
+    end
+    if #options == 0 then table.insert(options, {Title = "No Avatars Found", Value = "None"}) end
+    return options
+end
+
+-- UI Elements
+-- (AvatarStatus dihapus sesuai permintaan)
+
+AvatarSelector = FarmTab:Dropdown({
+    Title = "Select Avatar",
+    Values = GetOwnedAvatars(),
+    Default = 1,
+    Flag = "AvatarSelector_Flag", -- Flag ditambahkan
+    Callback = function(val)
+        Config.Avatars.SelectedAvatarID = type(val) == "table" and val.Value or val
+    end
+})
+
+AvatarRefresh = FarmTab:Button({
+    Title = "Refresh Inventory",
+    Icon = "refresh-cw",
+    Callback = function() 
+        if AvatarSelector then AvatarSelector:Refresh(GetOwnedAvatars()) end 
+    end
+})
+
+AutoLevelAvatarToggle = FarmTab:Toggle({
+    Title = "Auto Level Up",
+    Desc = "Automatically upgrade selected avatar using Enemies Essence.",
+    Default = false,
+    Flag = "AutoLevelAvatar_Flag", -- Flag ditambahkan
+    Callback = function(v) Config.Avatars.AutoLevel = v end
+})
+
+-- Daftarkan ke Category Avatars
+FM_Add("Avatars", AvatarSelector)
+FM_Add("Avatars", AvatarRefresh)
+FM_Add("Avatars", AutoLevelAvatarToggle)
+
+-- [[ LOOPING LOGIKA AUTO LEVEL & UI UPDATE ]] --
+task.spawn(function()
+    local _LastUpdateText = "" -- Cache untuk efisiensi update UI
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        local avatarID = Config.Avatars.SelectedAvatarID
+        
+        if avatarID and avatarID ~= "None" and pData then
+            local ownedData = pData.Avatars.Owned[avatarID]
+            local info = AvatarsModule.Get(avatarID)
+            local essence = pData.Inventory.Items.EnemiesEssence or 0
+            
+            if info and ownedData then
+                local currentLevel = (type(ownedData) == "table" and ownedData.Level) or 1
+                local cost = AvatarsModule.CalculateUpgradeCost(avatarID, currentLevel)
+                local Power = AvatarsModule.CalculatePower(avatarID, currentLevel)
+                
+                -- Update Info ke Deskripsi Dropdown secara Realtime
+                if IsWindowOpen() then
+                    local statusText = string.format(
+                        "Level: %d / %d | Power: x%s\nCost: %s %s | Essence: %s",
+                        currentLevel, info.MaxLevel or 50,
+                        Power,
+                        (cost == "MAX" and "MAXED" or formatNum(cost)),
+                        Items["EnemiesEssence"].Icon,
+                        formatNum(essence)
+                    )
+                    
+                    -- Hanya update jika teks berubah agar tidak lag
+                    if _LastUpdateText ~= statusText then
+                        AvatarSelector:SetDesc(statusText)
+                        _LastUpdateText = statusText
+                    end
+
+                    -- Logika Lock Toggle jika sudah MAX
+                    if cost == "MAX" then
+                        if Config.Avatars.AutoLevel then
+                            Config.Avatars.AutoLevel = false
+                            AutoLevelAvatarToggle:Set(false)
+                        end
+                        AutoLevelAvatarToggle:Lock("MAX")
+                    else                        
+                        AutoLevelAvatarToggle:Unlock()
+                    end
+                end
+
+                -- Logika Auto Upgrade
+                if Config.Avatars.AutoLevel then
+                    if cost ~= "MAX" and essence >= cost then
+                        ReplicatedStorage.AvatarLeveling_Upgrade:FireServer(avatarID, 1)
+                        task.wait(0.15) 
+                    end
+                end
+            end
+        end
+        task.wait(0.2)
     end
 end)
 -- [[ Settings Tab ]] --
