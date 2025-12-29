@@ -286,10 +286,11 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Roll", Icon = "rbxassetid://135040669708982"},
         {Title = "Limit Breaks", Icon = "rbxassetid://101194034780669"},
         {Title = "Traits", Icon = "rbxassetid://112306765267998"}, -- Tambahkan ini
+        {Title = "Avatars", Icon = "rbxassetid://109265521428766"}, -- Tambahkan ini
+        {Title = "Christmas", Icon = "rbxassetid://102564250948171"},
         {Title = "Devil Shop", Icon = "rbxassetid://132353218742445"},
         {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
-        {Title = "Dungeons", Icon = "rbxassetid://84653254384417"}
-    },
+        {Title = "Dungeons", Icon = "rbxassetid://79471637683543"},    },
     Callback = FM_OnChange
 })
 
@@ -1136,7 +1137,7 @@ task.spawn(function()
                         local Bridge = MetaService.Bridge
                         local session = GetDungeonSession()
                         if Bridge and Bridge.Fire and not session then
-                            ForceEndDungeon()
+                            -- ForceEndDungeon()
                             task.wait(0.5)
 
                             Bridge:Fire("Dungeon", "Create")
@@ -1444,6 +1445,12 @@ local LB_Config = require(ReplicatedStorage.Modules.LimitBreaksConfig)
 Config.AutoLimitBreaks = {} 
 local LB_ToggleObjects = {}
 local _LB_LastStatus = {}
+local XmasUIObjects = {
+    Timer = nil,
+    ExchangeToggles = {},
+    AmountInputs = {},
+    ShopToggles = {}
+}
 
 -- Fungsi untuk membuat deskripsi status (Level, Bonus, Biaya) dengan gaya Scrap/Devil Upgrade
 local function GetLBDesc(mapName, mapData)
@@ -1556,6 +1563,7 @@ task.spawn(function()
     local devilLockState = { Left = {}, Right = {} }
     local hatchState = {}
     local fastAttackState = {}
+    local xmasState = {}
 
     local function keyForReason(reason)
         return reason or ""
@@ -1613,6 +1621,46 @@ task.spawn(function()
             setLock(FarmTabFast, "Premium Only", fastAttackState, "FarmTabFast")
         else
             setLock(FarmTabFast, nil, fastAttackState, "FarmTabFast")
+        end
+    end
+
+    local function enforceChristmas(premium)
+        if not premium then
+            setLock(XmasUIObjects.Timer, "Premium Only", xmasState, "Timer")
+
+            for eKey, ui in pairs(XmasUIObjects.AmountInputs) do
+                setLock(ui, "Premium Only", xmasState, "AmountInput:" .. eKey)
+            end
+
+            for eKey, ui in pairs(XmasUIObjects.ExchangeToggles) do
+                if Config.Christmas and Config.Christmas.AutoExchanges then
+                    Config.Christmas.AutoExchanges[eKey] = false
+                end
+                setOffIfOn(ui)
+                setLock(ui, "Premium Only", xmasState, "ExchangeToggle:" .. eKey)
+            end
+
+            for itemName, ui in pairs(XmasUIObjects.ShopToggles) do
+                if Config.ChristmasShop and Config.ChristmasShop.AutoBuy then
+                    Config.ChristmasShop.AutoBuy[itemName] = false
+                end
+                setOffIfOn(ui)
+                setLock(ui, "Premium Only", xmasState, "ShopToggle:" .. itemName)
+            end
+        else
+            setLock(XmasUIObjects.Timer, nil, xmasState, "Timer")
+
+            for eKey, ui in pairs(XmasUIObjects.AmountInputs) do
+                setLock(ui, nil, xmasState, "AmountInput:" .. eKey)
+            end
+
+            for eKey, ui in pairs(XmasUIObjects.ExchangeToggles) do
+                setLock(ui, nil, xmasState, "ExchangeToggle:" .. eKey)
+            end
+
+            for itemName, ui in pairs(XmasUIObjects.ShopToggles) do
+                setLock(ui, nil, xmasState, "ShopToggle:" .. itemName)
+            end
         end
     end
 
@@ -1705,6 +1753,7 @@ task.spawn(function()
 
         enforceHatch(premium)
         enforceFastAttack(premium)
+        enforceChristmas(premium)
         task.wait(premium and 1.0 or 2.0)
     end
 end)
@@ -1724,10 +1773,48 @@ local UnitsModule = require(ReplicatedStorage.Modules.Units)
 
 -- [[ BYPASS / HOOK SYSTEM ]] --
 
--- Bypass Kecepatan (Tambahkan ini)
+-- [[ 2. BYPASS / HOOK SYSTEM ]] --
+
+-- 1. Bypass Kecepatan Hatch (Selalu Instant)
 HatchEgg.GetHatchSpeed = function()
-    return 0.01 -- Selalu instan
+    return 0.01 
 end
+
+-- 2. BYPASS OpenEgg (Menghilangkan pengecekan Rolling_UI.Enabled)
+HatchEgg.OpenEgg = function(self, p9, p10)
+    -- Langsung tembak remote tanpa cek UI
+    if p9 and p10 then
+        MetaService.Bridge:FireServer("Summon", "Request", { p9, p10 })
+    end
+end
+
+-- 3. BYPASS HandleRequest (Menghilangkan pengecekan Summon_a.Visible)
+-- Ini penting agar animasi hatch tetap muncul/selesai meskipun UI tertutup
+HatchEgg.HandleRequest = function(p51)
+    HatchEgg.IsHatching = false
+    EggAnimate.IsPlaying = false
+
+    if p51 and (p51.CurrentMap and HatchEgg.MapEggs[p51.CurrentMap]) then
+        local v54 = HatchEgg.GetHatchSpeed()
+        -- Langsung panggil CreateEgg tanpa cek v53.Visible
+        EggAnimate.CreateEgg(HatchEgg.MapEggs[p51.CurrentMap], p51.Amount, p51.RolledPets, v54)
+        
+        if HatchEgg.OnFinish then
+            HatchEgg.OnFinish()
+        end
+    end
+end
+
+-- 4. Loop State Management (Agar script game tidak mengunci status 'Busy')
+task.spawn(function()
+    while not Window.Destroyed do
+        if getgenv().IsPremium then
+            HatchEgg.IsHatching = false
+            EggAnimate.IsPlaying = false
+        end
+        task.wait(0.1)
+    end
+end)
 -- [[ TOTAL ANIMATION BYPASS - LIVE SETTINGS FIXED ]] --
 EggAnimate.CreateEgg = function(eggModel, amount, rolledPets, speed)
     EggAnimate.IsPlaying = true
@@ -1778,13 +1865,14 @@ end
 task.spawn(function()
     while not Window.Destroyed do
         local premium = (getgenv().IsPremium == true)
-        if premium and Config.AutoHatch.Enabled then
+        if premium then
             HatchEgg.IsHatching = false
             EggAnimate.IsPlaying = false
-            
-            -- Ensure Summon UI is logically considered visible by the game script
-            local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
-            if summonUI then summonUI.Visible = true end
+            if Config.AutoHatch.Enabled then 
+                -- Ensure Summon UI is logically considered visible by the game script
+                local summonUI = LocalPlayer.PlayerGui.Main.Gameplay.Sections:FindFirstChild("Summon_a")
+                if summonUI then summonUI.Visible = true end
+            end
         end
         task.wait(0.2)
     end
@@ -1827,7 +1915,7 @@ AutoHatchToggle = FarmTab:Toggle({
             -- 2. Brief delay then let the original module regain state control
             task.delay(0.1, function()
                 HatchEgg.IsHatching = false
-                EggAnimate.IsPlaying = true
+                EggAnimate.IsPlaying = false
             end)
         end
     end
@@ -1835,25 +1923,34 @@ AutoHatchToggle = FarmTab:Toggle({
 FM_Add("Hatch", HatchMapDropdown)
 FM_Add("Hatch", AutoHatchToggle)
 
-
--- [[ 4. MAIN LOOP LOGIC ]] --
+-- [[ 4. MAIN LOOP LOGIC FIXED ]] --
 task.spawn(function()
     while not Window.Destroyed do
         local premium = (getgenv().IsPremium == true)
         if premium and Config.AutoHatch.Enabled then
             pcall(function()
                 local map = Config.AutoHatch.SelectedMap
-                local hatchType = "Single"
+                local hatchType = "Single" -- Default value
+
+                -- Cek Gamepass untuk menentukan tipe hatch
+                if getgenv().PlayerData.Gamepasses["Multi Open"] then
+                    hatchType = "Triple" -- Gunakan "Triple" jika punya gamepass
+                end
+
                 local price = UnitsModule.GetPrice(map, getgenv().PlayerData)
                 local currentYen = getgenv().PlayerData.Yens or 0
 
-                -- Balance Validation
+                -- Validasi Saldo
                 if currentYen >= price then
-                    -- Send Request Directly to Server
+                    -- Pastikan status hatching di-reset agar bisa spam
+                    HatchEgg.IsHatching = false
+                    EggAnimate.IsPlaying = false
+                    
+                    -- Kirim Request
                     MetaService.Bridge:Fire("Summon", "Request", {hatchType, map})
                     
-                    -- Small delay to prevent server rate-limiting (Adjustable)
-                    task.wait() 
+                    -- Jeda sangat singkat untuk bypass (0.1 detik atau tanpa jeda jika ingin instant)
+                    task.wait(0.1) 
                 else
                     Notify("Warning", "Insufficient Yen to summon!", "alert-circle")
                     Config.AutoHatch.Enabled = false
@@ -1861,7 +1958,7 @@ task.spawn(function()
                 end
             end)
         end
-        task.wait()
+        task.wait(0.1) -- Loop safety
     end
 end)
 
@@ -2229,6 +2326,296 @@ task.spawn(function()
     end
 end)
 
+-- [[ CHRISTMAS FEATURE - EXCHANGER & SHOP FIXED ]] --
+local ChristmasConfig = require(ReplicatedStorage.Modules.ChristmasExchangerConfig)
+local ChristmasShopConfig = require(ReplicatedStorage.Modules.ChristmasShopConfig)
+FM_CategoryDescriptions["Christmas"] = "Auto-exchange items and Auto-buy Christmas Shop limited stock."
+
+Config.Christmas = { AutoExchanges = {}, Amounts = {} }
+Config.ChristmasShop = { AutoBuy = {} }
+
+-- 1. CHRISTMAS SHOP TIMER (Diletakkan paling atas agar selalu terlihat)
+local XmasShopTimer = FarmTab:Paragraph({
+    Title = "Christmas Shop Timer",
+    Content = "Calculating reset time..."
+})
+FM_Add("Christmas", XmasShopTimer)
+XmasUIObjects.Timer = XmasShopTimer
+
+-- [[ BAGIAN A: CHRISTMAS EXCHANGER (2 ITEMS PER GROUP) ]] --
+local function GetExchangeDesc(exchangeKey, data)
+    local amount = Config.Christmas.Amounts[exchangeKey] or 1
+    local result = amount * data.Ratio
+    return string.format("Mode: %s ➔ %s\nRatio: 1:%s\nCost: %s %s", 
+        data.Left, data.Right, formatNum(data.Ratio), formatNum(result), data.Left)
+end
+
+local SortedExchanges = {}
+for key, data in pairs(ChristmasConfig.Exchanges) do table.insert(SortedExchanges, {Key = key, Data = data}) end
+
+for i = 1, #SortedExchanges, 2 do
+    local ChristmasGroup = FarmTab:Group({ Title = i == 1 and "Christmas Event Exchanger" or "" })
+    FM_Add("Christmas", ChristmasGroup)
+    for j = 0, 1 do
+        local exchange = SortedExchanges[i + j]
+        if exchange then
+            local eKey, eData = exchange.Key, exchange.Data
+            local AmountInput = ChristmasGroup:Input({
+                Title = "Amount: " .. eKey:gsub("_", " "),
+                Placeholder = "Amount...",
+                Default = "1",
+                Flag = "XmasAmount_" .. eKey,
+                Callback = function(val) Config.Christmas.Amounts[eKey] = tonumber(val) or 0 end
+            })
+            XmasUIObjects.AmountInputs[eKey] = AmountInput
+            local ExchangeToggle = ChristmasGroup:Toggle({
+                Title = "Auto " .. eKey:gsub("_", " "),
+                Desc = GetExchangeDesc(eKey, eData),
+                Default = false,
+                Flag = "XmasAuto_" .. eKey,
+                Callback = function(val) Config.Christmas.AutoExchanges[eKey] = val end
+            })
+            XmasUIObjects.ExchangeToggles[eKey] = ExchangeToggle
+            task.spawn(function()
+                while not Window.Destroyed do
+                    if IsWindowOpen() then
+                        local currentDesc = GetExchangeDesc(eKey, eData)
+                        if ExchangeToggle.Desc ~= currentDesc then ExchangeToggle:SetDesc(currentDesc) end
+                    end
+                    task.wait(0.5)
+                end
+            end)
+        end
+    end
+end
+
+local function GetXmasShopDesc(itemName, itemData)
+    local pData = getgenv().PlayerData
+    if not pData then return "Loading..." end
+
+    -- Perhitungan Waktu & Stok (History)
+    local interval = ChristmasShopConfig.ResetInterval or 43200
+    local currentCycle = math.floor(os.time() / interval)
+    local savedCycle = pData.ChristmasShopCycle or 0
+    local history = (savedCycle ~= currentCycle) and {} or (pData.ChristmasShopHistory or {})
+    
+    local bought = history[itemName] or 0
+    local stockLeft = math.max(0, itemData.MaxStock - bought)
+    local colorStock = stockLeft > 0 and "#44ff44" or "#ff4444"
+
+    -- Perhitungan Harga & Warna Berdasarkan Saldo
+    local currency = ChristmasShopConfig.Currency
+    local price = itemData.Price
+    local owned = (pData.Inventory and pData.Inventory.Items[currency]) or 0
+    local itemCurrencyInfo = Items[currency]
+    
+    local priceColor = owned >= price and "#44ff44" or "#ff4444"
+    
+    -- Format String Harga dengan Ikon dan Warna
+    local priceString = string.format("<font color='%s'>%s/%s</font> %s%s", 
+        priceColor, 
+        formatNum(owned), 
+        formatNum(price), 
+        (itemCurrencyInfo and itemCurrencyInfo.Name or currency),
+        (itemCurrencyInfo and itemCurrencyInfo.Icon or "")
+    )
+
+    return string.format("Stock: <font color='%s'>%d/%d</font>\nCost: %s", 
+        colorStock, stockLeft, itemData.MaxStock, priceString)
+end
+
+local XmasShopItems = {}
+for name, info in pairs(ChristmasShopConfig.ShopData) do table.insert(XmasShopItems, {Name = name, Info = info}) end
+
+for i = 1, #XmasShopItems, 2 do
+    local ShopGroup = FarmTab:Group({ Title = i == 1 and "Christmas Shop (Limited Stock)" or "" })
+    FM_Add("Christmas", ShopGroup)
+    for j = 0, 1 do
+        local item = XmasShopItems[i + j]
+        if item then
+            local itemName, info = item.Name, item.Info
+            local ShopToggle = ShopGroup:Toggle({
+                Title = "Auto " .. itemName,
+                Desc = GetXmasShopDesc(itemName, info),
+                Default = false,
+                Flag = "XmasShopAuto_" .. info.ItemKey,
+                Callback = function(val) Config.ChristmasShop.AutoBuy[itemName] = val end
+            })
+            XmasUIObjects.ShopToggles[itemName] = ShopToggle
+            if Items[info.ItemKey] and Items[info.ItemKey].Icon then ShopToggle:SetMainImage(Items[info.ItemKey].Icon, 30) end
+            task.spawn(function()
+                while not Window.Destroyed do
+                    if IsWindowOpen() then
+                        local d = GetXmasShopDesc(itemName, info)
+                        if ShopToggle.Desc ~= d then ShopToggle:SetDesc(d) end
+                    end
+                    task.wait(1)
+                end
+            end)
+        end
+    end
+end
+
+-- [[ LOGIKA EKSEKUSI BACKGROUND (TIMER & AUTO ACTION) ]] --
+task.spawn(function()
+    while not Window.Destroyed do
+        local premium = (getgenv().IsPremium == true)
+        local pData = getgenv().PlayerData
+        if pData then
+            -- 1. UPDATE TIMER (DI LUAR CEK MAP - AGAR SELALU KELIHATAN)
+            local interval = ChristmasShopConfig.ResetInterval or 43200
+            local timeLeft = interval - (os.time() % interval)
+            if IsWindowOpen() then
+                XmasShopTimer:SetDesc(string.format("Christmas Shop Resets in: %dh %dm %ds", 
+                    math.floor(timeLeft/3600), math.floor((timeLeft%3600)/60), math.floor(timeLeft%60)))
+            end
+            if premium then
+                for eKey, _ in pairs(ChristmasConfig.Exchanges) do
+                    if Config.Christmas.AutoExchanges[eKey] and (Config.Christmas.Amounts[eKey] or 0) > 0 then
+                        MetaService.Bridge:Fire("ChristmasExchanger", "Exchange", {
+                            ["Key"] = eKey, ["Amount"] = Config.Christmas.Amounts[eKey], ["Inverted"] = false
+                        })
+                    end
+                end
+
+                for itemName, info in pairs(ChristmasShopConfig.ShopData) do
+                    if Config.ChristmasShop.AutoBuy[itemName] then
+                        local history = (math.floor(os.time() / interval) ~= (pData.ChristmasShopCycle or 0)) and {} or (pData.ChristmasShopHistory or {})
+                        local stockAvailable = info.MaxStock - (history[itemName] or 0)
+                        local ownedSnow = (pData.Inventory and pData.Inventory.Items[ChristmasShopConfig.Currency]) or 0
+                        if stockAvailable > 0 and ownedSnow >= info.Price then
+                            MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = 1 })
+                            task.wait(0.5)
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(1)
+    end
+end)
+-- [[ AVATARS FEATURE LOGIC ]] --
+local AvatarsModule = require(ReplicatedStorage.Modules.Avatars)
+FM_CategoryDescriptions["Avatars"] = "Manage your avatars and auto-level them using Enemies Essence."
+
+Config.Avatars = {
+    AutoLevel = false,
+    SelectedAvatarID = nil
+}
+
+-- Fungsi untuk mendapatkan daftar avatar yang dimiliki
+local function GetOwnedAvatars()
+    local options = {}
+    local pData = getgenv().PlayerData
+    if pData and pData.Avatars and pData.Avatars.Owned then
+        for id, _ in pairs(pData.Avatars.Owned) do
+            local info = AvatarsModule.Get(id)
+            if info then
+                table.insert(options, {
+                    Title = info.DisplayName or info.Name,
+                    Value = id,
+                    -- Desc awal sebelum diupdate oleh loop
+                    Desc = "Rarity: " .. (info.Rarity or "Unknown")
+                })
+            end
+        end
+    end
+    if #options == 0 then table.insert(options, {Title = "No Avatars Found", Value = "None"}) end
+    return options
+end
+
+-- UI Elements
+-- (AvatarStatus dihapus sesuai permintaan)
+
+AvatarSelector = FarmTab:Dropdown({
+    Title = "Select Avatar",
+    Values = GetOwnedAvatars(),
+    Default = 1,
+    Flag = "AvatarSelector_Flag", -- Flag ditambahkan
+    Callback = function(val)
+        Config.Avatars.SelectedAvatarID = type(val) == "table" and val.Value or val
+    end
+})
+
+AvatarRefresh = FarmTab:Button({
+    Title = "Refresh Inventory",
+    Icon = "refresh-cw",
+    Callback = function() 
+        if AvatarSelector then AvatarSelector:Refresh(GetOwnedAvatars()) end 
+    end
+})
+
+AutoLevelAvatarToggle = FarmTab:Toggle({
+    Title = "Auto Level Up",
+    Desc = "Automatically upgrade selected avatar using Enemies Essence.",
+    Default = false,
+    Flag = "AutoLevelAvatar_Flag", -- Flag ditambahkan
+    Callback = function(v) Config.Avatars.AutoLevel = v end
+})
+
+-- Daftarkan ke Category Avatars
+FM_Add("Avatars", AvatarSelector)
+FM_Add("Avatars", AvatarRefresh)
+FM_Add("Avatars", AutoLevelAvatarToggle)
+
+-- [[ LOOPING LOGIKA AUTO LEVEL & UI UPDATE ]] --
+task.spawn(function()
+    local _LastUpdateText = "" -- Cache untuk efisiensi update UI
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        local avatarID = Config.Avatars.SelectedAvatarID
+        
+        if avatarID and avatarID ~= "None" and pData then
+            local ownedData = pData.Avatars.Owned[avatarID]
+            local info = AvatarsModule.Get(avatarID)
+            local essence = pData.Inventory.Items.EnemiesEssence or 0
+            
+            if info and ownedData then
+                local currentLevel = (type(ownedData) == "table" and ownedData.Level) or 1
+                local cost = AvatarsModule.CalculateUpgradeCost(avatarID, currentLevel)
+                local Power = AvatarsModule.CalculatePower(avatarID, currentLevel)
+                
+                -- Update Info ke Deskripsi Dropdown secara Realtime
+                if IsWindowOpen() then
+                    local statusText = string.format(
+                        "Level: %d / %d | Power: x%s\nCost: %s %s | Essence: %s",
+                        currentLevel, info.MaxLevel or 50,
+                        Power,
+                        (cost == "MAX" and "MAXED" or formatNum(cost)),
+                        Items["EnemiesEssence"].Icon,
+                        formatNum(essence)
+                    )
+                    
+                    -- Hanya update jika teks berubah agar tidak lag
+                    if _LastUpdateText ~= statusText then
+                        AvatarSelector:SetDesc(statusText)
+                        _LastUpdateText = statusText
+                    end
+
+                    -- Logika Lock Toggle jika sudah MAX
+                    if cost == "MAX" then
+                        if Config.Avatars.AutoLevel then
+                            Config.Avatars.AutoLevel = false
+                            AutoLevelAvatarToggle:Set(false)
+                        end
+                        AutoLevelAvatarToggle:Lock("MAX")
+                    else                        
+                        AutoLevelAvatarToggle:Unlock()
+                    end
+                end
+
+                -- Logika Auto Upgrade
+                if Config.Avatars.AutoLevel then
+                    if cost ~= "MAX" and essence >= cost then
+                        ReplicatedStorage.AvatarLeveling_Upgrade:FireServer(avatarID, 1)
+                        task.wait(0.15) 
+                    end
+                end
+            end
+        end
+        task.wait(0.2)
+    end
+end)
 -- [[ Settings Tab ]] --
 SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings-2" });
 SettingsTab:Section({ Title = "Config Manager", Icon = "save", Opened = true });
@@ -2285,7 +2672,24 @@ SettingsTab:Button({
         Notify("Success", "Deleted!", "trash")
     end
 })
+SettingsTab:Button({
+    Title = "Rejoin Server",
+    Icon = "rotate-cw",
+    Callback = function()
+        local TeleportService = game:GetService("TeleportService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
 
+        -- Melakukan teleportasi ulang ke PlaceId yang sama
+        if #Players:GetPlayers() <= 1 then
+            LocalPlayer:Kick("\nRejoining...")
+            task.wait(0.5)
+            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+        else
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+        end
+    end
+})
 FM_OnChange("Farm")
 
 Window:SelectTab(FarmTab.Index);
