@@ -1445,6 +1445,12 @@ local LB_Config = require(ReplicatedStorage.Modules.LimitBreaksConfig)
 Config.AutoLimitBreaks = {} 
 local LB_ToggleObjects = {}
 local _LB_LastStatus = {}
+local XmasUIObjects = {
+    Timer = nil,
+    ExchangeToggles = {},
+    AmountInputs = {},
+    ShopToggles = {}
+}
 
 -- Fungsi untuk membuat deskripsi status (Level, Bonus, Biaya) dengan gaya Scrap/Devil Upgrade
 local function GetLBDesc(mapName, mapData)
@@ -1557,6 +1563,7 @@ task.spawn(function()
     local devilLockState = { Left = {}, Right = {} }
     local hatchState = {}
     local fastAttackState = {}
+    local xmasState = {}
 
     local function keyForReason(reason)
         return reason or ""
@@ -1614,6 +1621,46 @@ task.spawn(function()
             setLock(FarmTabFast, "Premium Only", fastAttackState, "FarmTabFast")
         else
             setLock(FarmTabFast, nil, fastAttackState, "FarmTabFast")
+        end
+    end
+
+    local function enforceChristmas(premium)
+        if not premium then
+            setLock(XmasUIObjects.Timer, "Premium Only", xmasState, "Timer")
+
+            for eKey, ui in pairs(XmasUIObjects.AmountInputs) do
+                setLock(ui, "Premium Only", xmasState, "AmountInput:" .. eKey)
+            end
+
+            for eKey, ui in pairs(XmasUIObjects.ExchangeToggles) do
+                if Config.Christmas and Config.Christmas.AutoExchanges then
+                    Config.Christmas.AutoExchanges[eKey] = false
+                end
+                setOffIfOn(ui)
+                setLock(ui, "Premium Only", xmasState, "ExchangeToggle:" .. eKey)
+            end
+
+            for itemName, ui in pairs(XmasUIObjects.ShopToggles) do
+                if Config.ChristmasShop and Config.ChristmasShop.AutoBuy then
+                    Config.ChristmasShop.AutoBuy[itemName] = false
+                end
+                setOffIfOn(ui)
+                setLock(ui, "Premium Only", xmasState, "ShopToggle:" .. itemName)
+            end
+        else
+            setLock(XmasUIObjects.Timer, nil, xmasState, "Timer")
+
+            for eKey, ui in pairs(XmasUIObjects.AmountInputs) do
+                setLock(ui, nil, xmasState, "AmountInput:" .. eKey)
+            end
+
+            for eKey, ui in pairs(XmasUIObjects.ExchangeToggles) do
+                setLock(ui, nil, xmasState, "ExchangeToggle:" .. eKey)
+            end
+
+            for itemName, ui in pairs(XmasUIObjects.ShopToggles) do
+                setLock(ui, nil, xmasState, "ShopToggle:" .. itemName)
+            end
         end
     end
 
@@ -1706,6 +1753,7 @@ task.spawn(function()
 
         enforceHatch(premium)
         enforceFastAttack(premium)
+        enforceChristmas(premium)
         task.wait(premium and 1.0 or 2.0)
     end
 end)
@@ -2292,6 +2340,7 @@ local XmasShopTimer = FarmTab:Paragraph({
     Content = "Calculating reset time..."
 })
 FM_Add("Christmas", XmasShopTimer)
+XmasUIObjects.Timer = XmasShopTimer
 
 -- [[ BAGIAN A: CHRISTMAS EXCHANGER (2 ITEMS PER GROUP) ]] --
 local function GetExchangeDesc(exchangeKey, data)
@@ -2311,13 +2360,14 @@ for i = 1, #SortedExchanges, 2 do
         local exchange = SortedExchanges[i + j]
         if exchange then
             local eKey, eData = exchange.Key, exchange.Data
-            ChristmasGroup:Input({
+            local AmountInput = ChristmasGroup:Input({
                 Title = "Amount: " .. eKey:gsub("_", " "),
                 Placeholder = "Amount...",
                 Default = "1",
                 Flag = "XmasAmount_" .. eKey,
                 Callback = function(val) Config.Christmas.Amounts[eKey] = tonumber(val) or 0 end
             })
+            XmasUIObjects.AmountInputs[eKey] = AmountInput
             local ExchangeToggle = ChristmasGroup:Toggle({
                 Title = "Auto " .. eKey:gsub("_", " "),
                 Desc = GetExchangeDesc(eKey, eData),
@@ -2325,6 +2375,7 @@ for i = 1, #SortedExchanges, 2 do
                 Flag = "XmasAuto_" .. eKey,
                 Callback = function(val) Config.Christmas.AutoExchanges[eKey] = val end
             })
+            XmasUIObjects.ExchangeToggles[eKey] = ExchangeToggle
             task.spawn(function()
                 while not Window.Destroyed do
                     if IsWindowOpen() then
@@ -2390,6 +2441,7 @@ for i = 1, #XmasShopItems, 2 do
                 Flag = "XmasShopAuto_" .. info.ItemKey,
                 Callback = function(val) Config.ChristmasShop.AutoBuy[itemName] = val end
             })
+            XmasUIObjects.ShopToggles[itemName] = ShopToggle
             if Items[info.ItemKey] and Items[info.ItemKey].Icon then ShopToggle:SetMainImage(Items[info.ItemKey].Icon, 30) end
             task.spawn(function()
                 while not Window.Destroyed do
@@ -2407,6 +2459,7 @@ end
 -- [[ LOGIKA EKSEKUSI BACKGROUND (TIMER & AUTO ACTION) ]] --
 task.spawn(function()
     while not Window.Destroyed do
+        local premium = (getgenv().IsPremium == true)
         local pData = getgenv().PlayerData
         if pData then
             -- 1. UPDATE TIMER (DI LUAR CEK MAP - AGAR SELALU KELIHATAN)
@@ -2416,7 +2469,7 @@ task.spawn(function()
                 XmasShopTimer:SetDesc(string.format("Christmas Shop Resets in: %dh %dm %ds", 
                     math.floor(timeLeft/3600), math.floor((timeLeft%3600)/60), math.floor(timeLeft%60)))
             end
-                -- Auto Exchange
+            if premium then
                 for eKey, _ in pairs(ChristmasConfig.Exchanges) do
                     if Config.Christmas.AutoExchanges[eKey] and (Config.Christmas.Amounts[eKey] or 0) > 0 then
                         MetaService.Bridge:Fire("ChristmasExchanger", "Exchange", {
@@ -2424,7 +2477,7 @@ task.spawn(function()
                         })
                     end
                 end
-                -- Auto Buy Shop
+
                 for itemName, info in pairs(ChristmasShopConfig.ShopData) do
                     if Config.ChristmasShop.AutoBuy[itemName] then
                         local history = (math.floor(os.time() / interval) ~= (pData.ChristmasShopCycle or 0)) and {} or (pData.ChristmasShopHistory or {})
@@ -2436,6 +2489,7 @@ task.spawn(function()
                         end
                     end
                 end
+            end
         end
         task.wait(1)
     end
