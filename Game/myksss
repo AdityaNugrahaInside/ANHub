@@ -1874,25 +1874,34 @@ AutoHatchToggle = FarmTab:Toggle({
 FM_Add("Hatch", HatchMapDropdown)
 FM_Add("Hatch", AutoHatchToggle)
 
-
--- [[ 4. MAIN LOOP LOGIC ]] --
+-- [[ 4. MAIN LOOP LOGIC FIXED ]] --
 task.spawn(function()
     while not Window.Destroyed do
         local premium = (getgenv().IsPremium == true)
         if premium and Config.AutoHatch.Enabled then
             pcall(function()
                 local map = Config.AutoHatch.SelectedMap
-                local hatchType = "Single"
+                local hatchType = "Single" -- Default value
+
+                -- Cek Gamepass untuk menentukan tipe hatch
+                if getgenv().PlayerData.Gamepasses["Multi Open"] then
+                    hatchType = "Triple" -- Gunakan "Triple" jika punya gamepass
+                end
+
                 local price = UnitsModule.GetPrice(map, getgenv().PlayerData)
                 local currentYen = getgenv().PlayerData.Yens or 0
 
-                -- Balance Validation
+                -- Validasi Saldo
                 if currentYen >= price then
-                    -- Send Request Directly to Server
+                    -- Pastikan status hatching di-reset agar bisa spam
+                    HatchEgg.IsHatching = false
+                    EggAnimate.IsPlaying = false
+                    
+                    -- Kirim Request
                     MetaService.Bridge:Fire("Summon", "Request", {hatchType, map})
                     
-                    -- Small delay to prevent server rate-limiting (Adjustable)
-                    task.wait() 
+                    -- Jeda sangat singkat untuk bypass (0.1 detik atau tanpa jeda jika ingin instant)
+                    task.wait(0.1) 
                 else
                     Notify("Warning", "Insufficient Yen to summon!", "alert-circle")
                     Config.AutoHatch.Enabled = false
@@ -1900,7 +1909,7 @@ task.spawn(function()
                 end
             end)
         end
-        task.wait()
+        task.wait(0.1) -- Loop safety
     end
 end)
 
