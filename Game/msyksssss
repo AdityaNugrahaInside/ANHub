@@ -711,7 +711,7 @@ task.spawn(function()
             ApplySavedEnemyForMap(currentMap, CurrentMapEnemiesCache)
             currentTargetID = Config.SelectedEnemy
         end
-        task.wait(0.5)
+        task.wait(1)
     end
 end)
 
@@ -1162,7 +1162,6 @@ task.spawn(function()
                     local currentName = currentRoom and currentRoom.Name or ""
                     
                     if currentName ~= "" and currentName ~= lastRoomName then
-                        task.wait(0.6)
                         lastRoomName = currentName
                     end
 
@@ -1177,7 +1176,7 @@ task.spawn(function()
                 end
             end)
         end
-        task.wait(0.1)
+        task.wait(0.2)
     end
 end)
 
@@ -1990,9 +1989,16 @@ ToggleNoCooldown = function(state)
     else
         -- Kembalikan ke nilai normal (Contoh nilai default, sesuaikan dengan aslinya)
         if Clickers and Clickers.ClickCooldowns then
-            Clickers.ClickCooldowns.Normal = 0.25
-            Clickers.ClickCooldowns.WithFastClicker = 0.15
-            Clickers.ClickCooldowns.WithAutoClicker = 0.1
+            Clickers.ClickCooldowns.Normal = 1.25
+            Clickers.ClickCooldowns.WithFastClicker = 1
+            Clickers.ClickCooldowns.WithAutoClicker = 1
+        end
+        -- Hooking Click Speeds (opsional, untuk mempercepat loop internal game)
+        if Clickers and Clickers.Speeds then
+            Clickers.Speeds.AutoClicker = 1.199
+            Clickers.Speeds.AutoClickerWithFast = 1.135
+            Clickers.Speeds.SlowClicker = 1.269
+            Clickers.Speeds.FastClicker = 1.145
         end
     end
 end
@@ -2006,11 +2012,6 @@ FarmTabFast = FarmTab:Toggle({
     Callback = function(val)
         Config.NoCooldownAttack = val
         ToggleNoCooldown(Config.NoCooldownAttack)
-        
-        -- Memaksa modul internal game untuk menerapkan jarak baru
-        if AttackModule and AttackModule.ApplyRange then
-            AttackModule.ApplyRange()
-        end
     end
 })
 FM_Add("Farm", FarmTabFast)
@@ -2484,14 +2485,13 @@ task.spawn(function()
                         local stockAvailable = info.MaxStock - (history[itemName] or 0)
                         local ownedSnow = (pData.Inventory and pData.Inventory.Items[ChristmasShopConfig.Currency]) or 0
                         if stockAvailable > 0 and ownedSnow >= info.Price then
-                            MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = 1 })
-                            task.wait(0.5)
+                            MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = 5 })
                         end
                     end
                 end
             end
         end
-        task.wait(1)
+        task.wait(0.1)
     end
 end)
 -- [[ AVATARS FEATURE LOGIC ]] --
