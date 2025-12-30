@@ -2316,7 +2316,7 @@ task.spawn(function()
                     if stockLeft > 0 and myCoins >= info.Price then
                         MetaService.Bridge:Fire("Devil Shop", "BuyItem", {
                             ["Key"] = itemName,
-                            ["Amount"] = 1
+                            ["Amount"] = stockLeft
                         })
                         task.wait(0.5) 
                     end
@@ -2485,7 +2485,7 @@ task.spawn(function()
                         local stockAvailable = info.MaxStock - (history[itemName] or 0)
                         local ownedSnow = (pData.Inventory and pData.Inventory.Items[ChristmasShopConfig.Currency]) or 0
                         if stockAvailable > 0 and ownedSnow >= info.Price then
-                            MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = 5 })
+                            MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = stockAvailable })
                         end
                     end
                 end
