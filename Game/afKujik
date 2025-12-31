@@ -288,7 +288,7 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Traits", Icon = "rbxassetid://112306765267998"}, -- Tambahkan ini
         {Title = "Avatars", Icon = "rbxassetid://109265521428766"}, -- Tambahkan ini
         {Title = "Christmas", Icon = "rbxassetid://102564250948171"},
-        {Title = "Devil Shop", Icon = "rbxassetid://132353218742445"},
+        {Title = "Devil Shop", Icon = "rbxassetid://126729608466605"},
         {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
         {Title = "Dungeons", Icon = "rbxassetid://79471637683543"},    },
     Callback = FM_OnChange
@@ -711,7 +711,7 @@ task.spawn(function()
             ApplySavedEnemyForMap(currentMap, CurrentMapEnemiesCache)
             currentTargetID = Config.SelectedEnemy
         end
-        task.wait(0.5)
+        task.wait(1)
     end
 end)
 
@@ -1162,7 +1162,6 @@ task.spawn(function()
                     local currentName = currentRoom and currentRoom.Name or ""
                     
                     if currentName ~= "" and currentName ~= lastRoomName then
-                        task.wait(0.6)
                         lastRoomName = currentName
                     end
 
@@ -1177,7 +1176,7 @@ task.spawn(function()
                 end
             end)
         end
-        task.wait(0.1)
+        task.wait(0.2)
     end
 end)
 
@@ -1990,9 +1989,16 @@ ToggleNoCooldown = function(state)
     else
         -- Kembalikan ke nilai normal (Contoh nilai default, sesuaikan dengan aslinya)
         if Clickers and Clickers.ClickCooldowns then
-            Clickers.ClickCooldowns.Normal = 0.25
-            Clickers.ClickCooldowns.WithFastClicker = 0.15
-            Clickers.ClickCooldowns.WithAutoClicker = 0.1
+            Clickers.ClickCooldowns.Normal = 1.25
+            Clickers.ClickCooldowns.WithFastClicker = 1
+            Clickers.ClickCooldowns.WithAutoClicker = 1
+        end
+        -- Hooking Click Speeds (opsional, untuk mempercepat loop internal game)
+        if Clickers and Clickers.Speeds then
+            Clickers.Speeds.AutoClicker = 1.199
+            Clickers.Speeds.AutoClickerWithFast = 1.135
+            Clickers.Speeds.SlowClicker = 1.269
+            Clickers.Speeds.FastClicker = 1.145
         end
     end
 end
@@ -2006,11 +2012,6 @@ FarmTabFast = FarmTab:Toggle({
     Callback = function(val)
         Config.NoCooldownAttack = val
         ToggleNoCooldown(Config.NoCooldownAttack)
-        
-        -- Memaksa modul internal game untuk menerapkan jarak baru
-        if AttackModule and AttackModule.ApplyRange then
-            AttackModule.ApplyRange()
-        end
     end
 })
 FM_Add("Farm", FarmTabFast)
@@ -2312,10 +2313,10 @@ task.spawn(function()
                     local stockLeft = info.MaxStock - (history[itemName] or 0)
                     local myCoins = (pData.Inventory and pData.Inventory.Items[DevilShopConfig.Currency]) or 0
 
-                    if stockLeft > 0 and myCoins >= info.Price then
+                    if stockLeft > 0 and myCoins >= (info.Price * stockLeft) then
                         MetaService.Bridge:Fire("Devil Shop", "BuyItem", {
                             ["Key"] = itemName,
-                            ["Amount"] = 1
+                            ["Amount"] = stockLeft
                         })
                         task.wait(0.5) 
                     end
@@ -2483,9 +2484,8 @@ task.spawn(function()
                         local history = (math.floor(os.time() / interval) ~= (pData.ChristmasShopCycle or 0)) and {} or (pData.ChristmasShopHistory or {})
                         local stockAvailable = info.MaxStock - (history[itemName] or 0)
                         local ownedSnow = (pData.Inventory and pData.Inventory.Items[ChristmasShopConfig.Currency]) or 0
-                        if stockAvailable > 0 and ownedSnow >= info.Price then
-                            MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = 1 })
-                            task.wait(0.5)
+                        if stockAvailable > 0 and ownedSnow >= (info.Price * stockAvailable) then
+                            MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = stockAvailable })
                         end
                     end
                 end
@@ -2682,12 +2682,134 @@ SettingsTab:Button({
 
         -- Melakukan teleportasi ulang ke PlaceId yang sama
         if #Players:GetPlayers() <= 1 then
-            LocalPlayer:Kick("\nRejoining...")
-            task.wait(0.5)
             TeleportService:Teleport(game.PlaceId, LocalPlayer)
         else
             TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
         end
+    end
+})
+-- [[ PERFORMANCE / FPS BOOST SECTION ]] --
+SettingsTab:Section({ Title = "Performance & FPS Boost", Icon = "zap", Opened = false });
+
+local function ApplyFPSBoost()
+    local Lighting = game:GetService("Lighting")
+    local Terrain = workspace:FindFirstChildOfClass("Terrain")
+    
+    -- Lighting & Effects
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 1
+    
+    for _, v in pairs(Lighting:GetDescendants()) do
+        if v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
+            v.Enabled = false
+        end
+    end
+
+    -- Terrain
+    if Terrain then
+        Terrain.WaterWaveSize = 0
+        Terrain.WaterWaveSpeed = 0
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 0
+    end
+
+    -- Workspace Objects
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("Part") or v:IsA("MeshPart") or v:IsA("UnionOperation") then
+            v.Material = Enum.Material.SmoothPlastic
+            v.Reflectance = 0
+        elseif v:IsA("Decal") or v:IsA("Texture") then
+            v.Transparency = 1
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Enabled = false
+        elseif v:IsA("Explosion") then
+            v.Visible = false
+        end
+    end
+    
+    Notify("FPS Boost", "Performance settings applied!", "zap")
+end
+
+SettingsTab:Toggle({
+    Title = "High Performance Mode",
+    Desc = "Menghapus tekstur, bayangan, dan efek untuk menaikkan FPS.",
+    Default = false,
+    Callback = function(val)
+        if val then
+            ApplyFPSBoost()
+        else
+            Notify("Info", "Rejoin server untuk mengembalikan grafik normal.", "info")
+        end
+    end
+})
+
+SettingsTab:Button({
+    Title = "Clean Workspace (Lag Fix)",
+    Icon = "trash-2",
+    Desc = "Menghapus sampah visual di workspace.",
+    Callback = function()
+        for _, v in pairs(workspace:GetChildren()) do
+            if v:IsA("BasePart") and v.Transparency == 1 and not v:IsA("Terrain") then
+                -- v:Destroy() -- Hati-hati dengan ini, bisa menghapus part penting
+            end
+        end
+        Notify("Cleaned", "Workspace items optimized.", "check")
+    end
+})
+-- [[ ADVANCED SMOOTHNESS FUNCTIONS ]] --
+local function Toggle3DRendering(state)
+    -- Benar-benar mematikan render dunia (layar jadi abu-abu/putih)
+    -- Ini adalah cara paling efektif untuk menghemat baterai/listrik saat AFK
+    game:GetService("RunService"):Set3dRenderingEnabled(not state)
+end
+
+local function MuteAllSounds()
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("Sound") then
+            v.Volume = 0
+        end
+    end
+end
+
+local function BoostCPU()
+    -- Mengatur kualitas render internal Roblox ke level terendah
+    settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Low
+end
+-- Toggle untuk mematikan Rendering 3D
+SettingsTab:Toggle({
+    Title = "CPU Mode (White Screen)",
+    Desc = "Mematikan render 3D. Sangat cocok untuk AFK semalaman (Hemat GPU).",
+    Default = false,
+    Callback = function(val)
+        Toggle3DRendering(val)
+        if val then
+            Notify("CPU Mode", "3D Rendering Disabled for performance.", "monitor-off")
+        else
+            Notify("CPU Mode", "3D Rendering Enabled.", "monitor")
+        end
+    end
+})
+
+-- Toggle untuk Mute Suara (Mengurangi beban CPU audio)
+SettingsTab:Toggle({
+    Title = "Mute All Sounds",
+    Desc = "Mematikan semua suara di dalam game.",
+    Default = false,
+    Callback = function(val)
+        if val then MuteAllSounds() end
+    end
+})
+
+-- Tombol untuk Force Low Quality (Engine Level)
+SettingsTab:Button({
+    Title = "Force Ultra Low Quality",
+    Icon = "mouse-pointer-2",
+    Desc = "Memaksa engine Roblox menggunakan settingan terendah.",
+    Callback = function()
+        BoostCPU()
+        Notify("Success", "Engine optimized for low-end PC.", "check")
     end
 })
 FM_OnChange("Farm")
