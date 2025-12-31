@@ -288,7 +288,7 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Traits", Icon = "rbxassetid://112306765267998"}, -- Tambahkan ini
         {Title = "Avatars", Icon = "rbxassetid://109265521428766"}, -- Tambahkan ini
         {Title = "Christmas", Icon = "rbxassetid://102564250948171"},
-        {Title = "Devil Shop", Icon = "rbxassetid://132353218742445"},
+        {Title = "Devil Shop", Icon = "rbxassetid://126729608466605"},
         {Title = "Hatch", Icon = "rbxassetid://97094148726332"}, -- Tambahkan ini
         {Title = "Dungeons", Icon = "rbxassetid://79471637683543"},    },
     Callback = FM_OnChange
@@ -2313,7 +2313,7 @@ task.spawn(function()
                     local stockLeft = info.MaxStock - (history[itemName] or 0)
                     local myCoins = (pData.Inventory and pData.Inventory.Items[DevilShopConfig.Currency]) or 0
 
-                    if stockLeft > 0 and myCoins >= info.Price then
+                    if stockLeft > 0 and myCoins >= (info.Price * stockLeft) then
                         MetaService.Bridge:Fire("Devil Shop", "BuyItem", {
                             ["Key"] = itemName,
                             ["Amount"] = stockLeft
@@ -2484,14 +2484,14 @@ task.spawn(function()
                         local history = (math.floor(os.time() / interval) ~= (pData.ChristmasShopCycle or 0)) and {} or (pData.ChristmasShopHistory or {})
                         local stockAvailable = info.MaxStock - (history[itemName] or 0)
                         local ownedSnow = (pData.Inventory and pData.Inventory.Items[ChristmasShopConfig.Currency]) or 0
-                        if stockAvailable > 0 and ownedSnow >= info.Price then
+                        if stockAvailable > 0 and ownedSnow >= (info.Price * stockAvailable) then
                             MetaService.Bridge:Fire("ChristmasShop", "BuyItem", { ["Key"] = itemName, ["Amount"] = stockAvailable })
                         end
                     end
                 end
             end
         end
-        task.wait(0.1)
+        task.wait(1)
     end
 end)
 -- [[ AVATARS FEATURE LOGIC ]] --
@@ -2682,8 +2682,6 @@ SettingsTab:Button({
 
         -- Melakukan teleportasi ulang ke PlaceId yang sama
         if #Players:GetPlayers() <= 1 then
-            LocalPlayer:Kick("\nRejoining...")
-            task.wait(0.5)
             TeleportService:Teleport(game.PlaceId, LocalPlayer)
         else
             TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
