@@ -35,6 +35,9 @@ EnchantmentsConfig = require(ReplicatedStorage.Scripts.Configs.Machines.Enchantm
 TradeTokenInfo = MaterialsModule.TradeToken
 YenUpgradeConfig = YenModule.Config
 TokenUpgradeConfig = TokenModule.Config
+-- Tambahkan di bagian atas bersama module lainnya
+RarityPowerConfig = require(ReplicatedStorage.Scripts.Configs.RarityPower)
+RarityPowerUI = {} -- Tempat menyimpan toggle UI
 hrp = nil
 humanoid = nil
 LastZone = nil
@@ -68,6 +71,7 @@ Config = {
     TargetDungeon = {},
     TargetRaid = {},
     TargetDefense = {},
+    TargetSorcerersDefense = {},
     TargetPirateTower = {},
     TargetShadowGate = {},
     TargetWave = 500,
@@ -789,7 +793,7 @@ local LastAutoSettingCheck = 0 -- Variabel penanda waktu (Debounce)
 function MaintainAutoStatus()
     while not Window.Destroyed do
         -- Hanya jalankan jika Auto Farm atau Auto Gamemode aktif
-        if Config.AutoFarm or Config.AutoGamemode then
+        if Config.AutoFarm or Config.AutoDungeon then
             
             -- [OPTIMASI PENTING] 
             -- Gunakan selisih waktu (os.time) agar logic ini hanya jalan setiap 2 detik.
@@ -853,7 +857,7 @@ function GetCurrentMapStatus()
 end
 function CheckIsFightingZone()
     local mapName = GetCurrentMapStatus()
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "PirateTower", "ShadowGate"}
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate"}
 
     for _, keyword in ipairs(fightingKeywords) do
         if string.find(mapName, keyword) then 
@@ -1234,6 +1238,7 @@ FM_CategoryDescriptions = {
     ["Vault"] = "Auto Equipped Best Vault for battle/lobby",
     ["Avatar Level"] = "Upgrade Avatar Level, view stats and costs",
     ["Heroes Stats"] = "Reroll Heroes Stats, view stats and costs",
+    ["Rarity Powers"] = "Auto Upgrade and Evolve your rarity power stats",
     ["Ascension"] = "You can exchange all your level progress to obtain boosts.",
     ["Enchantments"] = "Add Stats Enchantments To Your Weapon.",
     ["Weapon Reforging"] = "Reforge Tier 3 weapons to get +50% Mastery Boost (1 Hour process)",
@@ -1302,6 +1307,7 @@ FM_Category = FarmTab:Category({
         {Title="Secret Quests", Icon=GetIcon(104488852837942)},
         {Title="Vault", Icon=GetIcon(90798559571883)},
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
+        {Title="Rarity Powers", Icon=GetIcon(140537789480697)},
         {Title="Heroes Stats", Icon=GetIcon(127892390350003)},-- Tambahkan di dalam FM_Category Options
         {Title="Ascension", Icon=GetIcon(84524784941090)},
         {Title="Enchantments", Icon=GetIcon(104488852837942)},
@@ -1449,12 +1455,17 @@ function LogicGamemodes()
             end;
         end;
 
+        if not string.find(currentMap, ":") and (currentMap == "Defense" or currentMap == "SorcerersDefense") then
+            inLobbyZone = true
+        end
+
         local EnemiesFolder = Workspace:FindFirstChild("Enemies")
         local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
-        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "ChristmasRaid"))
+        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "ChristmasRaid" or currentMap == "SorcerersDefense"))
         
         if currentMap == "Raid" then isFightingZone = true 
         elseif currentMap == "Defense" then isFightingZone = hasEnemies
+        elseif currentMap == "SorcerersDefense" then isFightingZone = hasEnemies
         elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
         end
 
@@ -1542,9 +1553,25 @@ function LogicGamemodes()
             else
                 -- [1] DEFINISI FUNGSI LOKAL (Sekarang di dalam blok else, tapi hanya dibuat sekali per iterasi loop)
                 -- Tips: Idealnya fungsi ini ditaruh di LUAR while loop, tapi di sini juga aman.
-                local function ProcessGameMode(prefix, dbList, selectedList, requiredKey, allowJoin, allowOpen)
+                local function ProcessGameMode(prefix, dbList, selectedList, requiredKey, allowJoin, allowOpen, selectionName)
                     if not selectedList or #selectedList == 0 then return false end
                     if not allowJoin and not allowOpen then return false end
+
+                    if not dbList then
+                        local wanted = selectionName or prefix
+                        local normalizedWanted = tostring(wanted):gsub("%s+", ""):lower()
+                        local isSelected = false
+                        for _, s in ipairs(selectedList) do
+                            local normalized = tostring(s):gsub("%s+", ""):lower()
+                            if normalized == normalizedWanted then
+                                isSelected = true
+                                break
+                            end
+                        end
+                        if not isSelected then
+                            return false
+                        end
+                    end
                     
                     -- A. Siapkan Data Mode
                     local modesToCheck = {}
@@ -1554,7 +1581,7 @@ function LogicGamemodes()
                     else
                         -- Multi Mode (Dungeon/Raid/Defense)
                         for _, selectedName in pairs(selectedList) do
-                            if dbList[selectedName] then
+                            if dbList[selectedName] and dbList[selectedName].ID ~= nil then
                                 table.insert(modesToCheck, {
                                     ID = prefix .. ":" .. tostring(dbList[selectedName].ID), 
                                     Name = selectedName,
@@ -1606,19 +1633,20 @@ function LogicGamemodes()
                 
                 -- Daftar prioritas pengecekan mode
                 local CheckList = {
-                    {ID="ChristmasRaid", DB=nil, Cfg=Config.TargetChristmas, Key="ChristmasModeKey", CanOpen=true},
-                    {ID="PirateTower", DB=nil,       Cfg=Config.TargetPirateTower, Key="PirateTowerModeKey", CanOpen=true},
-                    {ID="ShadowGate",  DB=nil,       Cfg=Config.TargetShadowGate,  Key="ShadowPortalModeKey",CanOpen=true},
-                    {ID="Raid",        DB=raidDB,    Cfg=Config.TargetRaid,        Key="RaidModeKey",        CanOpen=true},
-                    {ID="Defense",     DB=defenseDB, Cfg=Config.TargetDefense,     Key="DefenseModeKey",     CanOpen=true},
-                    {ID="Dungeon",     DB=dungeonDB, Cfg=Config.TargetDungeon,     Key=nil,                  CanOpen=false}
+                    {ID="ChristmasRaid",    DB=nil,       Cfg=Config.TargetChristmas,   Key="ChristmasModeKey",         CanOpen=true,  SelName="Christmas Raid"},
+                    {ID="PirateTower",      DB=nil,       Cfg=Config.TargetPirateTower, Key="PirateTowerModeKey",      CanOpen=true,  SelName="PirateTower"},
+                    {ID="ShadowGate",       DB=nil,       Cfg=Config.TargetShadowGate,  Key="ShadowPortalModeKey",     CanOpen=true,  SelName="ShadowGate"},
+                    {ID="SorcerersDefense", DB=nil,       Cfg=Config.TargetSorcerersDefense, Key="SorcerersDefenseModeKey", CanOpen=true, SelName="SorcerersDefense"},
+                    {ID="Raid",             DB=raidDB,    Cfg=Config.TargetRaid,        Key="RaidModeKey",             CanOpen=true},
+                    {ID="Defense",          DB=defenseDB, Cfg=Config.TargetDefense,     Key="DefenseModeKey",          CanOpen=true},
+                    {ID="Dungeon",          DB=dungeonDB, Cfg=Config.TargetDungeon,     Key=nil,                       CanOpen=false}
                 }
 
                 for _, mode in ipairs(CheckList) do
                     -- Cek apakah mode ini boleh di-create (Config Global + Izin Mode)
                     local canCreate = (allowOpen and mode.CanOpen)
                     
-                    if ProcessGameMode(mode.ID, mode.DB, mode.Cfg, mode.Key, allowJoin, canCreate) then
+                    if ProcessGameMode(mode.ID, mode.DB, mode.Cfg, mode.Key, allowJoin, canCreate, mode.SelName) then
                         actionTaken = true
                         break -- Stop jika sudah join salah satu
                     end
@@ -1673,6 +1701,27 @@ function LoadShadowGateData()
     end;
 end;
 LoadShadowGateData();
+
+sorcerersDefenseList = {}
+function LoadSorcerersDefenseData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.SorcerersDefense);
+    end);
+    if success and module then
+        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
+        local waves = module.MAX_WAVE or 500
+        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
+        local rewardCards = GenerateCardRewards(module.ChanceReward)
+
+        sorcerersDefenseList = {{
+            Title = module.Display or "Sorcerers Defense",
+            Value = "SorcerersDefense",
+            Desc = desc,
+            Images = rewardCards
+        }}
+    end;
+end;
+LoadSorcerersDefenseData();
 
 -- [3. DUNGEON DATA]
 function LoadDungeonData()
@@ -1840,6 +1889,7 @@ function BuildGameModesDropdownValues()
     end
     AddList("", pirateTowerList, false) -- Pirate Tower tidak butuh prefix
     AddList("", shadowGateList, false)  -- Shadow Gate tidak butuh prefix
+    AddList("", sorcerersDefenseList, false)
 
     return out
 end
@@ -1853,7 +1903,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Callback = function(val)
-        local dungeonT, raidT, defenseT, christmasT, pirateT, shadowT = {}, {}, {}, {}, {}, {}
+        local dungeonT, raidT, defenseT, christmasT, pirateT, shadowT, sorcerersT = {}, {}, {}, {}, {}, {}, {}
 
         for _, v in pairs(val) do
             -- Ambil Value murni
@@ -1873,6 +1923,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                     -- Handle Single Mode (tanpa titik dua)
                     if raw == "PirateTower" then table.insert(pirateT, "PirateTower")
                     elseif raw == "ShadowGate" then table.insert(shadowT, "ShadowGate")
+                    elseif raw == "SorcerersDefense" then table.insert(sorcerersT, "SorcerersDefense")
                     end
                 end
             end
@@ -1883,6 +1934,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetDefense = defenseT
         Config.TargetPirateTower = pirateT
         Config.TargetShadowGate = shadowT
+        Config.TargetSorcerersDefense = sorcerersT
         
         -- Kita panggil optimizer manual sekali agar deskripsi langsung berubah saat diklik
         pcall(Optimizer.Update_Gamemode_Dropdowns)
@@ -3598,6 +3650,41 @@ AutoRollToggle = FarmTab:Toggle({
     end
 })
 FM_Add("Heroes Stats", AutoRollToggle)
+
+-- [[ CATEGORY: RARITY POWERS ]] --
+local RP_Group = nil
+local RP_Count = 0
+
+-- Kita ambil list dari RarityPowerConfig.List
+for powerName, powerData in pairs(RarityPowerConfig.List) do
+    if RP_Count % 2 == 0 then
+        RP_Group = FarmTab:Group({Title = (RP_Count == 0 and "Auto Rarity Upgrades" or "")})
+        FM_Add("Rarity Powers", RP_Group)
+    end
+
+    local toggle = RP_Group:Toggle({
+        Title = powerName .. " Power",
+        Desc = "Loading data...",
+        Image = GetIcon(powerData.Template),
+        ImageSize = 28,
+        Flag = "AutoRarityPower_" .. powerName,
+        Callback = function(val)
+            Config["AutoRarityPower_" .. powerName] = val
+        end
+    })
+
+    RarityPowerUI[powerName] = toggle
+    if not IsPremium then
+        Config["AutoRarityPower_" .. powerName] = false
+        pcall(function() toggle:Set(false) end)
+        pcall(function() toggle:Lock("Need Premium User") end)
+    else
+        if toggle.Locked then
+            pcall(function() toggle:Unlock() end)
+        end
+    end
+    RP_Count = RP_Count + 1
+end
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -3951,6 +4038,9 @@ function Optimizer.Update_Gamemode_Dropdowns()
     end
     if Config.TargetShadowGate and #Config.TargetShadowGate > 0 then
         table.insert(summaryItems, "• Shadow Gate")
+    end
+    if Config.TargetSorcerersDefense and #Config.TargetSorcerersDefense > 0 then
+        table.insert(summaryItems, "• Sorcerers Defense")
     end
 
     -- [LOGIKA FORMAT BARU DISINI]
@@ -5351,7 +5441,93 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
         end
     end
 end
+function Optimizer.Update_RarityPower_Logic(pData)
+    if not pData.RarityPowers or not Reliable then return end
 
+    if not IsPremium then
+        for powerName, toggle in pairs(RarityPowerUI) do
+            if Config["AutoRarityPower_" .. powerName] then
+                Config["AutoRarityPower_" .. powerName] = false
+            end
+            if toggle then
+                pcall(function() toggle:Set(false) end)
+                pcall(function() toggle:Lock("Need Premium User") end)
+            end
+        end
+        return
+    end
+
+    for powerName, toggle in pairs(RarityPowerUI) do
+        local powerConfig = RarityPowerConfig.List[powerName]
+        if not powerConfig then continue end
+
+        local totalLevel = pData.RarityPowers[powerName] or 0
+        
+        -- Gunakan logika dari decompile: GetRarityFromLevel
+        -- v1 = RarityIndex, v2 = CurrentLevelInRarity, v3 = MaxLevelInRarity
+        local rIdx, curLvl, maxLvl = RarityPowerConfig.GetRarityFromLevel(powerName, totalLevel)
+        local rarityData = powerConfig.List[rIdx]
+        
+        if not rarityData then continue end
+
+        -- Logika Penentuan Upgrade vs Evolve
+        local isMaxRarity = (rIdx == #powerConfig.List)
+        local isLevelMax = (curLvl >= maxLvl)
+        local isEvolve = isLevelMax and not isMaxRarity
+        
+        -- Ambil Cost
+        local cost = 0
+        if isEvolve then
+            cost = RarityPowerConfig.GetEvolveCost(powerName, rIdx)
+        else
+            cost = RarityPowerConfig.GetLevelUpCost(curLvl + 1)
+        end
+
+        -- Update UI Text
+        if not Window.Closed then
+            local status = isEvolve and "<font color='#aa00ff'>EVOLVE</font>" or "<font color='#00ffa4'>UPGRADE</font>"
+            if isMaxRarity and isLevelMax then status = "<font color='#ff2b2b'>MAX</font>" end
+            
+            local tokenName = rarityData.TokenName or "Unknown"
+            local myToken = pData.Materials[tokenName] or 0
+            
+            local newDesc = string.format(
+                "Rarity: %s | %s\nLevel: %d/%d\nCost: %s / %s",
+                rarityData.Name, status, curLvl, maxLvl, UtilsModule.ToText(cost), UtilsModule.ToText(myToken)
+            )
+
+            local cacheKey = "RP_" .. powerName
+            if Optimizer.Cache[cacheKey] ~= newDesc then
+                toggle:SetDesc(newDesc)
+                
+                -- Update Gradient Warna berdasarkan Rarity
+                if toggle.SetMainImage then
+                    toggle:SetMainImage({
+                        Image = GetIcon(powerConfig.Template),
+                        Quantity = rarityData.Name,
+                        Title = powerName,
+                        Gradient = GetGameGradient(rarityData.Name)
+                    }, 60)
+                end
+                Optimizer.Cache[cacheKey] = newDesc
+            end
+        end
+
+        -- Logika Auto Upgrade
+        if Config["AutoRarityPower_" .. powerName] and not (isMaxRarity and isLevelMax) then
+            local tokenName = rarityData.TokenName
+            local myToken = pData.Materials[tokenName] or 0
+            
+            if myToken >= (cost or 0) then
+                -- Gunakan Remote sesuai decompile: shared.Reply.To("Upgrade Rarity Power", p_u_6)
+                pcall(function()
+                    Reliable:FireServer("Upgrade Rarity Power", { powerName })
+                end)
+                task.wait(0.5) -- Delay prevent spam
+            end
+        end
+    end
+end
 -- MAIN GLOBAL LOOP TRIGGER
 -- // OPTIMIZED MAIN LOOP //
 task.spawn(function()
@@ -5383,6 +5559,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Heroes_Logic, pData)
             pcall(Optimizer.Update_MegaBoss_Logic, pData)
             pcall(Optimizer.Update_Gamemode_Dropdowns)
+            pcall(Optimizer.Update_RarityPower_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
