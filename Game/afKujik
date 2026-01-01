@@ -1348,11 +1348,11 @@ local function GetDevilSideDesc(mapName, side, sideData)
     for itemName, amount in pairs(costs) do
         local owned = (pData.Inventory and pData.Inventory.Items[itemName]) or 0
         local color = owned >= amount and "#44ff44" or "#ff4444"
-        table.insert(costStrings, string.format("<font color='%s'>%s/%s</font> %s%s", 
-            color, formatNum(owned), formatNum(amount), Items[itemName].Name,Items[itemName].Icon))
+        table.insert(costStrings, string.format("%s:<font color='%s'>%s/%s</font> %s", 
+             Items[itemName].Name,color, formatNum(owned), formatNum(amount),Items[itemName].Icon))
     end
 
-    return string.format("Level: %d/%d (+%.1f%% %s)\nCost:\n%s", 
+    return string.format("Level: %d/%d (+%.1f%% %s)\n%s", 
         currentLvl, sideData.MaxLevel, multiplier, sideData.Type, table.concat(costStrings, "\n"))
 end
 
@@ -1473,44 +1473,66 @@ local function GetLBDesc(mapName, mapData)
     
     -- Warna: Hijau (#44ff44) jika cukup, Merah (#ff4444) jika kurang
     local color = owned >= cost and "#44ff44" or "#ff4444"
-    local costString = string.format("<font color='%s'>%s/%s</font> %s%s", 
-        color, formatNum(owned), formatNum(cost), itemInfo.Name, itemInfo.Icon)
+    local costString = string.format("%s:<font color='%s'>%s/%s</font> %s", 
+        itemInfo.Name,color, formatNum(owned), formatNum(cost),  itemInfo.Icon)
 
     -- Format akhir yang lebih bersih
-    return string.format("Level: %d/%d (+%.1f%% %s)\nCost: %s", 
+    return string.format("Level: %d/%d (+%.1f%% %s)\n%s", 
         currentLvl, mapData.MaxLevel, multiplier, mapData.StatType, costString)
 end
 
 -- Looping untuk membuat Group per Map
+local ValidLBMaps = {}
 for _, mData in ipairs(SortedMaps) do
-    local mapName = mData.Name
-    local lbData = LB_Config.Data[mapName]
+    if LB_Config.Data[mData.Name] then
+        table.insert(ValidLBMaps, mData)
+    end
+end
 
-    -- Hanya buat Group jika map tersebut ada dalam konfigurasi Limit Break
-    if lbData then
-        -- Membuat Group (Satu baris per map)
-        local MapGroup = FarmTab:Group({
-            Title = lbData.FolderName or mapName
-        })
-        
-        -- Daftarkan Group ke Category Manager agar bisa difilter
-        FM_Add("Limit Breaks", MapGroup)
+for i = 1, #ValidLBMaps, 2 do
+    local mData1 = ValidLBMaps[i]
+    local mData2 = ValidLBMaps[i+1]
+    
+    local mapName1 = mData1.Name
+    local lbData1 = LB_Config.Data[mapName1]
+    
+    local MapGroup = FarmTab:Group({
+        Title = lbData1.FolderName or mapName1
+    })
+    
+    FM_Add("Limit Breaks", MapGroup)
 
-        -- Tambahkan Toggle ke dalam Group tersebut
-        local LBToggle = MapGroup:Toggle({
-            Title = mData.FrameName or mapName,
-            Desc = GetLBDesc(mapName, lbData),
+    -- Item 1
+    local LBToggle1 = MapGroup:Toggle({
+        Title = mData1.FrameName or mapName1,
+        Desc = GetLBDesc(mapName1, lbData1),
+        Default = false,
+        Flag = "LBToggle_" .. mapName1:gsub(" ", ""),
+        Callback = function(val)
+            Config.AutoLimitBreaks[mapName1] = val
+        end
+    })
+
+    LBToggle1:SetMainImage(mData1.Icon, 30)
+    LB_ToggleObjects[mapName1] = LBToggle1
+
+    -- Item 2
+    if mData2 then
+        local mapName2 = mData2.Name
+        local lbData2 = LB_Config.Data[mapName2]
+
+        local LBToggle2 = MapGroup:Toggle({
+            Title = mData2.FrameName or mapName2,
+            Desc = GetLBDesc(mapName2, lbData2),
             Default = false,
-            Flag = "LBToggle_" .. mapName:gsub(" ", ""),
+            Flag = "LBToggle_" .. mapName2:gsub(" ", ""),
             Callback = function(val)
-                Config.AutoLimitBreaks[mapName] = val
+                Config.AutoLimitBreaks[mapName2] = val
             end
         })
 
-        -- Berikan Icon Map agar serupa dengan kategori Roll
-        LBToggle:SetMainImage(mData.Icon, 30)
-        
-        LB_ToggleObjects[mapName] = LBToggle
+        LBToggle2:SetMainImage(mData2.Icon, 30)
+        LB_ToggleObjects[mapName2] = LBToggle2
     end
 end
 
@@ -1886,6 +1908,14 @@ for mapName, _ in pairs(HatchEgg.MapEggs) do
         table.insert(EggMapList, { Title = mapName, Value = mapName })
     end
 end
+
+table.sort(EggMapList, function(a, b)
+    local mapA = MapsModule[a.Value]
+    local mapB = MapsModule[b.Value]
+    local indexA = mapA and mapA.Index or 9999
+    local indexB = mapB and mapB.Index or 9999
+    return indexA < indexB
+end)
 
 HatchMapDropdown = FarmTab:Dropdown({
     Title = "Select Egg (Map)",
@@ -2503,7 +2533,7 @@ Config.Avatars = {
     SelectedAvatarID = nil
 }
 
--- Fungsi untuk mendapatkan daftar avatar yang dimiliki
+-- Fungsi untuk mendapatkan daftar avatar yang dimiliki (Sudah di-sort berdasarkan BasePower)
 local function GetOwnedAvatars()
     local options = {}
     local pData = getgenv().PlayerData
@@ -2514,13 +2544,23 @@ local function GetOwnedAvatars()
                 table.insert(options, {
                     Title = info.DisplayName or info.Name,
                     Value = id,
-                    -- Desc awal sebelum diupdate oleh loop
-                    Desc = "Rarity: " .. (info.Rarity or "Unknown")
+                    Desc = "Rarity: " .. (info.Rarity or "Unknown") .. "\nBase Power: x" .. info.BasePower,
+                    Power = info.BasePower or 0 -- Kita ambil BasePower untuk kriteria sorting
                 })
             end
         end
     end
-    if #options == 0 then table.insert(options, {Title = "No Avatars Found", Value = "None"}) end
+
+    -- LOGIKA SORTING: Dari BasePower Tertinggi ke Terendah
+    table.sort(options, function(a, b)
+        return a.Power < b.Power
+    end)
+
+    -- Jika tidak ada avatar, tampilkan pesan kosong
+    if #options == 0 then 
+        table.insert(options, {Title = "No Avatars Found", Value = "None", Power = 0}) 
+    end
+    
     return options
 end
 
