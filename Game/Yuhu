@@ -1405,6 +1405,51 @@ EnemyDropdown = FarmTab:Dropdown({
     end
 });
 FM_Add("Farm", EnemyDropdown);
+
+EnemyDropdownNeedsRefresh = true
+function EnemyDropdown_SetPendingValues(values)
+    CurrentZoneEnemiesCache = values or {}
+    if EnemyDropdown then
+        EnemyDropdown.Values = CurrentZoneEnemiesCache
+    end
+    EnemyDropdownNeedsRefresh = true
+end
+
+function EnemyDropdown_SetValueOnlyFromConfig()
+    if not EnemyDropdown then return end
+    local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
+    local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
+    EnemyDropdown.Value = selectedItems
+    if EnemyDropdown.Display then
+        pcall(function() EnemyDropdown.Display() end)
+    end
+end
+
+function EnemyDropdown_ApplyPendingRefresh()
+    if not EnemyDropdownNeedsRefresh then return end
+    if not EnemyDropdown then return end
+    local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
+    local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
+    EnemyDropdown.Value = selectedItems
+    if EnemyDropdown.Refresh then
+        EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
+    end
+    EnemyDropdownNeedsRefresh = false
+end
+
+do
+    local menu = EnemyDropdown and EnemyDropdown.DropdownMenu
+    local oldMenuOpen = menu and menu.Open
+    if oldMenuOpen then
+        menu.Open = function(self, ...)
+            if EnemyDropdown and not EnemyDropdown.Opened then
+                pcall(EnemyDropdown_ApplyPendingRefresh)
+            end
+            return oldMenuOpen(self, ...)
+        end
+    end
+end
+
 RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
@@ -3817,12 +3862,19 @@ if Reliable then
             IsLoadingConfig = true;
             CurrentZoneName = targetZoneName;
             Config.SelectedEnemy = nil;
-            if EnemyDropdown and EnemyDropdown.Select then
-                pcall(function() EnemyDropdown:Select(nil); end);
-            end;
+            if EnemyDropdown then
+                EnemyDropdown.Value = {}
+                if EnemyDropdown.Display then
+                    pcall(function() EnemyDropdown.Display() end)
+                end
+            end
+            EnemyDropdownNeedsRefresh = true
             task.spawn(function()
                 local freshEnemies = RefreshEnemyData();
-                CurrentZoneEnemiesCache = freshEnemies;
+                EnemyDropdown_SetPendingValues(freshEnemies)
+                pcall(function()
+                    if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+                end)
                 local savedEntry = Config.ZoneConfigurations[targetZoneName];
                 if savedEntry then
                     local valuesList = nil
@@ -3835,12 +3887,9 @@ if Reliable then
                     end
                     if valuesList then
                         Config.SelectedEnemy = valuesList
-                        local selectedItems = BuildEnemyDropdownSelection(valuesList, freshEnemies)
-                        if EnemyDropdown and EnemyDropdown.Select then
-                            pcall(function() EnemyDropdown:Select(selectedItems) end)
-                        end
                     end
                 end;
+                EnemyDropdown_SetValueOnlyFromConfig()
                 IsLoadingConfig = false;
                 IsTeleporting = false;
             end);
@@ -3959,6 +4008,13 @@ task.spawn(function()
                 prevZone = detectedZone
                 CurrentZoneName = detectedZone
                 Config.SelectedEnemy = nil
+                if EnemyDropdown then
+                    EnemyDropdown.Value = {}
+                    if EnemyDropdown.Display then
+                        pcall(function() EnemyDropdown.Display() end)
+                    end
+                end
+                EnemyDropdownNeedsRefresh = true
                 
                 -- Reset dropdown sementara (Visual feedback)
                 if EnemyDropdown and EnemyDropdown.SetTitle then
@@ -3971,16 +4027,13 @@ task.spawn(function()
                 task.spawn(function()
                     -- Proses ini sekarang aman karena sudah ada "task.wait" di dalam RefreshEnemyData
                     local freshEnemies = RefreshEnemyData()
-                    CurrentZoneEnemiesCache = freshEnemies
+                    EnemyDropdown_SetPendingValues(freshEnemies)
                     
                     -- Update Dropdown UI
                     pcall(function()
                         if EnemyDropdown then
                             -- Kembalikan Judul
                             if EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
-                            
-                            -- Refresh Isi
-                            if EnemyDropdown.Refresh then EnemyDropdown:Refresh(freshEnemies) end
                         end
                     end)
                     
@@ -3998,12 +4051,9 @@ task.spawn(function()
                         end
                         if valuesList then
                             Config.SelectedEnemy = valuesList
-                            local selectedItems = BuildEnemyDropdownSelection(valuesList, freshEnemies)
-                            pcall(function()
-                                if EnemyDropdown.Select then EnemyDropdown:Select(selectedItems) end
-                            end)
                         end
                     end
+                    EnemyDropdown_SetValueOnlyFromConfig()
                     
                     IsLoadingConfig = false
                 end)
@@ -4518,7 +4568,7 @@ function Optimizer.Update_Roll_Logic(pData)
         elseif config.ImageId then
             currentImage = GetIcon(config.ImageId)
         end
-
+        
         -- 3. Update Deskripsi (Jumlah Token)
         local lastState = Optimizer.Cache.Roll[rollType] or {}
         if lastState.Count ~= currentCount then
@@ -4531,31 +4581,37 @@ function Optimizer.Update_Roll_Logic(pData)
             end)
         end
         
-        -- 4. Update Gambar Utama (SetMainImage) - HANYA jika berubah
-        -- Kita tambahkan check 'currentRarity' agar tidak nil
-        if (lastState.Image ~= currentImage) or (lastState.Rarity ~= currentRarity) then
-            pcall(function() 
-                if not Window.Closed and toggle.SetMainImage and currentRarity then 
-                    toggle:SetMainImage({ 
-                        Image = currentImage, 
-                        Quantity = currentRarity, 
-                        Title = currentItemName, 
-                        Gradient = GetGameGradient(currentRarity) 
-                    }, 50) 
-                end 
-            end)
-            -- Simpan state terbaru ke cache
-            Optimizer.Cache.Roll[rollType] = { 
-                Image = currentImage, 
-                Rarity = currentRarity, 
-                Count = currentCount, 
-                IsMaxed = lastState.IsMaxed 
+        local needsMainImageUpdate = (lastState.Image ~= currentImage)
+            or (lastState.Rarity ~= currentRarity)
+            or (lastState.ItemName ~= currentItemName)
+            or (lastState.PendingMainImage ~= nil)
+
+        if not Window.Closed and toggle.SetMainImage then
+            if needsMainImageUpdate then
+                pcall(function()
+                    local rarityLabel = currentRarity or "Common"
+                    toggle:SetMainImage({
+                        Image = currentImage,
+                        Quantity = rarityLabel,
+                        Title = currentItemName,
+                        Gradient = GetGameGradient(rarityLabel)
+                    }, 50)
+                end)
+                lastState.Image = currentImage
+                lastState.Rarity = currentRarity
+                lastState.ItemName = currentItemName
+                lastState.PendingMainImage = nil
+            end
+        elseif needsMainImageUpdate then
+            lastState.PendingMainImage = {
+                Image = currentImage,
+                Rarity = currentRarity,
+                ItemName = currentItemName
             }
-        else
-            -- Jika hanya jumlah token yang berubah, update count saja di cache
-            lastState.Count = currentCount
-            Optimizer.Cache.Roll[rollType] = lastState
         end
+
+        lastState.Count = currentCount
+        Optimizer.Cache.Roll[rollType] = lastState
 
         -- 5. Logika Auto Lock jika sudah MAX
         local isMaxed = (config.List and #config.List > 0 and foundBestIndex >= #config.List)
@@ -5489,10 +5545,8 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
                     if needsChange then
                         Config.SelectedEnemy = { displayTargetName }
                         Config.AutoFarm = true 
-                        local selectedItems = BuildEnemyDropdownSelection({ displayTargetName }, CurrentZoneEnemiesCache)
-                        if EnemyDropdown and EnemyDropdown.Select then
-                            pcall(function() EnemyDropdown:Select(selectedItems) end)
-                        end
+                        EnemyDropdown_SetValueOnlyFromConfig()
+                        EnemyDropdownNeedsRefresh = true
                     end
                     hasActionTaken = true 
                 end
