@@ -1348,11 +1348,11 @@ local function GetDevilSideDesc(mapName, side, sideData)
     for itemName, amount in pairs(costs) do
         local owned = (pData.Inventory and pData.Inventory.Items[itemName]) or 0
         local color = owned >= amount and "#44ff44" or "#ff4444"
-        table.insert(costStrings, string.format("<font color='%s'>%s/%s</font> %s%s", 
-            color, formatNum(owned), formatNum(amount), Items[itemName].Name,Items[itemName].Icon))
+        table.insert(costStrings, string.format("%s:<font color='%s'>%s/%s</font> %s", 
+             Items[itemName].Name,color, formatNum(owned), formatNum(amount),Items[itemName].Icon))
     end
 
-    return string.format("Level: %d/%d (+%.1f%% %s)\nCost:\n%s", 
+    return string.format("Level: %d/%d (+%.1f%% %s)\n%s", 
         currentLvl, sideData.MaxLevel, multiplier, sideData.Type, table.concat(costStrings, "\n"))
 end
 
@@ -1473,11 +1473,11 @@ local function GetLBDesc(mapName, mapData)
     
     -- Warna: Hijau (#44ff44) jika cukup, Merah (#ff4444) jika kurang
     local color = owned >= cost and "#44ff44" or "#ff4444"
-    local costString = string.format("<font color='%s'>%s/%s</font> %s%s", 
-        color, formatNum(owned), formatNum(cost), itemInfo.Name, itemInfo.Icon)
+    local costString = string.format("%s:<font color='%s'>%s/%s</font> %s", 
+        itemInfo.Name,color, formatNum(owned), formatNum(cost),  itemInfo.Icon)
 
     -- Format akhir yang lebih bersih
-    return string.format("Level: %d/%d (+%.1f%% %s)\nCost: %s", 
+    return string.format("Level: %d/%d (+%.1f%% %s)\n%s", 
         currentLvl, mapData.MaxLevel, multiplier, mapData.StatType, costString)
 end
 
