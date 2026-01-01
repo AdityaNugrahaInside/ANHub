@@ -355,8 +355,27 @@ end
 local function SaveMapConfig(mapName, selectedItem)
     if not mapName or mapName == "" or mapName == "Unknown" then return end
     if not selectedItem then return end
-    local val = type(selectedItem) == "table" and selectedItem.Value or selectedItem
-    local title = type(selectedItem) == "table" and selectedItem.Title or selectedItem
+    local val
+    local title
+    if typeof(selectedItem) == "table" then
+        if selectedItem.Value ~= nil or selectedItem.Title ~= nil then
+            val = selectedItem.Value
+            title = selectedItem.Title
+        else
+            local first = selectedItem[1]
+            if first == nil then return end
+            if typeof(first) == "table" then
+                val = first.Value
+                title = first.Title
+            else
+                val = first
+                title = first
+            end
+        end
+    else
+        val = selectedItem
+        title = selectedItem
+    end
     if not val or val == "" or val == "None" then return end
     if (not title or title == "") and type(CurrentMapEnemiesCache) == "table" then
         for _, cached in ipairs(CurrentMapEnemiesCache) do
@@ -370,7 +389,6 @@ local function SaveMapConfig(mapName, selectedItem)
         Title = title,
         Value = val
     }
-    Config.SelectedEnemy = val
     Config.MapConfigurations[mapName] = savedEntry
     if makefolder and (not isfolder or not isfolder(FolderPath)) then
         pcall(function()
@@ -382,6 +400,75 @@ local function SaveMapConfig(mapName, selectedItem)
             writefile(FolderPath .. "/" .. MapDBFile, HttpService:JSONEncode(Config.MapConfigurations))
         end)
     end
+end
+
+local function NormalizeEnemySelection(value)
+    if value == nil then return nil end
+
+    if typeof(value) == "string" then
+        if value == "" or value == "None" then return nil end
+        return { value }
+    end
+
+    if typeof(value) ~= "table" then return nil end
+
+    if value.Value ~= nil or value.Title ~= nil then
+        local v = value.Value or value.Title
+        if v == nil or v == "" or v == "None" then return nil end
+        return { v }
+    end
+
+    local out = {}
+    for _, item in ipairs(value) do
+        local v
+        if typeof(item) == "table" then
+            v = item.Value or item.Title
+        else
+            v = item
+        end
+        if v and v ~= "" and v ~= "None" then
+            table.insert(out, v)
+        end
+    end
+    if #out == 0 then return nil end
+    return out
+end
+
+local function BuildSelectedEnemySet(selected)
+    if selected == nil then return nil end
+
+    if typeof(selected) == "string" then
+        if selected == "" or selected == "None" then return nil end
+        return { [selected] = true }
+    end
+
+    if typeof(selected) ~= "table" then return nil end
+
+    local set = {}
+    local count = 0
+
+    for _, item in ipairs(selected) do
+        local v
+        if typeof(item) == "table" then
+            v = item.Value or item.Title
+        else
+            v = item
+        end
+        if v and v ~= "" and v ~= "None" and not set[v] then
+            set[v] = true
+            count += 1
+        end
+    end
+
+    for k, v in pairs(selected) do
+        if typeof(k) == "string" and v == true and not set[k] then
+            set[k] = true
+            count += 1
+        end
+    end
+
+    if count == 0 then return nil end
+    return set
 end
 
 local function ApplySavedEnemyForMap(mapName, enemiesList)
@@ -402,10 +489,18 @@ local function ApplySavedEnemyForMap(mapName, enemiesList)
     end
     
     if foundEnemyTable then
-        Config.SelectedEnemy = foundEnemyTable.Value
+        if EnemyDropdown and EnemyDropdown.Multi then
+            Config.SelectedEnemy = { foundEnemyTable.Value }
+        else
+            Config.SelectedEnemy = foundEnemyTable.Value
+        end
         pcall(function()
             if IsWindowOpen() and EnemyDropdown and EnemyDropdown.Select then
-                EnemyDropdown:Select(foundEnemyTable) 
+                if EnemyDropdown.Multi then
+                    EnemyDropdown:Select({ foundEnemyTable })
+                else
+                    EnemyDropdown:Select(foundEnemyTable)
+                end
             end
         end)
     else
@@ -432,9 +527,9 @@ local function DeformatHealth(str)
     suffix = suffix and suffix:gsub("%s+", "") or ""
     return suffix ~= "" and SuffixMapping[suffix] and (num * SuffixMapping[suffix]) or num
 end
-local function GetClosestEnemy()
-    local targetName = Config.SelectedEnemy
-    if not targetName or not getgenv().EnemiesData or not LocalPlayer.Character then return nil, nil end
+local function GetClosestEnemy(selectedSet)
+    selectedSet = selectedSet or BuildSelectedEnemySet(Config.SelectedEnemy)
+    if not selectedSet or not getgenv().EnemiesData or not LocalPlayer.Character then return nil, nil end
 
     local closestPart = nil
     local closestID = nil -- Tambahkan ini untuk melacak ID
@@ -443,7 +538,9 @@ local function GetClosestEnemy()
     if not myRoot then return nil, nil end
 
     for id, data in pairs(getgenv().EnemiesData) do
-        local nameMatch = (data.Info and data.Info.Name == targetName or data.Name == targetName)
+        local infoName = data.Info and data.Info.Name
+        local baseName = data.Name
+        local nameMatch = (infoName and selectedSet[infoName] == true) or (baseName and selectedSet[baseName] == true)
         
         if nameMatch then
             local isAlive = false
@@ -551,18 +648,15 @@ EnemyDropdown = FarmTab:Dropdown({
     Title = "Select Enemy",
     Values = CurrentMapEnemiesCache,
     Default = 1,
-    Multi = false,
+    Multi = true,
+    AllowNone = true,
     Flag = "SelectedEnemy_Flag",
     Callback = function(Value)
-        -- Jika Value adalah tabel (hasil dari Select(foundEnemyTable))
-        local isTable = type(Value) == "table"
-        local selectedTarget = isTable and Value.Value or Value
-        Config.SelectedEnemy = selectedTarget
-        
-        if selectedTarget and selectedTarget ~= "None" then
-            if not IsLoadingMapSelection then
-                SaveMapConfig(GetCurrentMapName(), Config.SelectedEnemy)
-            end
+        local normalized = NormalizeEnemySelection(Value)
+        Config.SelectedEnemy = normalized
+
+        if normalized and not IsLoadingMapSelection then
+            SaveMapConfig(GetCurrentMapName(), normalized[1])
         end
     end
 })
@@ -626,17 +720,20 @@ local currentTargetID = nil
 -- [[ REPLACEMENT LOGIC UNTUK AUTO FARM ]] --
 task.spawn(function()
     while not Window.Destroyed do 
-        if Config.AutoFarm and Config.SelectedEnemy then
+        local selectedSet = BuildSelectedEnemySet(Config.SelectedEnemy)
+        if Config.AutoFarm and selectedSet then
             local isTargetValid = false
             local targetPart = nil
             
             -- 1. Validasi Target Saat Ini
             if currentTargetID and getgenv().EnemiesData[currentTargetID] then
                 local data = getgenv().EnemiesData[currentTargetID]
-                local enemyName = data.Info and data.Info.Name or data.Name
+                local infoName = data.Info and data.Info.Name
+                local baseName = data.Name
                 
                 -- Syarat Valid: ID ada, HP > 0, Nama sesuai, dan Model ada
-                if data.Object and data.Object:GetAttribute("Health") > 0 and enemyName == Config.SelectedEnemy then
+                local nameOk = (infoName and selectedSet[infoName] == true) or (baseName and selectedSet[baseName] == true)
+                if data.Object and data.Object:GetAttribute("Health") > 0 and nameOk then
                     if data.Model and data.Model:FindFirstChild("HumanoidRootPart") then
                         isTargetValid = true
                         targetPart = data.Model.HumanoidRootPart
@@ -655,7 +752,7 @@ task.spawn(function()
                 end
             -- 3. Jika Target Tidak Valid (Mati/Hilang), Cari Target Baru
             else
-                local newTargetPart, newTargetID = GetClosestEnemy()
+                local newTargetPart, newTargetID = GetClosestEnemy(selectedSet)
                 
                 if newTargetPart and newTargetID then
                     currentTargetID = newTargetID 
@@ -693,7 +790,6 @@ task.spawn(function()
 
             LoadMapDB()
             ApplySavedEnemyForMap(currentMap, newList)
-            currentTargetID = Config.SelectedEnemy
         end
 
         if IsWindowOpen() and currentMap and currentMap ~= "Unknown" and currentMap ~= lastUISyncedMap then
@@ -709,7 +805,6 @@ task.spawn(function()
             end)
 
             ApplySavedEnemyForMap(currentMap, CurrentMapEnemiesCache)
-            currentTargetID = Config.SelectedEnemy
         end
         task.wait(1)
     end
