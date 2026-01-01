@@ -5565,6 +5565,7 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
         end
     end
 end
+
 function Optimizer.Update_RarityPower_Logic(pData)
     if not pData.RarityPowers or not Reliable then return end
 
@@ -5583,71 +5584,80 @@ function Optimizer.Update_RarityPower_Logic(pData)
 
     for powerName, toggle in pairs(RarityPowerUI) do
         local powerConfig = RarityPowerConfig.List[powerName]
-        if not powerConfig then continue end
-
         local totalLevel = pData.RarityPowers[powerName] or 0
         
-        -- Gunakan logika dari decompile: GetRarityFromLevel
-        -- v1 = RarityIndex, v2 = CurrentLevelInRarity, v3 = MaxLevelInRarity
+        -- Mengambil Rarity, Level di Rarity tersebut, dan Max Level Rarity tersebut
         local rIdx, curLvl, maxLvl = RarityPowerConfig.GetRarityFromLevel(powerName, totalLevel)
         local rarityData = powerConfig.List[rIdx]
         
-        if not rarityData then continue end
-
-        -- Logika Penentuan Upgrade vs Evolve
-        local isMaxRarity = (rIdx == #powerConfig.List)
-        local isLevelMax = (curLvl >= maxLvl)
-        local isEvolve = isLevelMax and not isMaxRarity
-        
-        -- Ambil Cost
-        local cost = 0
-        if isEvolve then
-            cost = RarityPowerConfig.GetEvolveCost(powerName, rIdx)
-        else
-            cost = RarityPowerConfig.GetLevelUpCost(curLvl + 1)
-        end
-
-        -- Update UI Text
-        if not Window.Closed then
-            local status = isEvolve and "<font color='#aa00ff'>EVOLVE</font>" or "<font color='#00ffa4'>UPGRADE</font>"
-            if isMaxRarity and isLevelMax then status = "<font color='#ff2b2b'>MAX</font>" end
+        if rarityData then
+            local isMaxRarity = (rIdx == #powerConfig.List)
+            local isAtMaxLevel = (curLvl >= maxLvl)
+            local canEvolve = isAtMaxLevel and not isMaxRarity
             
-            local tokenName = rarityData.TokenName or "Unknown"
-            local myToken = pData.Materials[tokenName] or 0
+            -- 1. HITUNG BONUS STAT
+            local bonusValue = RarityPowerConfig.GetBuff(totalLevel)
+            local bonusType = powerConfig.BonusType or "Power" -- Contoh: Damage, Mastery
             
-            local newDesc = string.format(
-                "Rarity: %s | %s\nLevel: %d/%d\nCost: %s / %s",
-                rarityData.Name, status, curLvl, maxLvl, UtilsModule.ToText(cost), UtilsModule.ToText(myToken)
-            )
+            -- 2. IDENTIFIKASI MATA UANG & ICON
+            local tokenKey = rarityData.TokenName
+            local materialData = MaterialsModule[tokenKey]
+            local tokenIcon = materialData and materialData.Template and GetIcon(materialData.Template) or ""
+            local tokenDisplayName = materialData and materialData.Display or tokenKey
 
-            local cacheKey = "RP_" .. powerName
-            if Optimizer.Cache[cacheKey] ~= newDesc then
-                toggle:SetDesc(newDesc)
-                
-                -- Update Gradient Warna berdasarkan Rarity
-                if toggle.SetMainImage then
-                    toggle:SetMainImage({
-                        Image = GetIcon(powerConfig.Template),
-                        Quantity = rarityData.Name,
-                        Title = powerName,
-                        Gradient = GetGameGradient(rarityData.Name)
-                    }, 60)
-                end
-                Optimizer.Cache[cacheKey] = newDesc
+            -- 3. HITUNG BIAYA
+            local cost = 0
+            local actionName = "Upgrade"
+            if canEvolve then
+                cost = RarityPowerConfig.GetEvolveCost(powerName, rIdx)
+                actionName = "Evolve"
+            else
+                cost = RarityPowerConfig.GetLevelUpCost(curLvl + 1)
             end
-        end
 
-        -- Logika Auto Upgrade
-        if Config["AutoRarityPower_" .. powerName] and not (isMaxRarity and isLevelMax) then
-            local tokenName = rarityData.TokenName
-            local myToken = pData.Materials[tokenName] or 0
-            
-            if myToken >= (cost or 0) then
-                -- Gunakan Remote sesuai decompile: shared.Reply.To("Upgrade Rarity Power", p_u_6)
-                pcall(function()
-                    Reliable:FireServer("Upgrade Rarity Power", { powerName })
-                end)
-                task.wait(0.5) -- Delay prevent spam
+            -- 4. UPDATE VISUAL UI
+            if not Window.Closed then
+                local myTokenAmount = pData.Materials[tokenKey] or 0
+                local statusColor = canEvolve and "#aa00ff" or "#07ffa4"
+                
+                -- Format Deskripsi: Bonus Stat + Status + Biaya dengan Icon
+                local newDesc = string.format(
+                    "Bonus %s: <font color='#f1c40f'>+%s%%</font>\n" ..
+                    "Status: <font color='%s'><b>%s</b></font> (%s)\n" ..
+                    "Level: %d/%d\n" ..
+                    "Cost: %s/%s %s",
+                    bonusType, UtilsModule.ToText(bonusValue),
+                    statusColor, actionName, rarityData.Name,
+                    curLvl, maxLvl, UtilsModule.ToText(cost), UtilsModule.ToText(myTokenAmount),
+                    tokenIcon
+                )
+
+                if Optimizer.Cache["RP_"..powerName] ~= newDesc then
+                    toggle:SetDesc(newDesc)
+                    
+                    -- Update Gambar Utama Toggle sesuai Rarity
+                    if toggle.SetMainImage then
+                        toggle:SetMainImage({
+                            Image = GetIcon(powerConfig.Template),
+                            Quantity = rarityData.Name,
+                            Title = powerName,
+                            Gradient = GetGameGradient(rarityData.Name)
+                        }, 60)
+                    end
+                    Optimizer.Cache["RP_"..powerName] = newDesc
+                end
+            end
+
+            -- 5. EKSEKUSI OTOMATIS
+            if Config["AutoRarityPower_" .. powerName] and not (isMaxRarity and isAtMaxLevel) then
+                local myToken = pData.Materials[tokenKey] or 0
+                if myToken >= (cost or 0) then
+                    pcall(function()
+                        -- Remote sesuai decompile
+                        Reliable:FireServer("Upgrade Rarity Power", { powerName })
+                    end)
+                    task.wait(0.5)
+                end
             end
         end
     end
