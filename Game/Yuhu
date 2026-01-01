@@ -390,36 +390,68 @@ function LoadZoneDB()
     end
 end
 
-function SaveZoneConfig(zone, selectedItem)
-    if not zone or zone == "" or zone == "Unknown" then return end
-    if not selectedItem then return end
-    
-    local val = type(selectedItem) == "table" and selectedItem.Value or selectedItem
-    local title = type(selectedItem) == "table" and selectedItem.Title or selectedItem
-    
-    if not val or val == "" then return end
-    
-    local savedEntry = {}
-    local foundObj = nil
-    for _, cached in ipairs(CurrentZoneEnemiesCache) do
-        if cached.Value == val then
-            foundObj = cached
-            break
+function NormalizeEnemySelection(selection)
+    if selection == nil then return nil end
+    local results = {}
+    local seen = {}
+    local function add(v)
+        if v == nil then return end
+        v = tostring(v)
+        if v == "" then return end
+        if seen[v] then return end
+        seen[v] = true
+        table.insert(results, v)
+    end
+    if type(selection) == "table" then
+        if selection.Value ~= nil or selection.Title ~= nil then
+            add(selection.Value or selection.Title)
+        else
+            for _, item in ipairs(selection) do
+                if type(item) == "table" then
+                    add(item.Value or item.Title)
+                else
+                    add(item)
+                end
+            end
+        end
+    else
+        add(selection)
+    end
+    if #results == 0 then return nil end
+    return results
+end
+
+function EnemySelectionHas(list, value)
+    if not list or not value then return false end
+    for _, v in ipairs(list) do
+        if v == value then return true end
+    end
+    return false
+end
+
+function BuildEnemyDropdownSelection(valuesList, options)
+    if not valuesList or not options then return nil end
+    local selectedSet = {}
+    for _, v in ipairs(valuesList) do
+        selectedSet[v] = true
+    end
+    local selectedItems = {}
+    for _, opt in ipairs(options) do
+        if type(opt) == "table" and selectedSet[opt.Value] then
+            table.insert(selectedItems, opt)
         end
     end
-    
-    if foundObj then
-        savedEntry = foundObj
-    else
-        savedEntry = {
-            Title = title,
-            Value = val,
-            Desc = "Saved"
-        }
-    end
-    
-    Config.SelectedEnemy = val
-    Config.ZoneConfigurations[zone] = savedEntry
+    if #selectedItems == 0 then return nil end
+    return selectedItems
+end
+
+function SaveZoneConfig(zone, selectedItem)
+    if not zone or zone == "" or zone == "Unknown" then return end
+    local valuesList = NormalizeEnemySelection(selectedItem)
+    if not valuesList then return end
+
+    Config.SelectedEnemy = valuesList
+    Config.ZoneConfigurations[zone] = { Values = valuesList }
 
     if not isfolder(FolderPath) then
         makefolder(FolderPath)
@@ -892,8 +924,16 @@ function LogicAutoFarm()
     while Config.AutoFarm do
         if Window.Destroyed then break end
 
-        if currentTargetObj and currentTargetObj.Config and currentTargetObj.Config.Display ~= Config.SelectedEnemy then
-            if not MegaBossState.IsActive then
+        if currentTargetObj and currentTargetObj.Config and not MegaBossState.IsActive then
+            local selected = Config.SelectedEnemy
+            local currentName = currentTargetObj.Config.Display
+            local keep = false
+            if type(selected) == "table" then
+                keep = EnemySelectionHas(selected, currentName)
+            else
+                keep = (selected == currentName)
+            end
+            if not keep then
                 currentTargetObj = nil
             end
         end
@@ -979,13 +1019,21 @@ function LogicAutoFarm()
             local liveData = getgenv().EnemiesData
             
             if targetName and liveData then
+                local selectedSet = {}
+                if type(targetName) == "table" then
+                    for _, name in ipairs(targetName) do
+                        selectedSet[name] = true
+                    end
+                else
+                    selectedSet[targetName] = true
+                end
                 local minDistance = math.huge
                 local myPos = hrp.Position
                 local potentialTarget = nil
                 
                 for uid, enemyObj in pairs(liveData) do
                     if enemyObj.Alive and enemyObj.Data and enemyObj.Config then
-                        if enemyObj.Config.Display == targetName and (enemyObj.Data.Class == "Islands" or enemyObj.Data.Class == "MegaBoss") then
+                        if selectedSet[enemyObj.Config.Display] and (enemyObj.Data.Class == "Islands" or enemyObj.Data.Class == "MegaBoss") then
                             local hp = enemyObj.Data.Health or 0
                             
                             if hp > 0 and enemyObj.Root then
@@ -1339,8 +1387,9 @@ FarmTab:Space({Columns=1})
 
 EnemyDropdown = FarmTab:Dropdown({
     Title = "Select Enemy",
-    Multi = false,
+    Multi = true,
     Values = {},
+    AllowNone = true,
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Flag = "TargetEnemies_Cfg",
@@ -1348,7 +1397,11 @@ EnemyDropdown = FarmTab:Dropdown({
         if IsLoadingConfig then
             return;
         end;
-        SaveZoneConfig(CurrentZoneName, selectedItem);
+        local normalized = NormalizeEnemySelection(selectedItem)
+        Config.SelectedEnemy = normalized
+        if normalized then
+            SaveZoneConfig(CurrentZoneName, normalized);
+        end
     end
 });
 FM_Add("Farm", EnemyDropdown);
@@ -3772,17 +3825,21 @@ if Reliable then
                 CurrentZoneEnemiesCache = freshEnemies;
                 local savedEntry = Config.ZoneConfigurations[targetZoneName];
                 if savedEntry then
-                    for _, enemy in ipairs(freshEnemies) do
-                        if enemy.Value == savedEntry.Value then
-                            Config.SelectedEnemy = enemy.Value;
-                            if EnemyDropdown and EnemyDropdown.Set then
-                                pcall(function() EnemyDropdown:Set(enemy); end); 
-                            elseif EnemyDropdown and EnemyDropdown.Select then
-                                pcall(function() EnemyDropdown:Select(enemy.Value); end);
-                            end;
-                            break;
-                        end;
-                    end;
+                    local valuesList = nil
+                    if type(savedEntry) == "table" then
+                        if type(savedEntry.Values) == "table" then
+                            valuesList = savedEntry.Values
+                        elseif savedEntry.Value then
+                            valuesList = { savedEntry.Value }
+                        end
+                    end
+                    if valuesList then
+                        Config.SelectedEnemy = valuesList
+                        local selectedItems = BuildEnemyDropdownSelection(valuesList, freshEnemies)
+                        if EnemyDropdown and EnemyDropdown.Select then
+                            pcall(function() EnemyDropdown:Select(selectedItems) end)
+                        end
+                    end
                 end;
                 IsLoadingConfig = false;
                 IsTeleporting = false;
@@ -3931,15 +3988,20 @@ task.spawn(function()
                     task.wait(0.2)
                     local savedEntry = Config.ZoneConfigurations[detectedZone]
                     if savedEntry then
-                        for _, currentMob in ipairs(freshEnemies) do
-                            if currentMob.Value == savedEntry.Value then
-                                Config.SelectedEnemy = currentMob.Value
-                                pcall(function()
-                                    if EnemyDropdown.Set then EnemyDropdown:Set(currentMob)
-                                    elseif EnemyDropdown.Select then EnemyDropdown:Select(currentMob.Value) end
-                                end)
-                                break
+                        local valuesList = nil
+                        if type(savedEntry) == "table" then
+                            if type(savedEntry.Values) == "table" then
+                                valuesList = savedEntry.Values
+                            elseif savedEntry.Value then
+                                valuesList = { savedEntry.Value }
                             end
+                        end
+                        if valuesList then
+                            Config.SelectedEnemy = valuesList
+                            local selectedItems = BuildEnemyDropdownSelection(valuesList, freshEnemies)
+                            pcall(function()
+                                if EnemyDropdown.Select then EnemyDropdown:Select(selectedItems) end
+                            end)
                         end
                     end
                     
@@ -5417,11 +5479,19 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
                         end
                     end
                 elseif currentMap == questData.Zone then
-                    if Config.SelectedEnemy ~= displayTargetName then
-                        Config.SelectedEnemy = displayTargetName
+                    local selected = Config.SelectedEnemy
+                    local needsChange = true
+                    if type(selected) == "table" then
+                        needsChange = (#selected ~= 1) or (selected[1] ~= displayTargetName)
+                    else
+                        needsChange = (selected ~= displayTargetName)
+                    end
+                    if needsChange then
+                        Config.SelectedEnemy = { displayTargetName }
                         Config.AutoFarm = true 
-                        if EnemyDropdown and EnemyDropdown.Set then
-                            pcall(function() EnemyDropdown:Set({Title=displayTargetName, Value=displayTargetName}) end)
+                        local selectedItems = BuildEnemyDropdownSelection({ displayTargetName }, CurrentZoneEnemiesCache)
+                        if EnemyDropdown and EnemyDropdown.Select then
+                            pcall(function() EnemyDropdown:Select(selectedItems) end)
                         end
                     end
                     hasActionTaken = true 
@@ -5459,80 +5529,71 @@ function Optimizer.Update_RarityPower_Logic(pData)
 
     for powerName, toggle in pairs(RarityPowerUI) do
         local powerConfig = RarityPowerConfig.List[powerName]
+        if not powerConfig then continue end
+
         local totalLevel = pData.RarityPowers[powerName] or 0
         
-        -- Mengambil Rarity, Level di Rarity tersebut, dan Max Level Rarity tersebut
+        -- Gunakan logika dari decompile: GetRarityFromLevel
+        -- v1 = RarityIndex, v2 = CurrentLevelInRarity, v3 = MaxLevelInRarity
         local rIdx, curLvl, maxLvl = RarityPowerConfig.GetRarityFromLevel(powerName, totalLevel)
         local rarityData = powerConfig.List[rIdx]
         
-        if rarityData then
-            local isMaxRarity = (rIdx == #powerConfig.List)
-            local isAtMaxLevel = (curLvl >= maxLvl)
-            local canEvolve = isAtMaxLevel and not isMaxRarity
-            
-            -- 1. HITUNG BONUS STAT
-            local bonusValue = RarityPowerConfig.GetBuff(totalLevel)
-            local bonusType = powerConfig.BonusType or "Power" -- Contoh: Damage, Mastery
-            
-            -- 2. IDENTIFIKASI MATA UANG & ICON
-            local tokenKey = rarityData.TokenName
-            local materialData = MaterialsModule[tokenKey]
-            local tokenIcon = materialData and materialData.Template and GetIcon(materialData.Template) or ""
-            local tokenDisplayName = materialData and materialData.Display or tokenKey
+        if not rarityData then continue end
 
-            -- 3. HITUNG BIAYA
-            local cost = 0
-            local actionName = "Upgrade"
-            if canEvolve then
-                cost = RarityPowerConfig.GetEvolveCost(powerName, rIdx)
-                actionName = "Evolve"
-            else
-                cost = RarityPowerConfig.GetLevelUpCost(curLvl + 1)
-            end
+        -- Logika Penentuan Upgrade vs Evolve
+        local isMaxRarity = (rIdx == #powerConfig.List)
+        local isLevelMax = (curLvl >= maxLvl)
+        local isEvolve = isLevelMax and not isMaxRarity
+        
+        -- Ambil Cost
+        local cost = 0
+        if isEvolve then
+            cost = RarityPowerConfig.GetEvolveCost(powerName, rIdx)
+        else
+            cost = RarityPowerConfig.GetLevelUpCost(curLvl + 1)
+        end
 
-            -- 4. UPDATE VISUAL UI
-            if not Window.Closed then
-                local myTokenAmount = pData.Materials[tokenKey] or 0
-                local statusColor = canEvolve and "#aa00ff" or "#07ffa4"
+        -- Update UI Text
+        if not Window.Closed then
+            local status = isEvolve and "<font color='#aa00ff'>EVOLVE</font>" or "<font color='#00ffa4'>UPGRADE</font>"
+            if isMaxRarity and isLevelMax then status = "<font color='#ff2b2b'>MAX</font>" end
+            
+            local tokenName = rarityData.TokenName or "Unknown"
+            local myToken = pData.Materials[tokenName] or 0
+            
+            local newDesc = string.format(
+                "Rarity: %s | %s\nLevel: %d/%d\nCost: %s / %s",
+                rarityData.Name, status, curLvl, maxLvl, UtilsModule.ToText(cost), UtilsModule.ToText(myToken)
+            )
+
+            local cacheKey = "RP_" .. powerName
+            if Optimizer.Cache[cacheKey] ~= newDesc then
+                toggle:SetDesc(newDesc)
                 
-                -- Format Deskripsi: Bonus Stat + Status + Biaya dengan Icon
-                local newDesc = string.format(
-                    "Bonus %s: <font color='#f1c40f'>+%s%%</font>\n" ..
-                    "Status: <font color='%s'><b>%s</b></font> (%s)\n" ..
-                    "Level: %d/%d\n" ..
-                    "Cost: %s/%s %s",
-                    bonusType, UtilsModule.ToText(bonusValue),
-                    statusColor, actionName, rarityData.Name,
-                    curLvl, maxLvl, UtilsModule.ToText(cost), UtilsModule.ToText(myTokenAmount),
-                    tokenIcon
-                )
-
-                if Optimizer.Cache["RP_"..powerName] ~= newDesc then
-                    toggle:SetDesc(newDesc)
-                    
-                    -- Update Gambar Utama Toggle sesuai Rarity
-                    if toggle.SetMainImage then
-                        toggle:SetMainImage({
-                            Image = GetIcon(powerConfig.Template),
-                            Quantity = rarityData.Name,
-                            Title = powerName,
-                            Gradient = GetGameGradient(rarityData.Name)
-                        }, 60)
-                    end
-                    Optimizer.Cache["RP_"..powerName] = newDesc
+                -- Update Gradient Warna berdasarkan Rarity
+                if toggle.SetMainImage then
+                    toggle:SetMainImage({
+                        Image = GetIcon(powerConfig.Template),
+                        Quantity = rarityData.Name,
+                        Title = powerName,
+                        Gradient = GetGameGradient(rarityData.Name)
+                    }, 60)
                 end
+                Optimizer.Cache[cacheKey] = newDesc
             end
+        end
 
-            -- 5. EKSEKUSI OTOMATIS
-            if Config["AutoRarityPower_" .. powerName] and not (isMaxRarity and isAtMaxLevel) then
-                local myToken = pData.Materials[tokenKey] or 0
-                if myToken >= (cost or 0) then
-                    pcall(function()
-                        -- Remote sesuai decompile
-                        Reliable:FireServer("Upgrade Rarity Power", { powerName })
-                    end)
-                    task.wait(0.5)
-                end
+        -- Logika Auto Upgrade
+        if Config["AutoRarityPower_" .. powerName] and not (isMaxRarity and isLevelMax) then
+            local tokenName = rarityData.TokenName
+            local myToken = pData.Materials[tokenName] or 0
+            
+            if myToken >= (cost or 0) then
+                -- Gunakan Remote sesuai decompile: shared.Reply.To("Upgrade Rarity Power", p_u_6)
+                pcall(function()
+                    Reliable:FireServer("Upgrade Rarity Power", { powerName })
+                end)
+                task.wait(0.5) -- Delay prevent spam
             end
         end
     end
