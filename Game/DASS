@@ -1405,6 +1405,50 @@ EnemyDropdown = FarmTab:Dropdown({
     end
 });
 FM_Add("Farm", EnemyDropdown);
+
+EnemyDropdownNeedsRefresh = true
+function EnemyDropdown_SetPendingValues(values)
+    CurrentZoneEnemiesCache = values or {}
+    if EnemyDropdown then
+        EnemyDropdown.Values = CurrentZoneEnemiesCache
+    end
+    EnemyDropdownNeedsRefresh = true
+end
+
+function EnemyDropdown_SetValueOnlyFromConfig()
+    if not EnemyDropdown then return end
+    local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
+    local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
+    EnemyDropdown.Value = selectedItems
+    if EnemyDropdown.Display then
+        pcall(function() EnemyDropdown.Display() end)
+    end
+end
+
+function EnemyDropdown_ApplyPendingRefresh()
+    if not EnemyDropdownNeedsRefresh then return end
+    if not EnemyDropdown then return end
+    local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
+    local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
+    EnemyDropdown.Value = selectedItems
+    if EnemyDropdown.Refresh then
+        EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
+    end
+    EnemyDropdownNeedsRefresh = false
+end
+
+do
+    local oldOpen = EnemyDropdown and EnemyDropdown.Open
+    if oldOpen then
+        EnemyDropdown.Open = function(...)
+            if not EnemyDropdown.Opened then
+                pcall(EnemyDropdown_ApplyPendingRefresh)
+            end
+            return oldOpen(...)
+        end
+    end
+end
+
 RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
@@ -3817,12 +3861,19 @@ if Reliable then
             IsLoadingConfig = true;
             CurrentZoneName = targetZoneName;
             Config.SelectedEnemy = nil;
-            if EnemyDropdown and EnemyDropdown.Select then
-                pcall(function() EnemyDropdown:Select(nil); end);
-            end;
+            if EnemyDropdown then
+                EnemyDropdown.Value = {}
+                if EnemyDropdown.Display then
+                    pcall(function() EnemyDropdown.Display() end)
+                end
+            end
+            EnemyDropdownNeedsRefresh = true
             task.spawn(function()
                 local freshEnemies = RefreshEnemyData();
-                CurrentZoneEnemiesCache = freshEnemies;
+                EnemyDropdown_SetPendingValues(freshEnemies)
+                pcall(function()
+                    if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+                end)
                 local savedEntry = Config.ZoneConfigurations[targetZoneName];
                 if savedEntry then
                     local valuesList = nil
@@ -3835,12 +3886,9 @@ if Reliable then
                     end
                     if valuesList then
                         Config.SelectedEnemy = valuesList
-                        local selectedItems = BuildEnemyDropdownSelection(valuesList, freshEnemies)
-                        if EnemyDropdown and EnemyDropdown.Select then
-                            pcall(function() EnemyDropdown:Select(selectedItems) end)
-                        end
                     end
                 end;
+                EnemyDropdown_SetValueOnlyFromConfig()
                 IsLoadingConfig = false;
                 IsTeleporting = false;
             end);
@@ -3959,6 +4007,13 @@ task.spawn(function()
                 prevZone = detectedZone
                 CurrentZoneName = detectedZone
                 Config.SelectedEnemy = nil
+                if EnemyDropdown then
+                    EnemyDropdown.Value = {}
+                    if EnemyDropdown.Display then
+                        pcall(function() EnemyDropdown.Display() end)
+                    end
+                end
+                EnemyDropdownNeedsRefresh = true
                 
                 -- Reset dropdown sementara (Visual feedback)
                 if EnemyDropdown and EnemyDropdown.SetTitle then
@@ -3971,16 +4026,13 @@ task.spawn(function()
                 task.spawn(function()
                     -- Proses ini sekarang aman karena sudah ada "task.wait" di dalam RefreshEnemyData
                     local freshEnemies = RefreshEnemyData()
-                    CurrentZoneEnemiesCache = freshEnemies
+                    EnemyDropdown_SetPendingValues(freshEnemies)
                     
                     -- Update Dropdown UI
                     pcall(function()
                         if EnemyDropdown then
                             -- Kembalikan Judul
                             if EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
-                            
-                            -- Refresh Isi
-                            if EnemyDropdown.Refresh then EnemyDropdown:Refresh(freshEnemies) end
                         end
                     end)
                     
@@ -3998,12 +4050,9 @@ task.spawn(function()
                         end
                         if valuesList then
                             Config.SelectedEnemy = valuesList
-                            local selectedItems = BuildEnemyDropdownSelection(valuesList, freshEnemies)
-                            pcall(function()
-                                if EnemyDropdown.Select then EnemyDropdown:Select(selectedItems) end
-                            end)
                         end
                     end
+                    EnemyDropdown_SetValueOnlyFromConfig()
                     
                     IsLoadingConfig = false
                 end)
@@ -5489,10 +5538,8 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
                     if needsChange then
                         Config.SelectedEnemy = { displayTargetName }
                         Config.AutoFarm = true 
-                        local selectedItems = BuildEnemyDropdownSelection({ displayTargetName }, CurrentZoneEnemiesCache)
-                        if EnemyDropdown and EnemyDropdown.Select then
-                            pcall(function() EnemyDropdown:Select(selectedItems) end)
-                        end
+                        EnemyDropdown_SetValueOnlyFromConfig()
+                        EnemyDropdownNeedsRefresh = true
                     end
                     hasActionTaken = true 
                 end
