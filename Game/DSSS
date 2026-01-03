@@ -1754,7 +1754,7 @@ function LogicGamemodes()
                     end
                 end
 
-                if actionTaken then task.wait() else task.wait() end
+                if actionTaken then task.wait(2) else task.wait() end
             end;
         else
             task.wait();
