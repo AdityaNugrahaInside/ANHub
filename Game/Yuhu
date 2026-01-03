@@ -3879,7 +3879,15 @@ CurseFilterDrop = FarmTab:Dropdown({
     AllowNone = true,
     Flag = "TargetCurses_Cfg",
     Callback = function(val)
-        Config.TargetCursesFilter = val 
+        -- Simpan hanya nilai 'Value' saja ke dalam tabel Config
+        local targets = {}
+        if type(val) == "table" then
+            for _, item in pairs(val) do
+                local id = type(item) == "table" and item.Value or item
+                if id then table.insert(targets, tonumber(id)) end
+            end
+        end
+        Config.TargetCursesFilter = targets 
     end
 })
 FM_Add("Avatar Curses", CurseFilterDrop)
@@ -5951,28 +5959,44 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
             Optimizer.Cache.LastCurseToggleDesc = toggleDesc
         end
     end
-
-    -- [4] EKSEKUSI AUTO ROLL
+    -- [4] EKSEKUSI AUTO ROLL (REVISED)
     if Config.AutoRollCurse and isAvatarActive then
         local isTargetReached = false
+        local currentCurseIdx = tonumber(curseIndex) -- Index kutukan saat ini dari server
+        
+        -- Validasi filter target
         if Config.TargetCursesFilter and #Config.TargetCursesFilter > 0 then
-            for _, target in ipairs(Config.TargetCursesFilter) do
-                local targetIdx = type(target) == "table" and target.Value or target
-                if tonumber(curseIndex) == tonumber(targetIdx) then
+            for _, targetVal in pairs(Config.TargetCursesFilter) do
+                -- Pastikan targetVal dikonversi ke number untuk perbandingan murni
+                local targetIdx = tonumber(type(targetVal) == "table" and targetVal.Value or targetVal)
+                
+                if currentCurseIdx == targetIdx then
                     isTargetReached = true
                     break
                 end
             end
         end
 
-        if not isTargetReached then
+        -- Jika target ditemukan, matikan rolling
+        if isTargetReached then
+            if Config.AutoRollCurse then
+                Config.AutoRollCurse = false
+                if CurseAutoToggle then CurseAutoToggle:Set(false) end
+                Notify("Avatar Curse", "Target reached! Auto roll stopped.", "check")
+            end
+        else
+            -- Jika belum mencapai target, lakukan rolling
             local multi = pData.Gamepasses.Vip and 0.8 or 1
             local cost = AvatarCursesConfig.TokenCost * multi
             local owned = pData.Materials[AvatarCursesConfig.TokenName] or 0
             
             if owned >= cost and Reliable then
                 Reliable:FireServer("Avatar Curse Roll")
-                task.wait(1.5)
+                task.wait(1.5) -- Jeda agar sinkron dengan animasi server
+            elseif owned < cost then
+                Config.AutoRollCurse = false
+                if CurseAutoToggle then CurseAutoToggle:Set(false) end
+                Notify("Avatar Curse", "Insufficient tokens to continue.", "alert-triangle")
             end
         end
     end
