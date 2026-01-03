@@ -3847,18 +3847,22 @@ for i, v in ipairs(AvatarCursesConfig.Table) do
     local buffs = {}
     local debuffs = {}
 
-    -- Ambil data Buff (Hijau)
     for stat, val in pairs(v.Buff) do
-        table.insert(buffs, "+" .. val .. "% " .. stat)
+        table.insert(buffs, string.format("<font color='rgb(165, 255, 149)'>+%s%% %s</font>", tostring(val), tostring(stat)))
     end
     
-    -- Ambil data Debuff (Merah)
     for stat, val in pairs(v.Debuff) do
-        table.insert(debuffs, "-" .. val .. "% " .. stat)
+        table.insert(debuffs, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), tostring(stat)))
     end
 
-    -- Gabungkan menjadi string deskripsi
-    local detailDesc = table.concat(buffs, ", ") .. " | " .. table.concat(debuffs, ", ")
+    local descParts = {}
+    if #buffs > 0 then
+        table.insert(descParts, "<b>Buff:</b> " .. table.concat(buffs, ", "))
+    end
+    if #debuffs > 0 then
+        table.insert(descParts, "<b>Debuff:</b> " .. table.concat(debuffs, ", "))
+    end
+    local detailDesc = #descParts > 0 and table.concat(descParts, "\n") or "No effects."
 
     table.insert(curseOptions, {
         Title = string.format("%s (%s)", v.Display, v.Rarity),
@@ -3889,6 +3893,13 @@ CurseAutoToggle = FarmTab:Toggle({
     end
 })
 FM_Add("Avatar Curses", CurseAutoToggle)
+
+if not IsPremium then
+    Config.AutoRollCurse = false
+    pcall(function() CurseAutoToggle:Set(false) end)
+    pcall(function() CurseAutoToggle:Lock("Need Premium User") end)
+    pcall(function() CurseFilterDrop:Lock("Need Premium User") end)
+end
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -4370,7 +4381,7 @@ function Optimizer.Update_Ascension_Logic(pData)
     local maxAscensionLimit = LevelUpModule.MAX_ASCENSION or #LevelUpModule.AscensionXpBoost
 
     -- 1. SISTEM CACHE UI
-    if not Window.Closed and AscUI and AscUI.Status then
+    if AscUI and AscUI.Status then
         local currentExpBonus = LevelUpModule.GetExpWithBonus(10, pData)
         local expMultiplier = currentExpBonus / 10
         local pct = math.clamp(currentLevel / maxLevel, 0, 1)
@@ -4431,7 +4442,7 @@ end
 
 function Optimizer.Update_Enchantments_Logic(pData)
     -- Update Visual UI Saja
-    if EnchUI.MasterToggle and not Window.Closed then
+    if EnchUI.MasterToggle then
         if pData.Materials and pData.Attributes and pData.Weapons then
             
             -- [1] DATA WEAPON & TOKEN
@@ -4756,7 +4767,7 @@ function Optimizer.Update_Roll_Logic(pData)
             or (lastState.ItemName ~= currentItemName)
             or (lastState.PendingMainImage ~= nil)
 
-        if not Window.Closed and toggle.SetMainImage then
+        if toggle.SetMainImage then
             if needsMainImageUpdate then
                 pcall(function()
                     local rarityLabel = currentRarity or "Common"
@@ -5059,7 +5070,7 @@ function Optimizer.Update_Avatar_Logic(pData)
         end
 
         -- Update ke UI (Hanya jika teks berubah untuk optimasi)
-        if not Window.Closed and AvatarStatusPara then
+        if AvatarStatusPara then
             if Optimizer.Cache.LastAvatarTitle ~= newTitle then
                 AvatarStatusPara:SetTitle(newTitle)
                 Optimizer.Cache.LastAvatarTitle = newTitle
@@ -5238,33 +5249,31 @@ function Optimizer.Update_Heroes_Logic(pData)
         end
         
         -- [A] UPDATE VISUAL TEKS
-        if not Window.Closed then
-            local lines = ""
-            for _, sName in ipairs(ValidStatsList) do
-                local sIdx = hStats[sName] or 1
-                local sColor = GetModularColor(sIdx)
-                local sRankName = RarityIndexMap[sIdx] or "?"
-                local sBuff = GetClassBuffPercentage(sName, sIdx)
-                local sLockStatus = (lStats[sName] and "🔒" or "🔓")
-                
-                lines = lines .. string.format('<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n', sColor, sRankName, sName, sBuff, sLockStatus)
-            end
+        local lines = ""
+        for _, sName in ipairs(ValidStatsList) do
+            local sIdx = hStats[sName] or 1
+            local sColor = GetModularColor(sIdx)
+            local sRankName = RarityIndexMap[sIdx] or "?"
+            local sBuff = GetClassBuffPercentage(sName, sIdx)
+            local sLockStatus = (lStats[sName] and "🔒" or "🔓")
             
-            local myShards = pData.Materials.HeroesStats or 0
-            local shardsStr = UtilsModule.ToText(myShards)
-            lines = lines .. string.format('\n<font color="#00ffff"><b>Hero Shards:</b></font> %s', shardsStr)
-            
-            local newTitle = string.format("%s [%s] - %s DMG", hName, hRarity, hDamageStr)
-            
-            if Optimizer.Cache.LastHeroTitle ~= newTitle then
-                HeroStatsInfo:SetTitle(newTitle)
-                Optimizer.Cache.LastHeroTitle = newTitle
-            end
+            lines = lines .. string.format('<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n', sColor, sRankName, sName, sBuff, sLockStatus)
+        end
+        
+        local myShards = pData.Materials.HeroesStats or 0
+        local shardsStr = UtilsModule.ToText(myShards)
+        lines = lines .. string.format('\n<font color="#00ffff"><b>Hero Shards:</b></font> %s', shardsStr)
+        
+        local newTitle = string.format("%s [%s] - %s DMG", hName, hRarity, hDamageStr)
+        
+        if Optimizer.Cache.LastHeroTitle ~= newTitle then
+            HeroStatsInfo:SetTitle(newTitle)
+            Optimizer.Cache.LastHeroTitle = newTitle
+        end
 
-            if Optimizer.Cache.LastHeroDesc ~= lines then
-                HeroStatsInfo:SetDesc(lines)
-                Optimizer.Cache.LastHeroDesc = lines
-            end
+        if Optimizer.Cache.LastHeroDesc ~= lines then
+            HeroStatsInfo:SetDesc(lines)
+            Optimizer.Cache.LastHeroDesc = lines
         end
         
         -- TAMBAHKAN BAGIAN INI --
@@ -5362,7 +5371,7 @@ function Optimizer.Update_MegaBoss_Logic(pData)
 
         -- Update Visual UI
         local toggle = MegaBossToggles[name]
-        if toggle and not Window.Closed then
+        if toggle then
             local newTitle = ""
             local newDesc = ""
             local isMaxed = currentLvl >= maxLvl
@@ -5432,8 +5441,8 @@ function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule,
             cost = upgradeModule.GetUpgradeCost(lvl, name)
         end
         
-        -- 1. UPDATE TAMPILAN UI (Hanya jika window terbuka)
-        if toggle and not Window.Closed then
+        -- 1. UPDATE TAMPILAN UI
+        if toggle then
             local newTitle = ""
             local newDesc = ""
             
@@ -5503,7 +5512,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
     local cRank, cMastery = (pData.Attributes.Rank or 0), (pData.Attributes.Mastery or 0)
     local req, cBuff, nBuff = RankModule.GetRequirement(cRank), RankModule.GetBuff(cRank), RankModule.GetBuff(cRank+1)
     
-    if RankProgressUI and not Window.Closed then
+    if RankProgressUI then
         local pct = req>0 and math.clamp(cMastery/req,0,1) or 0
         local bar = string.rep("█", math.floor(pct*10)) .. string.rep("▒", 10-math.floor(pct*10))
         local bt = (cRank>=RankModule.MAX) and ("Buff: "..UtilsModule.ToText(cBuff).."% (MAX)") or ("Buff: "..UtilsModule.ToText(cBuff).."% >> "..UtilsModule.ToText(nBuff).."%")
@@ -5725,7 +5734,7 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
     end
 
     -- [UPDATE UI UTAMA]
-    if HQ_MainStatusUI and not Window.Closed then
+    if HQ_MainStatusUI then
         local finalString = table.concat(uiReportLines, "\n")
         
         -- Cek apakah string baru BEDA dengan yang lama
@@ -5786,7 +5795,7 @@ function Optimizer.Update_RarityPower_Logic(pData)
             end
 
             -- 4. UPDATE VISUAL UI
-            if not Window.Closed then
+            if toggle then
                 local myTokenAmount = pData.Materials[tokenKey] or 0
                 local statusColor = canEvolve and "#aa00ff" or "#07ffa4"
                 
@@ -5834,6 +5843,27 @@ function Optimizer.Update_RarityPower_Logic(pData)
 end
 function Optimizer.Update_AvatarCurse_Logic(pData)
     if not pData.AvatarCurses or not pData.Attributes or not AvatarCursesConfig then return end
+
+    if not IsPremium then
+        if Config.AutoRollCurse then
+            Config.AutoRollCurse = false
+        end
+        if CurseAutoToggle then
+            pcall(function() CurseAutoToggle:Set(false) end)
+            pcall(function() CurseAutoToggle:Lock("Need Premium User") end)
+        end
+        if CurseFilterDrop then
+            pcall(function() CurseFilterDrop:Lock("Need Premium User") end)
+        end
+        return
+    else
+        if CurseAutoToggle and CurseAutoToggle.Locked then
+            pcall(function() CurseAutoToggle:Unlock() end)
+        end
+        if CurseFilterDrop and CurseFilterDrop.Locked then
+            pcall(function() CurseFilterDrop:Unlock() end)
+        end
+    end
     
     local currentAvatar = pData.Attributes.Avatar
     local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
@@ -5897,7 +5927,7 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     end
 
     -- [3] UPDATE DESKRIPSI TOGGLE (INFO MATERIAL & BIAYA)
-    if not Window.Closed and CurseAutoToggle then
+    if CurseAutoToggle then
         local tokenKey = AvatarCursesConfig.TokenName
         local matInfo = MaterialsModule[tokenKey]
         
