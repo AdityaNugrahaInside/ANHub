@@ -5851,27 +5851,6 @@ function Optimizer.Update_RarityPower_Logic(pData)
 end
 function Optimizer.Update_AvatarCurse_Logic(pData)
     if not pData.AvatarCurses or not pData.Attributes or not AvatarCursesConfig then return end
-
-    if not IsPremium then
-        if Config.AutoRollCurse then
-            Config.AutoRollCurse = false
-        end
-        if CurseAutoToggle then
-            pcall(function() CurseAutoToggle:Set(false) end)
-            pcall(function() CurseAutoToggle:Lock("Need Premium User") end)
-        end
-        if CurseFilterDrop then
-            pcall(function() CurseFilterDrop:Lock("Need Premium User") end)
-        end
-        return
-    else
-        if CurseAutoToggle and CurseAutoToggle.Locked then
-            pcall(function() CurseAutoToggle:Unlock() end)
-        end
-        if CurseFilterDrop and CurseFilterDrop.Locked then
-            pcall(function() CurseFilterDrop:Unlock() end)
-        end
-    end
     
     local currentAvatar = pData.Attributes.Avatar
     local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
@@ -5903,26 +5882,39 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     end
 
     -- [2] UPDATE TEKS STATUS KUTUKAN (PARAGRAPH)
-    local curseIndex = pData.AvatarCurses[currentAvatar]
+    -- Ambil indeks kutukan dan pastikan dikonversi ke Number agar valid saat mencari di Table
+    local curseRawIndex = pData.AvatarCurses[currentAvatar]
+    local curseIndex = tonumber(curseRawIndex) or 0
     local curseData = AvatarCursesConfig.Table[curseIndex]
+    
     local rarity = curseData and curseData.Rarity or "Common"
     local curseTitle = curseData and curseData.Display or "No Curse"
     
     local statusLines = {}
     if curseData then
-        for stat, val in pairs(curseData.Buff) do
-            table.insert(statusLines, string.format("<font color='rgb(165, 255, 149)'>+%s%% %s</font>", tostring(val), stat))
+        -- Buffs (Hijau: RGB 165, 255, 149)
+        if curseData.Buff then
+            for stat, val in pairs(curseData.Buff) do
+                table.insert(statusLines, string.format("<font color='rgb(165, 255, 149)'>+%s%% %s</font>", tostring(val), tostring(stat)))
+            end
         end
-        for stat, val in pairs(curseData.Debuff) do
-            table.insert(statusLines, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), stat))
+        -- Debuffs (Pink: RGB 255, 152, 152)
+        if curseData.Debuff then
+            for stat, val in pairs(curseData.Debuff) do
+                table.insert(statusLines, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), tostring(stat)))
+            end
         end
     end
 
     local finalParaDesc = #statusLines > 0 and table.concat(statusLines, "\n") or "No active effects."
     
-    if Optimizer.Cache.LastCurseTextHash ~= (curseTitle .. finalParaDesc) then
+    -- Cache Hash ditingkatkan dengan menyertakan Nama Avatar agar saat ganti avatar UI langsung update
+    local currentVisualHash = tostring(currentAvatar) .. curseTitle .. finalParaDesc
+    
+    if Optimizer.Cache.LastCurseTextHash ~= currentVisualHash then
         CurseStatusPara:SetTitle(curseTitle .. " [" .. rarity .. "]")
         CurseStatusPara:SetDesc(finalParaDesc)
+        
         if CurseStatusPara.SetMainImage then
             CurseStatusPara:SetMainImage({
                 Image = GetIcon(84366761557806),
@@ -5931,7 +5923,7 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
                 Quantity = rarity
             }, 50)
         end
-        Optimizer.Cache.LastCurseTextHash = curseTitle .. finalParaDesc
+        Optimizer.Cache.LastCurseTextHash = currentVisualHash
     end
 
     -- [3] UPDATE DESKRIPSI TOGGLE (INFO MATERIAL & BIAYA)
@@ -5946,57 +5938,40 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
         local matIcon = (matInfo and matInfo.Template) and GetIcon(matInfo.Template) or ""
         local matName = matInfo and matInfo.Display or tokenKey
         
-        -- Format: [Icon] NamaMaterial: Diperlukan / Dimiliki
         local toggleDesc = string.format("%s %s: %s / %s", 
-            matIcon, 
-            matName, 
-            UtilsModule.ToText(cost), 
-            UtilsModule.ToText(owned)
-        )
+            matIcon, matName, UtilsModule.ToText(cost), UtilsModule.ToText(owned))
         
         if Optimizer.Cache.LastCurseToggleDesc ~= toggleDesc then
             CurseAutoToggle:SetDesc(toggleDesc)
             Optimizer.Cache.LastCurseToggleDesc = toggleDesc
         end
     end
-    -- [4] EKSEKUSI AUTO ROLL (REVISED)
+
+    -- [4] EKSEKUSI AUTO ROLL (LOGIKA FILTER PERBAIKAN)
     if Config.AutoRollCurse and isAvatarActive then
         local isTargetReached = false
-        local currentCurseIdx = tonumber(curseIndex) -- Index kutukan saat ini dari server
-        
-        -- Validasi filter target
         if Config.TargetCursesFilter and #Config.TargetCursesFilter > 0 then
-            for _, targetVal in pairs(Config.TargetCursesFilter) do
-                -- Pastikan targetVal dikonversi ke number untuk perbandingan murni
-                local targetIdx = tonumber(type(targetVal) == "table" and targetVal.Value or targetVal)
-                
-                if currentCurseIdx == targetIdx then
+            for _, target in pairs(Config.TargetCursesFilter) do
+                local targetIdx = tonumber(type(target) == "table" and target.Value or target)
+                if curseIndex == targetIdx then
                     isTargetReached = true
                     break
                 end
             end
         end
 
-        -- Jika target ditemukan, matikan rolling
         if isTargetReached then
-            if Config.AutoRollCurse then
-                Config.AutoRollCurse = false
-                if CurseAutoToggle then CurseAutoToggle:Set(false) end
-                Notify("Avatar Curse", "Target reached! Auto roll stopped.", "check")
-            end
+            Config.AutoRollCurse = false
+            if CurseAutoToggle then CurseAutoToggle:Set(false) end
+            Notify("Avatar Curse", "Target reached! Auto roll stopped.", "check")
         else
-            -- Jika belum mencapai target, lakukan rolling
             local multi = pData.Gamepasses.Vip and 0.8 or 1
             local cost = AvatarCursesConfig.TokenCost * multi
             local owned = pData.Materials[AvatarCursesConfig.TokenName] or 0
             
             if owned >= cost and Reliable then
                 Reliable:FireServer("Avatar Curse Roll")
-                task.wait(1.5) -- Jeda agar sinkron dengan animasi server
-            elseif owned < cost then
-                Config.AutoRollCurse = false
-                if CurseAutoToggle then CurseAutoToggle:Set(false) end
-                Notify("Avatar Curse", "Insufficient tokens to continue.", "alert-triangle")
+                task.wait(1.5)
             end
         end
     end
