@@ -1639,19 +1639,19 @@ function LogicGamemodes()
                 end
                 task.wait()
 
-            elseif wasInGamemode and (not isFightingZone) then
-                -- [B. LOGIKA PULANG (SAMA)]
-                currentTargetObj = nil;
-                hasTeleportedToBossInRaid = false;
+            -- elseif wasInGamemode and (not isFightingZone) then
+            --     -- [B. LOGIKA PULANG (SAMA)]
+            --     currentTargetObj = nil;
+            --     hasTeleportedToBossInRaid = false;
                 
-                if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
-                    Notify("Mode Finished", "Returning to " .. LastZone);
-                    if Reliable then pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end); end;
-                    wasInGamemode = false; 
-                    task.wait(6);
-                else
-                    wasInGamemode = false;
-                end;
+            --     if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
+            --         Notify("Mode Finished", "Returning to " .. LastZone);
+            --         if Reliable then pcall(function() Reliable:FireServer("Zone Teleport", { LastZone }); end); end;
+            --         wasInGamemode = false; 
+            --         task.wait(6);
+            --     else
+            --         wasInGamemode = false;
+            --     end;
             else
                 -- [1] DEFINISI FUNGSI LOKAL (Sekarang di dalam blok else, tapi hanya dibuat sekali per iterasi loop)
                 -- Tips: Idealnya fungsi ini ditaruh di LUAR while loop, tapi di sini juga aman.
@@ -1754,10 +1754,10 @@ function LogicGamemodes()
                     end
                 end
 
-                if actionTaken then task.wait(5) else task.wait(1) end
+                if actionTaken then task.wait() else task.wait() end
             end;
         else
-            task.wait(1);
+            task.wait();
         end;
     end;
 end;
