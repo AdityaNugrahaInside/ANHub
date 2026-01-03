@@ -3882,7 +3882,7 @@ FM_Add("Avatar Curses", CurseFilterDrop)
 
 CurseAutoToggle = FarmTab:Toggle({
     Title = "Enable Auto Roll Curses",
-    Desc = "Rolls automatically until target reached.",
+    Desc = "Loading material info...", -- Akan diupdate otomatis oleh Optimizer
     Flag = "AutoRollCurse_Cfg",
     Callback = function(val) 
         Config.AutoRollCurse = val 
@@ -5838,7 +5838,7 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     local currentAvatar = pData.Attributes.Avatar
     local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
     
-    -- [1] LOGIKA VIEWPORT (3D PREVIEW) - Mengikuti gaya AvatarLevel
+    -- [1] LOGIKA VIEWPORT (3D PREVIEW)
     if isAvatarActive then
         if Optimizer.Cache.LastCurseAvatarID ~= currentAvatar then
             Optimizer.Cache.LastCurseAvatarID = currentAvatar
@@ -5864,7 +5864,7 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
         end
     end
 
-    -- [2] UPDATE TEKS STATUS KUTUKAN (Warna sesuai Interface.c)
+    -- [2] UPDATE TEKS STATUS KUTUKAN (PARAGRAPH)
     local curseIndex = pData.AvatarCurses[currentAvatar]
     local curseData = AvatarCursesConfig.Table[curseIndex]
     local rarity = curseData and curseData.Rarity or "Common"
@@ -5872,21 +5872,19 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     
     local statusLines = {}
     if curseData then
-        -- Buffs (Warna Hijau Terang)
         for stat, val in pairs(curseData.Buff) do
             table.insert(statusLines, string.format("<font color='rgb(165, 255, 149)'>+%s%% %s</font>", tostring(val), stat))
         end
-        -- Debuffs (Warna Merah Muda/Pink)
         for stat, val in pairs(curseData.Debuff) do
             table.insert(statusLines, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), stat))
         end
     end
 
-    local finalDesc = #statusLines > 0 and table.concat(statusLines, "\n") or "No active effects."
+    local finalParaDesc = #statusLines > 0 and table.concat(statusLines, "\n") or "No active effects."
     
-    if Optimizer.Cache.LastCurseTextHash ~= (curseTitle .. finalDesc) then
+    if Optimizer.Cache.LastCurseTextHash ~= (curseTitle .. finalParaDesc) then
         CurseStatusPara:SetTitle(curseTitle .. " [" .. rarity .. "]")
-        CurseStatusPara:SetDesc(finalDesc)
+        CurseStatusPara:SetDesc(finalParaDesc)
         if CurseStatusPara.SetMainImage then
             CurseStatusPara:SetMainImage({
                 Image = GetIcon(84366761557806),
@@ -5895,14 +5893,38 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
                 Quantity = rarity
             }, 50)
         end
-        Optimizer.Cache.LastCurseTextHash = curseTitle .. finalDesc
+        Optimizer.Cache.LastCurseTextHash = curseTitle .. finalParaDesc
     end
 
-    -- [3] EKSEKUSI AUTO ROLL
+    -- [3] UPDATE DESKRIPSI TOGGLE (INFO MATERIAL & BIAYA)
+    if not Window.Closed and CurseAutoToggle then
+        local tokenKey = AvatarCursesConfig.TokenName
+        local matInfo = MaterialsModule[tokenKey]
+        
+        local multi = pData.Gamepasses.Vip and 0.8 or 1
+        local cost = AvatarCursesConfig.TokenCost * multi
+        local owned = pData.Materials[tokenKey] or 0
+        
+        local matIcon = (matInfo and matInfo.Template) and GetIcon(matInfo.Template) or ""
+        local matName = matInfo and matInfo.Display or tokenKey
+        
+        -- Format: [Icon] NamaMaterial: Diperlukan / Dimiliki
+        local toggleDesc = string.format("%s %s: %s / %s", 
+            matIcon, 
+            matName, 
+            UtilsModule.ToText(cost), 
+            UtilsModule.ToText(owned)
+        )
+        
+        if Optimizer.Cache.LastCurseToggleDesc ~= toggleDesc then
+            CurseAutoToggle:SetDesc(toggleDesc)
+            Optimizer.Cache.LastCurseToggleDesc = toggleDesc
+        end
+    end
+
+    -- [4] EKSEKUSI AUTO ROLL
     if Config.AutoRollCurse and isAvatarActive then
         local isTargetReached = false
-        
-        -- Cek apakah kutukan saat ini ada di list filter
         if Config.TargetCursesFilter and #Config.TargetCursesFilter > 0 then
             for _, target in ipairs(Config.TargetCursesFilter) do
                 local targetIdx = type(target) == "table" and target.Value or target
@@ -5913,15 +5935,14 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
             end
         end
 
-        -- Jalankan Rolling jika belum dapat target
         if not isTargetReached then
-            local multi = pData.Gamepasses.Vip and 0.8 or 1 
+            local multi = pData.Gamepasses.Vip and 0.8 or 1
             local cost = AvatarCursesConfig.TokenCost * multi
-            local myTokens = pData.Materials[AvatarCursesConfig.TokenName] or 0
+            local owned = pData.Materials[AvatarCursesConfig.TokenName] or 0
             
-            if myTokens >= cost and Reliable then
+            if owned >= cost and Reliable then
                 Reliable:FireServer("Avatar Curse Roll")
-                task.wait(1.5) -- Delay animasi roll
+                task.wait(1.5)
             end
         end
     end
