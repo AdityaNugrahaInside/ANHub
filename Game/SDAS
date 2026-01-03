@@ -3833,50 +3833,49 @@ end
 
 -- [[ CATEGORY: AVATAR CURSES ]] --
 
+-- Paragraf utama untuk status kutukan dan Viewport 3D
 CurseStatusPara = FarmTab:Paragraph({
-    Title = "Current Avatar Curse",
-    Desc = "Loading data...",
+    Title = "Avatar Curse Status",
+    Desc = "Equip an avatar to see current curse details.",
 })
 FM_Add("Avatar Curses", CurseStatusPara)
 
-CurseControlGroup = FarmTab:Group({Title = "Actions"})
+CurseControlGroup = FarmTab:Group({Title = "Curse Management"})
 FM_Add("Avatar Curses", CurseControlGroup)
 
--- Fungsi Roll Manual sesuai decompile Interface.c
+-- Tombol Roll Manual dengan Animasi 12x pergantian acak
 CurseControlGroup:Button({
-    Title = "Roll Avatar Curse",
+    Title = "Roll New Curse",
     Icon = "refresh-cw",
     Callback = function()
         local pData = getgenv().PlayerData
-        -- Logika diskon VIP: 0.8 jika punya VIP
-        local multiplier = pData.Gamepasses.Vip and 0.8 or 1
-        local cost = AvatarCursesConfig.TokenCost * multiplier
+        -- Cek VIP Discount (0.8x)
+        local multi = pData.Gamepasses.Vip and 0.8 or 1
+        local cost = AvatarCursesConfig.TokenCost * multi
+        local myTokens = pData.Materials[AvatarCursesConfig.TokenName] or 0
         
-        local currentTokens = pData.Materials[AvatarCursesConfig.TokenName] or 0
-        
-        if currentTokens >= cost then
+        if myTokens >= cost then
             task.spawn(function()
-                -- Efek animasi 12x pergantian acak sebelum hasil asli muncul
+                -- Animasi visual sebelum hasil asli muncul
                 for _ = 1, 12 do
-                    local randomIdx = math.random(#AvatarCursesConfig.Table)
-                    local randomData = AvatarCursesConfig.Table[randomIdx]
-                    CurseStatusPara:SetTitle("Rolling: " .. randomData.Display)
+                    local rnd = AvatarCursesConfig.Table[math.random(#AvatarCursesConfig.Table)]
+                    CurseStatusPara:SetTitle("Rolling: " .. rnd.Display)
                     task.wait(0.125)
                 end
                 
                 if Reliable then
-                    Reliable:FireServer("Avatar Curse Roll")
+                    Reliable:FireServer("Avatar Curse Roll") --
                 end
             end)
         else
-            Notify("Avatar Curse", "Not enough " .. AvatarCursesConfig.TokenName)
+            Notify("Avatar Curse", "Insufficient tokens!")
         end
     end
 })
 
 CurseAutoToggle = CurseControlGroup:Toggle({
     Title = "Auto Roll (Legend/Mythic)",
-    Desc = "Automatic roll until high rarity is obtained.",
+    Desc = "Keep rolling until a Legendary or Mythic curse is obtained.",
     Flag = "AutoRollCurse_Cfg",
     Callback = function(val) Config.AutoRollCurse = val end
 })
@@ -5826,37 +5825,68 @@ end
 function Optimizer.Update_AvatarCurse_Logic(pData)
     if not pData.AvatarCurses or not pData.Attributes or not AvatarCursesConfig then return end
     
-    local avatar = pData.Attributes.Avatar
-    if not avatar or avatar == "None" then 
-        CurseStatusPara:SetDesc("Equip an Avatar to see Curses.")
-        return 
+    local currentAvatar = pData.Attributes.Avatar
+    local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
+    
+    -- [1] LOGIKA VIEWPORT (3D PREVIEW) - SAMA DENGAN AVATARLEVEL
+    if isAvatarActive then
+        if Optimizer.Cache.LastCurseAvatarID ~= currentAvatar then
+            Optimizer.Cache.LastCurseAvatarID = currentAvatar
+            
+            -- Path model sesuai decompile Interface.c
+            local modelPath = ReplicatedFirst.Assets.Enemies:FindFirstChild(currentAvatar)
+            
+            if CurseStatusPara and modelPath then
+                local modelClone = modelPath:Clone()
+                local orientation, size = modelClone:GetBoundingBox()
+                
+                -- Posisikan model ke tengah Viewport
+                modelClone:PivotTo(CFrame.new(-orientation.Position)) 
+                CurseStatusPara:SetViewport(modelClone)
+                
+                local vp = CurseStatusPara.ViewportFrame
+                if vp and vp.CurrentCamera then
+                    local dist = size.Magnitude * 0.8 
+                    vp.CurrentCamera.CFrame = CFrame.lookAt(
+                        Vector3.new(0, 0.2, -dist), -- Posisi kamera statis
+                        Vector3.new(0, 0, 0)        -- Melihat ke tengah model
+                    )
+                end
+            end
+        end
+    else
+        -- Bersihkan Viewport jika tidak ada avatar
+        if Optimizer.Cache.LastCurseAvatarID ~= nil then
+            Optimizer.Cache.LastCurseAvatarID = nil
+            if CurseStatusPara.ViewportFrame then CurseStatusPara.ViewportFrame:Destroy() end
+        end
     end
 
-    local curseIndex = pData.AvatarCurses[avatar]
+    -- [2] UPDATE TEKS & STATUS KUTUKAN
+    local curseIndex = pData.AvatarCurses[currentAvatar]
     local curseData = AvatarCursesConfig.Table[curseIndex]
-    
-    -- 1. UPDATE VISUAL UI (Format sesuai Interface.c)
-    local curseTitle = curseData and curseData.Display or "None"
     local rarity = curseData and curseData.Rarity or "Common"
+    local curseTitle = curseData and curseData.Display or "No Curse"
     
-    local descLines = {}
+    local statusLines = {}
     if curseData then
-        -- Buffs (Warna Hijau RGB 165, 255, 149)
+        -- Buffs (Hijau: RGB 165, 255, 149)
         for stat, val in pairs(curseData.Buff) do
-            table.insert(descLines, string.format("<font color='rgb(165, 255, 149)'>+%s %s</font>", tostring(val), stat))
+            table.insert(statusLines, string.format("<font color='rgb(165, 255, 149)'>+%s %s</font>", tostring(val), stat))
         end
-        -- Debuffs (Warna Pink RGB 255, 152, 152 dengan tanda minus)
+        -- Debuffs (Pink/Merah: RGB 255, 152, 152)
         for stat, val in pairs(curseData.Debuff) do
-            table.insert(descLines, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), stat))
+            table.insert(statusLines, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), stat))
         end
     end
 
-    local finalDesc = #descLines > 0 and table.concat(descLines, "\n") or "No active curse effects."
+    local finalDesc = #statusLines > 0 and table.concat(statusLines, "\n") or "No active effects."
     
-    if Optimizer.Cache.LastCurseTitle ~= curseTitle or Optimizer.Cache.LastCurseDesc ~= finalDesc then
+    if Optimizer.Cache.LastCurseTextHash ~= (curseTitle .. finalDesc) then
         CurseStatusPara:SetTitle(curseTitle .. " [" .. rarity .. "]")
         CurseStatusPara:SetDesc(finalDesc)
         
+        -- Efek visual gradient rarity pada UI
         if CurseStatusPara.SetMainImage then
             CurseStatusPara:SetMainImage({
                 Image = GetIcon(84366761557806),
@@ -5865,22 +5895,20 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
                 Quantity = rarity
             }, 50)
         end
-        
-        Optimizer.Cache.LastCurseTitle = curseTitle
-        Optimizer.Cache.LastCurseDesc = finalDesc
+        Optimizer.Cache.LastCurseTextHash = curseTitle .. finalDesc
     end
 
-    -- 2. LOGIKA AUTO ROLL
+    -- [3] LOGIKA AUTO ROLL
     if Config.AutoRollCurse and curseData then
         -- Berhenti jika Legend atau Mythic
         if rarity ~= "Legend" and rarity ~= "Mythic" then
-            local multiplier = pData.Gamepasses.Vip and 0.8 or 1
-            local cost = AvatarCursesConfig.TokenCost * multiplier
-            local currentTokens = pData.Materials[AvatarCursesConfig.TokenName] or 0
+            local multi = pData.Gamepasses.Vip and 0.8 or 1
+            local cost = AvatarCursesConfig.TokenCost * multi
+            local myTokens = pData.Materials[AvatarCursesConfig.TokenName] or 0
             
-            if currentTokens >= cost and Reliable then
+            if myTokens >= cost and Reliable then
                 Reliable:FireServer("Avatar Curse Roll")
-                task.wait(1.6) -- Jeda animasi roll agar tidak spam server
+                task.wait(1.5) -- Delay sesuai durasi animasi
             end
         end
     end
