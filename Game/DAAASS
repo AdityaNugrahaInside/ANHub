@@ -979,14 +979,14 @@ function LogicAutoFarm()
                 end
             else
                 currentTargetObj = nil
-                task.wait(0.01)
+                task.wait()
                 continue 
             end
         
         elseif Config.AutoMeteor and MeteorState.IsActive and MeteorState.Position then
             if not CheckIsFightingZone() then
                 currentTargetObj = nil 
-                task.wait(0.5)
+                task.wait()
                 continue
             end
         end
@@ -998,7 +998,7 @@ function LogicAutoFarm()
                 hrp = char:FindFirstChild("HumanoidRootPart")
                 humanoid = char:FindFirstChild("Humanoid")
             end
-            task.wait(0.3)
+            task.wait()
             continue
         end
 
@@ -1097,7 +1097,7 @@ function LogicAutoFarm()
         if currentTargetObj then
             task.wait() -- Jika sedang lock musuh, butuh cepat (setiap frame) biar nempel
         else
-            task.wait(0.1) -- Jika sedang MENCARI musuh, jangan spam loop. Cukup 10x per detik.
+            task.wait() -- Jika sedang MENCARI musuh, jangan spam loop. Cukup 10x per detik.
         end
     end
 end
