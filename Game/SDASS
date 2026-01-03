@@ -1290,6 +1290,7 @@ FM_CategoryDescriptions = {
     ["Avatar Level"] = "Upgrade Avatar Level, view stats and costs",
     ["Heroes Stats"] = "Reroll Heroes Stats, view stats and costs",
     ["Rarity Powers"] = "Auto Upgrade and Evolve your rarity power stats",
+    ["Avatar Curses"] = "Add Extra Stats To Your Avatar",
     ["Ascension"] = "You can exchange all your level progress to obtain boosts.",
     ["Enchantments"] = "Add Stats Enchantments To Your Weapon.",
     ["Weapon Reforging"] = "Reforge Tier 3 weapons to get +50% Mastery Boost (1 Hour process)",
@@ -3833,52 +3834,45 @@ end
 
 -- [[ CATEGORY: AVATAR CURSES ]] --
 
--- Paragraf utama untuk status kutukan dan Viewport 3D
+-- Paragraf Utama untuk Viewport dan Detail Status
 CurseStatusPara = FarmTab:Paragraph({
     Title = "Avatar Curse Status",
     Desc = "Equip an avatar to see current curse details.",
 })
 FM_Add("Avatar Curses", CurseStatusPara)
 
-CurseControlGroup = FarmTab:Group({Title = "Curse Management"})
-FM_Add("Avatar Curses", CurseControlGroup)
+-- Dropdown untuk memilih Target Kutukan
+local curseOptions = {}
+for i, v in ipairs(AvatarCursesConfig.Table) do
+    table.insert(curseOptions, {
+        Title = string.format("%s (%s)", v.Display, v.Rarity),
+        Value = i -- Menggunakan Index sebagai referensi
+    })
+end
 
--- Tombol Roll Manual dengan Animasi 12x pergantian acak
-CurseControlGroup:Button({
-    Title = "Roll New Curse",
-    Icon = "refresh-cw",
-    Callback = function()
-        local pData = getgenv().PlayerData
-        -- Cek VIP Discount (0.8x)
-        local multi = pData.Gamepasses.Vip and 0.8 or 1
-        local cost = AvatarCursesConfig.TokenCost * multi
-        local myTokens = pData.Materials[AvatarCursesConfig.TokenName] or 0
-        
-        if myTokens >= cost then
-            task.spawn(function()
-                -- Animasi visual sebelum hasil asli muncul
-                for _ = 1, 12 do
-                    local rnd = AvatarCursesConfig.Table[math.random(#AvatarCursesConfig.Table)]
-                    CurseStatusPara:SetTitle("Rolling: " .. rnd.Display)
-                    task.wait(0.125)
-                end
-                
-                if Reliable then
-                    Reliable:FireServer("Avatar Curse Roll") --
-                end
-            end)
-        else
-            Notify("Avatar Curse", "Insufficient tokens!")
-        end
+CurseFilterDrop = FarmTab:Dropdown({
+    Title = "Select Target Curses",
+    Desc = "The toggle below will roll until one of these is obtained.",
+    Values = curseOptions,
+    Multi = true,
+    AllowNone = true,
+    Flag = "TargetCurses_Cfg",
+    Callback = function(val)
+        Config.TargetCursesFilter = val 
     end
 })
+FM_Add("Avatar Curses", CurseFilterDrop)
 
-CurseAutoToggle = CurseControlGroup:Toggle({
-    Title = "Auto Roll (Legend/Mythic)",
-    Desc = "Keep rolling until a Legendary or Mythic curse is obtained.",
+-- Toggle sebagai satu-satunya alat eksekusi
+CurseAutoToggle = FarmTab:Toggle({
+    Title = "Enable Auto Roll Curses",
+    Desc = "Automatically consumes tokens and rolls until targets are met.",
     Flag = "AutoRollCurse_Cfg",
-    Callback = function(val) Config.AutoRollCurse = val end
+    Callback = function(val) 
+        Config.AutoRollCurse = val 
+    end
 })
+FM_Add("Avatar Curses", CurseAutoToggle)
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -5828,41 +5822,33 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     local currentAvatar = pData.Attributes.Avatar
     local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
     
-    -- [1] LOGIKA VIEWPORT (3D PREVIEW) - SAMA DENGAN AVATARLEVEL
+    -- [1] LOGIKA VIEWPORT (3D PREVIEW)
     if isAvatarActive then
         if Optimizer.Cache.LastCurseAvatarID ~= currentAvatar then
             Optimizer.Cache.LastCurseAvatarID = currentAvatar
-            
-            -- Path model sesuai decompile Interface.c
             local modelPath = ReplicatedFirst.Assets.Enemies:FindFirstChild(currentAvatar)
             
             if CurseStatusPara and modelPath then
                 local modelClone = modelPath:Clone()
                 local orientation, size = modelClone:GetBoundingBox()
-                
-                -- Posisikan model ke tengah Viewport
                 modelClone:PivotTo(CFrame.new(-orientation.Position)) 
                 CurseStatusPara:SetViewport(modelClone)
                 
                 local vp = CurseStatusPara.ViewportFrame
                 if vp and vp.CurrentCamera then
                     local dist = size.Magnitude * 0.8 
-                    vp.CurrentCamera.CFrame = CFrame.lookAt(
-                        Vector3.new(0, 0.2, -dist), -- Posisi kamera statis
-                        Vector3.new(0, 0, 0)        -- Melihat ke tengah model
-                    )
+                    vp.CurrentCamera.CFrame = CFrame.lookAt(Vector3.new(0, 0.2, -dist), Vector3.new(0, 0, 0))
                 end
             end
         end
     else
-        -- Bersihkan Viewport jika tidak ada avatar
         if Optimizer.Cache.LastCurseAvatarID ~= nil then
             Optimizer.Cache.LastCurseAvatarID = nil
             if CurseStatusPara.ViewportFrame then CurseStatusPara.ViewportFrame:Destroy() end
         end
     end
 
-    -- [2] UPDATE TEKS & STATUS KUTUKAN
+    -- [2] UPDATE TEKS & STATUS KUTUKAN (Warna sesuai decompile Interface.c)
     local curseIndex = pData.AvatarCurses[currentAvatar]
     local curseData = AvatarCursesConfig.Table[curseIndex]
     local rarity = curseData and curseData.Rarity or "Common"
@@ -5874,7 +5860,7 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
         for stat, val in pairs(curseData.Buff) do
             table.insert(statusLines, string.format("<font color='rgb(165, 255, 149)'>+%s %s</font>", tostring(val), stat))
         end
-        -- Debuffs (Pink/Merah: RGB 255, 152, 152)
+        -- Debuffs (Pink: RGB 255, 152, 152)
         for stat, val in pairs(curseData.Debuff) do
             table.insert(statusLines, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), stat))
         end
@@ -5885,8 +5871,6 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     if Optimizer.Cache.LastCurseTextHash ~= (curseTitle .. finalDesc) then
         CurseStatusPara:SetTitle(curseTitle .. " [" .. rarity .. "]")
         CurseStatusPara:SetDesc(finalDesc)
-        
-        -- Efek visual gradient rarity pada UI
         if CurseStatusPara.SetMainImage then
             CurseStatusPara:SetMainImage({
                 Image = GetIcon(84366761557806),
@@ -5898,17 +5882,31 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
         Optimizer.Cache.LastCurseTextHash = curseTitle .. finalDesc
     end
 
-    -- [3] LOGIKA AUTO ROLL
-    if Config.AutoRollCurse and curseData then
-        -- Berhenti jika Legend atau Mythic
-        if rarity ~= "Legend" and rarity ~= "Mythic" then
-            local multi = pData.Gamepasses.Vip and 0.8 or 1
+    -- [3] EKSEKUSI AUTO ROLL (LOGIKA UTAMA)
+    if Config.AutoRollCurse and isAvatarActive then
+        local isTargetReached = false
+        
+        -- Validasi apakah kutukan saat ini sudah sesuai target di dropdown
+        if Config.TargetCursesFilter and #Config.TargetCursesFilter > 0 then
+            for _, target in ipairs(Config.TargetCursesFilter) do
+                local targetIdx = type(target) == "table" and target.Value or target
+                if tonumber(curseIndex) == tonumber(targetIdx) then
+                    isTargetReached = true
+                    break
+                end
+            end
+        end
+
+        -- Jalankan Rolling jika target belum terpenuhi
+        if not isTargetReached then
+            -- Hitung biaya dengan diskon VIP jika ada (Multiplier 0.8)
+            local multi = pData.Gamepasses.Vip and 0.8 or 1 
             local cost = AvatarCursesConfig.TokenCost * multi
             local myTokens = pData.Materials[AvatarCursesConfig.TokenName] or 0
             
             if myTokens >= cost and Reliable then
                 Reliable:FireServer("Avatar Curse Roll")
-                task.wait(1.5) -- Delay sesuai durasi animasi
+                task.wait(1.5) -- Jeda waktu animasi rolling agar tidak spam
             end
         end
     end
