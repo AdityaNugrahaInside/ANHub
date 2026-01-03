@@ -38,6 +38,9 @@ TokenUpgradeConfig = TokenModule.Config
 -- Tambahkan di bagian atas bersama module lainnya
 RarityPowerConfig = require(ReplicatedStorage.Scripts.Configs.RarityPower)
 RarityPowerUI = {} -- Tempat menyimpan toggle UI
+-- Mengambil konfigurasi langsung dari path ReplicatedStorage
+AvatarCursesPath = ReplicatedStorage.Scripts.Configs.Machines.AvatarCurses
+AvatarCursesConfig = require(AvatarCursesPath) -- Otomatis memuat TokenName, TokenCost, dan Table
 hrp = nil
 humanoid = nil
 LastZone = nil
@@ -976,7 +979,7 @@ function LogicAutoFarm()
                 end
             else
                 currentTargetObj = nil
-                task.wait(1)
+                task.wait(0.01)
                 continue 
             end
         
@@ -995,7 +998,7 @@ function LogicAutoFarm()
                 hrp = char:FindFirstChild("HumanoidRootPart")
                 humanoid = char:FindFirstChild("Humanoid")
             end
-            task.wait(1)
+            task.wait(0.3)
             continue
         end
 
@@ -1287,6 +1290,7 @@ FM_CategoryDescriptions = {
     ["Avatar Level"] = "Upgrade Avatar Level, view stats and costs",
     ["Heroes Stats"] = "Reroll Heroes Stats, view stats and costs",
     ["Rarity Powers"] = "Auto Upgrade and Evolve your rarity power stats",
+    ["Avatar Curses"] = "Add Extra Stats To Your Avatar",
     ["Ascension"] = "You can exchange all your level progress to obtain boosts.",
     ["Enchantments"] = "Add Stats Enchantments To Your Weapon.",
     ["Weapon Reforging"] = "Reforge Tier 3 weapons to get +50% Mastery Boost (1 Hour process)",
@@ -1355,7 +1359,8 @@ FM_Category = FarmTab:Category({
         {Title="Secret Quests", Icon=GetIcon(104488852837942)},
         {Title="Vault", Icon=GetIcon(90798559571883)},
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
-        {Title="Rarity Powers", Icon=GetIcon(140537789480697)},
+        {Title="Rarity Powers", Icon=GetIcon(140537789480697)},-- Tambahkan ini ke dalam FM_Category Options
+        {Title="Avatar Curses", Icon=GetIcon(140684736911247)}, -- Gunakan icon yang sesuai
         {Title="Heroes Stats", Icon=GetIcon(127892390350003)},-- Tambahkan di dalam FM_Category Options
         {Title="Ascension", Icon=GetIcon(84524784941090)},
         {Title="Enchantments", Icon=GetIcon(104488852837942)},
@@ -1647,7 +1652,6 @@ function LogicGamemodes()
                 else
                     wasInGamemode = false;
                 end;
-
             else
                 -- [1] DEFINISI FUNGSI LOKAL (Sekarang di dalam blok else, tapi hanya dibuat sekali per iterasi loop)
                 -- Tips: Idealnya fungsi ini ditaruh di LUAR while loop, tapi di sini juga aman.
@@ -2144,6 +2148,30 @@ LeaveGroup3:Toggle({
     end
 })
 
+local function IsSafeReturnZoneName(zoneName)
+    if not zoneName or zoneName == "" or zoneName == "Unknown" then return false end
+    if string.find(zoneName, ":") then return false end
+    if zoneName == "Dungeon" then return false end
+    if zoneName == "Raid" then return false end
+    if zoneName == "Defense" then return false end
+    if zoneName == "SorcerersDefense" then return false end
+    if zoneName == "PirateTower" then return false end
+    if zoneName == "ShadowGate" then return false end
+    if zoneName == "ChristmasRaid" then return false end
+    return true
+end
+
+local function GetSafeReturnZone(pData)
+    if IsSafeReturnZoneName(LastZone) then
+        return LastZone
+    end
+    local attrLastZone = pData and pData.Attributes and pData.Attributes.LastZone
+    if IsSafeReturnZoneName(attrLastZone) then
+        return attrLastZone
+    end
+    return "Starter Zone"
+end
+
 task.spawn(function()
     while not Window.Destroyed do
         if Config.AutoLeave then
@@ -2187,6 +2215,28 @@ task.spawn(function()
                     end
                 end
 
+                -- C.2 Cek SORCERERS DEFENSE
+                if not modeActive then
+                    local sorcerersUI = HudGamemode:FindFirstChild("SorcerersDefense")
+                    if sorcerersUI and sorcerersUI.Visible then
+                        local txt = ""
+                        local wave = sorcerersUI:FindFirstChild("wave") or sorcerersUI:FindFirstChild("Wave")
+                        local amount = wave and wave:FindFirstChild("amount")
+                        if amount and amount.Text then
+                            txt = amount.Text
+                        else
+                            local room = sorcerersUI:FindFirstChild("room") or sorcerersUI:FindFirstChild("Room")
+                            local amount2 = room and room:FindFirstChild("amount")
+                            if amount2 and amount2.Text then
+                                txt = amount2.Text
+                            end
+                        end
+                        currentVal = tonumber(string.match(tostring(txt), "%d+")) or 0
+                        targetLimit = Config.AutoLeave_Defense
+                        modeActive = true
+                    end
+                end
+
                 -- D. Cek PIRATE TOWER
                 if not modeActive then
                     local pirateUI = HudGamemode:FindFirstChild("PirateTower")
@@ -2211,10 +2261,8 @@ task.spawn(function()
 
                 -- [EKSEKUSI LEAVE]
                 if modeActive and currentVal >= targetLimit then
-                    -- Ambil LastZone yang aman
                     local pData = getgenv().PlayerData
-                    local returnZone = (pData and pData.Attributes and pData.Attributes.LastZone) or "Starter Zone"
-                    if string.find(returnZone, ":") or returnZone == "Unknown" then returnZone = "Starter Zone" end
+                    local returnZone = GetSafeReturnZone(pData)
 
                     if Reliable then
                         pcall(function()
@@ -3783,6 +3831,75 @@ for powerName, powerData in pairs(RarityPowerConfig.List) do
     end
     RP_Count = RP_Count + 1
 end
+
+-- [[ CATEGORY: AVATAR CURSES ]]
+
+-- Paragraf Utama untuk Viewport dan Detail Status
+CurseStatusPara = FarmTab:Paragraph({
+    Title = "Avatar Curse Status",
+    Desc = "Equip an avatar to see current curse details.",
+})
+FM_Add("Avatar Curses", CurseStatusPara)
+
+-- Membangun opsi dropdown dengan info Buff & Debuff
+local curseOptions = {}
+for i, v in ipairs(AvatarCursesConfig.Table) do
+    local buffs = {}
+    local debuffs = {}
+
+    for stat, val in pairs(v.Buff) do
+        table.insert(buffs, string.format("<font color='rgb(165, 255, 149)'>+%s%% %s</font>", tostring(val), tostring(stat)))
+    end
+    
+    for stat, val in pairs(v.Debuff) do
+        table.insert(debuffs, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), tostring(stat)))
+    end
+
+    local descParts = {}
+    if #buffs > 0 then
+        table.insert(descParts, "<b>Buff:</b> " .. table.concat(buffs, ", "))
+    end
+    if #debuffs > 0 then
+        table.insert(descParts, "<b>Debuff:</b> " .. table.concat(debuffs, ", "))
+    end
+    local detailDesc = #descParts > 0 and table.concat(descParts, "\n") or "No effects."
+
+    table.insert(curseOptions, {
+        Title = string.format("%s (%s)", v.Display, v.Rarity),
+        Desc = detailDesc, -- Menampilkan info status di bawah nama kutukan
+        Value = i 
+    })
+end
+
+CurseFilterDrop = FarmTab:Dropdown({
+    Title = "Select Target Curses",
+    Desc = "Auto Roll will STOP when you get one of the selected curses.",
+    Values = curseOptions,
+    Multi = true,
+    AllowNone = true,
+    Flag = "TargetCurses_Cfg",
+    Callback = function(val)
+        Config.TargetCursesFilter = val 
+    end
+})
+FM_Add("Avatar Curses", CurseFilterDrop)
+
+CurseAutoToggle = FarmTab:Toggle({
+    Title = "Enable Auto Roll Curses",
+    Desc = "Loading material info...", -- Akan diupdate otomatis oleh Optimizer
+    Flag = "AutoRollCurse_Cfg",
+    Callback = function(val) 
+        Config.AutoRollCurse = val 
+    end
+})
+FM_Add("Avatar Curses", CurseAutoToggle)
+
+if not IsPremium then
+    Config.AutoRollCurse = false
+    pcall(function() CurseAutoToggle:Set(false) end)
+    pcall(function() CurseAutoToggle:Lock("Need Premium User") end)
+    pcall(function() CurseFilterDrop:Lock("Need Premium User") end)
+end
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -4107,6 +4224,70 @@ Optimizer = {
     }
 }
 
+function Optimizer.MarkUIStale()
+    Optimizer.Cache.LastGamemodeUpdate = nil
+    Optimizer.Cache.LastGamemodeDesc = nil
+    Optimizer.Cache.LastAscensionDesc = nil
+    Optimizer.Cache.LastMatExDesc = nil
+    Optimizer.Cache.LastTradeExDesc = nil
+    Optimizer.Cache.LastExMainImageHash = nil
+    Optimizer.Cache.LastAvatarTitle = nil
+    Optimizer.Cache.LastAvatarDesc = nil
+    Optimizer.Cache.LastHeroTitle = nil
+    Optimizer.Cache.LastHeroDesc = nil
+    Optimizer.Cache.LastHiddenQuestString = nil
+
+    for k in pairs(Optimizer.Cache) do
+        if type(k) == "string" and string.sub(k, 1, 3) == "RP_" then
+            Optimizer.Cache[k] = nil
+        end
+    end
+
+    for _, state in pairs(Optimizer.Cache.Roll) do
+        if type(state) == "table" then
+            state.Image = nil
+            state.Rarity = nil
+            state.ItemName = nil
+            state.Count = nil
+            state.PendingMainImage = state.PendingMainImage or {}
+        end
+    end
+
+    for _, state in pairs(Optimizer.Cache.Craft) do
+        if type(state) == "table" then
+            state.Title = nil
+            state.Desc = nil
+        end
+    end
+
+    for _, state in pairs(Optimizer.Cache.Upgrade) do
+        if type(state) == "table" then
+            state.Title = nil
+            state.Desc = nil
+            state.Image = nil
+            state.Rarity = nil
+        end
+    end
+
+    _UIDescCache = {}
+end
+
+task.spawn(function()
+    local wasClosed = Window.Closed == true
+    while not Window.Destroyed do
+        local isClosed = Window.Closed == true
+        if wasClosed and not isClosed then
+            pcall(function()
+                if Optimizer and Optimizer.MarkUIStale then
+                    Optimizer.MarkUIStale()
+                end
+            end)
+        end
+        wasClosed = isClosed
+        task.wait(0.1)
+    end
+end)
+
 function Optimizer.Update_Gamemode_Dropdowns()
     -- Update setiap 1 detik
     local now = os.time()
@@ -4200,7 +4381,7 @@ function Optimizer.Update_Ascension_Logic(pData)
     local maxAscensionLimit = LevelUpModule.MAX_ASCENSION or #LevelUpModule.AscensionXpBoost
 
     -- 1. SISTEM CACHE UI
-    if not Window.Closed and AscUI and AscUI.Status then
+    if AscUI and AscUI.Status then
         local currentExpBonus = LevelUpModule.GetExpWithBonus(10, pData)
         local expMultiplier = currentExpBonus / 10
         local pct = math.clamp(currentLevel / maxLevel, 0, 1)
@@ -4261,7 +4442,7 @@ end
 
 function Optimizer.Update_Enchantments_Logic(pData)
     -- Update Visual UI Saja
-    if EnchUI.MasterToggle and not Window.Closed then
+    if EnchUI.MasterToggle then
         if pData.Materials and pData.Attributes and pData.Weapons then
             
             -- [1] DATA WEAPON & TOKEN
@@ -4586,7 +4767,7 @@ function Optimizer.Update_Roll_Logic(pData)
             or (lastState.ItemName ~= currentItemName)
             or (lastState.PendingMainImage ~= nil)
 
-        if not Window.Closed and toggle.SetMainImage then
+        if toggle.SetMainImage then
             if needsMainImageUpdate then
                 pcall(function()
                     local rarityLabel = currentRarity or "Common"
@@ -4889,7 +5070,7 @@ function Optimizer.Update_Avatar_Logic(pData)
         end
 
         -- Update ke UI (Hanya jika teks berubah untuk optimasi)
-        if not Window.Closed and AvatarStatusPara then
+        if AvatarStatusPara then
             if Optimizer.Cache.LastAvatarTitle ~= newTitle then
                 AvatarStatusPara:SetTitle(newTitle)
                 Optimizer.Cache.LastAvatarTitle = newTitle
@@ -5068,33 +5249,31 @@ function Optimizer.Update_Heroes_Logic(pData)
         end
         
         -- [A] UPDATE VISUAL TEKS
-        if not Window.Closed then
-            local lines = ""
-            for _, sName in ipairs(ValidStatsList) do
-                local sIdx = hStats[sName] or 1
-                local sColor = GetModularColor(sIdx)
-                local sRankName = RarityIndexMap[sIdx] or "?"
-                local sBuff = GetClassBuffPercentage(sName, sIdx)
-                local sLockStatus = (lStats[sName] and "🔒" or "🔓")
-                
-                lines = lines .. string.format('<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n', sColor, sRankName, sName, sBuff, sLockStatus)
-            end
+        local lines = ""
+        for _, sName in ipairs(ValidStatsList) do
+            local sIdx = hStats[sName] or 1
+            local sColor = GetModularColor(sIdx)
+            local sRankName = RarityIndexMap[sIdx] or "?"
+            local sBuff = GetClassBuffPercentage(sName, sIdx)
+            local sLockStatus = (lStats[sName] and "🔒" or "🔓")
             
-            local myShards = pData.Materials.HeroesStats or 0
-            local shardsStr = UtilsModule.ToText(myShards)
-            lines = lines .. string.format('\n<font color="#00ffff"><b>Hero Shards:</b></font> %s', shardsStr)
-            
-            local newTitle = string.format("%s [%s] - %s DMG", hName, hRarity, hDamageStr)
-            
-            if Optimizer.Cache.LastHeroTitle ~= newTitle then
-                HeroStatsInfo:SetTitle(newTitle)
-                Optimizer.Cache.LastHeroTitle = newTitle
-            end
+            lines = lines .. string.format('<font color="#%s"><b>[%s]</b></font> %s (%s): %s\n', sColor, sRankName, sName, sBuff, sLockStatus)
+        end
+        
+        local myShards = pData.Materials.HeroesStats or 0
+        local shardsStr = UtilsModule.ToText(myShards)
+        lines = lines .. string.format('\n<font color="#00ffff"><b>Hero Shards:</b></font> %s', shardsStr)
+        
+        local newTitle = string.format("%s [%s] - %s DMG", hName, hRarity, hDamageStr)
+        
+        if Optimizer.Cache.LastHeroTitle ~= newTitle then
+            HeroStatsInfo:SetTitle(newTitle)
+            Optimizer.Cache.LastHeroTitle = newTitle
+        end
 
-            if Optimizer.Cache.LastHeroDesc ~= lines then
-                HeroStatsInfo:SetDesc(lines)
-                Optimizer.Cache.LastHeroDesc = lines
-            end
+        if Optimizer.Cache.LastHeroDesc ~= lines then
+            HeroStatsInfo:SetDesc(lines)
+            Optimizer.Cache.LastHeroDesc = lines
         end
         
         -- TAMBAHKAN BAGIAN INI --
@@ -5192,7 +5371,7 @@ function Optimizer.Update_MegaBoss_Logic(pData)
 
         -- Update Visual UI
         local toggle = MegaBossToggles[name]
-        if toggle and not Window.Closed then
+        if toggle then
             local newTitle = ""
             local newDesc = ""
             local isMaxed = currentLvl >= maxLvl
@@ -5262,8 +5441,8 @@ function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule,
             cost = upgradeModule.GetUpgradeCost(lvl, name)
         end
         
-        -- 1. UPDATE TAMPILAN UI (Hanya jika window terbuka)
-        if toggle and not Window.Closed then
+        -- 1. UPDATE TAMPILAN UI
+        if toggle then
             local newTitle = ""
             local newDesc = ""
             
@@ -5333,7 +5512,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
     local cRank, cMastery = (pData.Attributes.Rank or 0), (pData.Attributes.Mastery or 0)
     local req, cBuff, nBuff = RankModule.GetRequirement(cRank), RankModule.GetBuff(cRank), RankModule.GetBuff(cRank+1)
     
-    if RankProgressUI and not Window.Closed then
+    if RankProgressUI then
         local pct = req>0 and math.clamp(cMastery/req,0,1) or 0
         local bar = string.rep("█", math.floor(pct*10)) .. string.rep("▒", 10-math.floor(pct*10))
         local bt = (cRank>=RankModule.MAX) and ("Buff: "..UtilsModule.ToText(cBuff).."% (MAX)") or ("Buff: "..UtilsModule.ToText(cBuff).."% >> "..UtilsModule.ToText(nBuff).."%")
@@ -5555,7 +5734,7 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
     end
 
     -- [UPDATE UI UTAMA]
-    if HQ_MainStatusUI and not Window.Closed then
+    if HQ_MainStatusUI then
         local finalString = table.concat(uiReportLines, "\n")
         
         -- Cek apakah string baru BEDA dengan yang lama
@@ -5616,7 +5795,7 @@ function Optimizer.Update_RarityPower_Logic(pData)
             end
 
             -- 4. UPDATE VISUAL UI
-            if not Window.Closed then
+            if toggle then
                 local myTokenAmount = pData.Materials[tokenKey] or 0
                 local statusColor = canEvolve and "#aa00ff" or "#07ffa4"
                 
@@ -5662,6 +5841,142 @@ function Optimizer.Update_RarityPower_Logic(pData)
         end
     end
 end
+function Optimizer.Update_AvatarCurse_Logic(pData)
+    if not pData.AvatarCurses or not pData.Attributes or not AvatarCursesConfig then return end
+
+    if not IsPremium then
+        if Config.AutoRollCurse then
+            Config.AutoRollCurse = false
+        end
+        if CurseAutoToggle then
+            pcall(function() CurseAutoToggle:Set(false) end)
+            pcall(function() CurseAutoToggle:Lock("Need Premium User") end)
+        end
+        if CurseFilterDrop then
+            pcall(function() CurseFilterDrop:Lock("Need Premium User") end)
+        end
+        return
+    else
+        if CurseAutoToggle and CurseAutoToggle.Locked then
+            pcall(function() CurseAutoToggle:Unlock() end)
+        end
+        if CurseFilterDrop and CurseFilterDrop.Locked then
+            pcall(function() CurseFilterDrop:Unlock() end)
+        end
+    end
+    
+    local currentAvatar = pData.Attributes.Avatar
+    local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
+    
+    -- [1] LOGIKA VIEWPORT (3D PREVIEW)
+    if isAvatarActive then
+        if Optimizer.Cache.LastCurseAvatarID ~= currentAvatar then
+            Optimizer.Cache.LastCurseAvatarID = currentAvatar
+            local modelPath = game:GetService("ReplicatedFirst").Assets.Enemies:FindFirstChild(currentAvatar)
+            
+            if CurseStatusPara and modelPath then
+                local modelClone = modelPath:Clone()
+                local orientation, size = modelClone:GetBoundingBox()
+                modelClone:PivotTo(CFrame.new(-orientation.Position)) 
+                CurseStatusPara:SetViewport(modelClone)
+                
+                local vp = CurseStatusPara.ViewportFrame
+                if vp and vp.CurrentCamera then
+                    local dist = size.Magnitude * 0.8 
+                    vp.CurrentCamera.CFrame = CFrame.lookAt(Vector3.new(0, 0.2, -dist), Vector3.new(0, 0, 0))
+                end
+            end
+        end
+    else
+        if Optimizer.Cache.LastCurseAvatarID ~= nil then
+            Optimizer.Cache.LastCurseAvatarID = nil
+            if CurseStatusPara.ViewportFrame then CurseStatusPara.ViewportFrame:Destroy() end
+        end
+    end
+
+    -- [2] UPDATE TEKS STATUS KUTUKAN (PARAGRAPH)
+    local curseIndex = pData.AvatarCurses[currentAvatar]
+    local curseData = AvatarCursesConfig.Table[curseIndex]
+    local rarity = curseData and curseData.Rarity or "Common"
+    local curseTitle = curseData and curseData.Display or "No Curse"
+    
+    local statusLines = {}
+    if curseData then
+        for stat, val in pairs(curseData.Buff) do
+            table.insert(statusLines, string.format("<font color='rgb(165, 255, 149)'>+%s%% %s</font>", tostring(val), stat))
+        end
+        for stat, val in pairs(curseData.Debuff) do
+            table.insert(statusLines, string.format("<font color='rgb(255, 152, 152)'>-%s%% %s</font>", tostring(val), stat))
+        end
+    end
+
+    local finalParaDesc = #statusLines > 0 and table.concat(statusLines, "\n") or "No active effects."
+    
+    if Optimizer.Cache.LastCurseTextHash ~= (curseTitle .. finalParaDesc) then
+        CurseStatusPara:SetTitle(curseTitle .. " [" .. rarity .. "]")
+        CurseStatusPara:SetDesc(finalParaDesc)
+        if CurseStatusPara.SetMainImage then
+            CurseStatusPara:SetMainImage({
+                Image = GetIcon(84366761557806),
+                Gradient = GetGameGradient(rarity),
+                Title = curseTitle,
+                Quantity = rarity
+            }, 50)
+        end
+        Optimizer.Cache.LastCurseTextHash = curseTitle .. finalParaDesc
+    end
+
+    -- [3] UPDATE DESKRIPSI TOGGLE (INFO MATERIAL & BIAYA)
+    if CurseAutoToggle then
+        local tokenKey = AvatarCursesConfig.TokenName
+        local matInfo = MaterialsModule[tokenKey]
+        
+        local multi = pData.Gamepasses.Vip and 0.8 or 1
+        local cost = AvatarCursesConfig.TokenCost * multi
+        local owned = pData.Materials[tokenKey] or 0
+        
+        local matIcon = (matInfo and matInfo.Template) and GetIcon(matInfo.Template) or ""
+        local matName = matInfo and matInfo.Display or tokenKey
+        
+        -- Format: [Icon] NamaMaterial: Diperlukan / Dimiliki
+        local toggleDesc = string.format("%s %s: %s / %s", 
+            matIcon, 
+            matName, 
+            UtilsModule.ToText(cost), 
+            UtilsModule.ToText(owned)
+        )
+        
+        if Optimizer.Cache.LastCurseToggleDesc ~= toggleDesc then
+            CurseAutoToggle:SetDesc(toggleDesc)
+            Optimizer.Cache.LastCurseToggleDesc = toggleDesc
+        end
+    end
+
+    -- [4] EKSEKUSI AUTO ROLL
+    if Config.AutoRollCurse and isAvatarActive then
+        local isTargetReached = false
+        if Config.TargetCursesFilter and #Config.TargetCursesFilter > 0 then
+            for _, target in ipairs(Config.TargetCursesFilter) do
+                local targetIdx = type(target) == "table" and target.Value or target
+                if tonumber(curseIndex) == tonumber(targetIdx) then
+                    isTargetReached = true
+                    break
+                end
+            end
+        end
+
+        if not isTargetReached then
+            local multi = pData.Gamepasses.Vip and 0.8 or 1
+            local cost = AvatarCursesConfig.TokenCost * multi
+            local owned = pData.Materials[AvatarCursesConfig.TokenName] or 0
+            
+            if owned >= cost and Reliable then
+                Reliable:FireServer("Avatar Curse Roll")
+                task.wait(1.5)
+            end
+        end
+    end
+end
 -- MAIN GLOBAL LOOP TRIGGER
 -- // OPTIMIZED MAIN LOOP //
 task.spawn(function()
@@ -5694,6 +6009,7 @@ task.spawn(function()
             pcall(Optimizer.Update_MegaBoss_Logic, pData)
             pcall(Optimizer.Update_Gamemode_Dropdowns)
             pcall(Optimizer.Update_RarityPower_Logic, pData)
+            pcall(Optimizer.Update_AvatarCurse_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
@@ -5701,7 +6017,7 @@ task.spawn(function()
             end
             
         end
-        task.wait(0.5) -- Throttle Global
+        task.wait(0.1) -- Throttle Global
     end
 end)
 Window:SelectTab(FarmTab.Index);
