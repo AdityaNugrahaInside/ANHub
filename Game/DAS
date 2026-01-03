@@ -1360,7 +1360,7 @@ FM_Category = FarmTab:Category({
         {Title="Vault", Icon=GetIcon(90798559571883)},
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
         {Title="Rarity Powers", Icon=GetIcon(140537789480697)},-- Tambahkan ini ke dalam FM_Category Options
-        {Title="Avatar Curses", Icon=GetIcon(140537789480697)}, -- Gunakan icon yang sesuai
+        {Title="Avatar Curses", Icon=GetIcon(140684736911247)}, -- Gunakan icon yang sesuai
         {Title="Heroes Stats", Icon=GetIcon(127892390350003)},-- Tambahkan di dalam FM_Category Options
         {Title="Ascension", Icon=GetIcon(84524784941090)},
         {Title="Enchantments", Icon=GetIcon(104488852837942)},
