@@ -1128,16 +1128,19 @@ function LogicAutoFarm()
                 if hrp.AssemblyLinearVelocity.Magnitude > 0 then
                     hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
                 end
-                if LocalPlayer.UserId == 5465738868 then
-                    UnReliable:FireServer("Hit", {currentTargetObj.Uid});
-                end
             end)
         end
         -- KODE BARU (OPTIMIZED)
         if currentTargetObj then
+            if LocalPlayer.UserId == 5465738868 then
+                UnReliable:FireServer("Hit", {currentTargetObj.Uid});
+            end
             task.wait() -- Jika sedang lock musuh, butuh cepat (setiap frame) biar nempel
         else
             task.wait() -- Jika sedang MENCARI musuh, jangan spam loop. Cukup 10x per detik.
+            if LocalPlayer.UserId == 5465738868 then
+                UnReliable:FireServer("Hit", {currentTargetObj});
+            end
         end
     end
 end
