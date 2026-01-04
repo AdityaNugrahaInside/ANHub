@@ -6178,7 +6178,7 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
             if Reliable then
                 -- Berdasarkan decompile: shared.Reply.To("Evolve EnergyUpgrade")
                 pcall(function()
-                    Reliable:FireServer("Evolve", {"EnergyUpgradeUpgrade"})
+                    Reliable:FireServer("Evolve EnergyUpgrade")
                 end)
                 
                 -- Webhook (Opsional)
