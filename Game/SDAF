@@ -2615,6 +2615,14 @@ function SendUpgradeWebhook(category, upgradeName, level, cost)
             title = "☠️ Mega Boss Upgrade!"
             color = 11342935
             currencyName = "Cost (MB Tokens)"
+        elseif category == "Energy Upgrade" then
+            title = "⚡ Energy Upgrade Purchased!"
+            color = 8900331
+            currencyName = "Cost (Energy Tokens)"
+        elseif category == "Rarity Powers" then
+            title = "🧬 Rarity Power Upgraded!"
+            color = 11141290
+            currencyName = "Cost"
         end
 
         local embedData = {
@@ -3925,6 +3933,11 @@ EnergyUpgradeToggle = FarmTab:Toggle({
     end
 })
 FM_Add("Energy Upgrade", EnergyUpgradeToggle)
+if not IsPremium then
+    Config.AutoEnergyUpgrade = false
+    pcall(function() EnergyUpgradeToggle:Set(false) end)
+    pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
+end
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -5860,6 +5873,12 @@ function Optimizer.Update_RarityPower_Logic(pData)
                         -- Remote sesuai decompile
                         Reliable:FireServer("Upgrade Rarity Power", { powerName })
                     end)
+                    local now = os.time()
+                    local hookKey = "RarityPower_" .. powerName
+                    if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 5 then
+                        SendUpgradeWebhook("Rarity Powers", powerName .. " (" .. actionName .. ")", totalLevel + 1, cost)
+                        LastWebhookTime[hookKey] = now
+                    end
                     task.wait(0.5)
                 end
             end
@@ -5997,6 +6016,16 @@ end
 
 -- Tambahkan Fungsi Optimizer Baru
 function Optimizer.Update_EnergyUpgrade_Logic(pData)
+    if not IsPremium then
+        if Config.AutoEnergyUpgrade then
+            Config.AutoEnergyUpgrade = false
+        end
+        if EnergyUpgradeToggle then
+            pcall(function() EnergyUpgradeToggle:Set(false) end)
+            pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
+        end
+        return
+    end
     -- Berdasarkan decompile, nama data level kemungkinan 'EnergyUpgrade'
     -- Jika di game aslinya berbeda, silakan sesuaikan path pData-nya
     local currentLvl = pData.EnergyUpgrade or 0 
@@ -6031,7 +6060,7 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
         newTitle = string.format("Energy Upgrade [%d/%d]", currentLvl, maxLvl)
         newDesc = string.format(
             "Current Buff: <font color='#d667ff'>+%s%% Mastery</font>\n" ..
-            "Cost: %s%s %s/%s",
+            "%s%s %s/%s",
             UtilsModule.ToText(currentBuff),
             matIcon, matName, UtilsModule.ToText(cost), UtilsModule.ToText(myTokens)
         )
@@ -6051,7 +6080,7 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
                 Quantity = "Lv." .. currentLvl,
                 Title = "Energy Upgrade",
                 Gradient = GetGameGradient("Rare") -- Gunakan warna Rare (Biru)
-            }, 50)
+            }, 60)
         end
         Optimizer.Cache[cacheKey] = newDesc
     end
@@ -6068,7 +6097,7 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
                 -- Webhook (Opsional)
                 local now = os.time()
                 if not LastWebhookTime["EnergyUpgrade"] or (now - LastWebhookTime["EnergyUpgrade"]) >= 5 then
-                    SendUpgradeWebhook("Yen", "Energy Upgrade", currentLvl + 1, cost)
+                    SendUpgradeWebhook("Energy Upgrade", "Energy Upgrade", currentLvl + 1, cost)
                     LastWebhookTime["EnergyUpgrade"] = now
                 end
                 task.wait(0.5) -- Debounce
