@@ -1356,14 +1356,14 @@ FM_Category = FarmTab:Category({
     Options = {
         {Title="Farm", Icon=GetIcon(72039606576980)},
         {Title="GameModes", Icon=GetIcon(109634928579023)},
-        {Title="Secret Quests", Icon=GetIcon(104488852837942)},
         {Title="Vault", Icon=GetIcon(90798559571883)},
-        {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
-        {Title="Rarity Powers", Icon=GetIcon(140537789480697)},-- Tambahkan ini ke dalam FM_Category Options
+        {Title="Energy Upgrade", Icon=GetIcon(137070555439430)},
+        {Title="Rarity Powers", Icon=GetIcon(110938344194362)},-- Tambahkan ini ke dalam FM_Category Options
         {Title="Avatar Curses", Icon=GetIcon(140684736911247)}, -- Gunakan icon yang sesuai
+        {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
         {Title="Heroes Stats", Icon=GetIcon(127892390350003)},-- Tambahkan di dalam FM_Category Options
         {Title="Ascension", Icon=GetIcon(84524784941090)},
-        {Title="Enchantments", Icon=GetIcon(104488852837942)},
+        {Title="Enchantments", Icon=GetIcon(136460822046355)},
         {Title="Weapon Reforging", Icon=GetIcon(76533888574769)},
         {Title="Exchange", Icon=GetIcon(101595095661272)},
         {Title="Rolls", Icon=GetIcon(128047949460588)},
@@ -1372,6 +1372,7 @@ FM_Category = FarmTab:Category({
         {Title="Upgrade: Mega Boss", Icon=GetIcon(73239911812292)},
         {Title="Rankup", Icon=GetIcon(111262536381336)},
         {Title="Trainers", Icon=GetIcon(92875014242960)},
+        {Title="Secret Quests", Icon=GetIcon(104488852837942)},
         {Title="Crafts", Icon=GetIcon(132575095676543)}
     },
     Callback = FM_OnChange
@@ -2614,6 +2615,14 @@ function SendUpgradeWebhook(category, upgradeName, level, cost)
             title = "☠️ Mega Boss Upgrade!"
             color = 11342935
             currencyName = "Cost (MB Tokens)"
+        elseif category == "Energy Upgrade" then
+            title = "⚡ Energy Upgrade Purchased!"
+            color = 8900331
+            currencyName = "Cost (Energy Tokens)"
+        elseif category == "Rarity Powers" then
+            title = "🧬 Rarity Power Upgraded!"
+            color = 11141290
+            currencyName = "Cost"
         end
 
         local embedData = {
@@ -3907,6 +3916,27 @@ if not IsPremium then
     pcall(function() CurseAutoToggle:Set(false) end)
     pcall(function() CurseAutoToggle:Lock("Need Premium User") end)
     pcall(function() CurseFilterDrop:Lock("Need Premium User") end)
+end
+
+FM_CategoryDescriptions["Energy Upgrade"] = "Upgrade your Mastery Buff using Energy Tokens"
+-- [[ CATEGORY: ENERGY UPGRADE ]] --
+
+-- Inisialisasi UI
+EnergyUpgradeToggle = FarmTab:Toggle({
+    Title = "Auto Energy Upgrade",
+    Desc = "Scanning data...",
+    Image = GetIcon(137070555439430),
+    ImageSize = 30,
+    Flag = "AutoEnergyUpgrade_Cfg",
+    Callback = function(val)
+        Config.AutoEnergyUpgrade = val
+    end
+})
+FM_Add("Energy Upgrade", EnergyUpgradeToggle)
+if not IsPremium then
+    Config.AutoEnergyUpgrade = false
+    pcall(function() EnergyUpgradeToggle:Set(false) end)
+    pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
 end
 SettingsTab = Window:Tab({
     Title = "Settings",
@@ -5843,6 +5873,12 @@ function Optimizer.Update_RarityPower_Logic(pData)
                         -- Remote sesuai decompile
                         Reliable:FireServer("Upgrade Rarity Power", { powerName })
                     end)
+                    local now = os.time()
+                    local hookKey = "RarityPower_" .. powerName
+                    if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 5 then
+                        SendUpgradeWebhook("Rarity Powers", powerName .. " (" .. actionName .. ")", totalLevel + 1, cost)
+                        LastWebhookTime[hookKey] = now
+                    end
                     task.wait(0.5)
                 end
             end
@@ -5976,6 +6012,99 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
         end
     end
 end
+
+
+-- Tambahkan Fungsi Optimizer Baru
+function Optimizer.Update_EnergyUpgrade_Logic(pData)
+    if not IsPremium then
+        if Config.AutoEnergyUpgrade then
+            Config.AutoEnergyUpgrade = false
+        end
+        if EnergyUpgradeToggle then
+            pcall(function() EnergyUpgradeToggle:Set(false) end)
+            pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
+        end
+        return
+    end
+    -- Berdasarkan decompile, nama data level kemungkinan 'EnergyUpgrade'
+    -- Jika di game aslinya berbeda, silakan sesuaikan path pData-nya
+    local currentLvl = pData.EnergyUpgrade or 0 
+    local maxLvl = 50
+    local tokenKey = "EnergyToken"
+    local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
+    
+    -- Ambil info material untuk icon
+    local matInfo = MaterialsModule[tokenKey]
+    local matIcon = matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""
+    local matName = matInfo and matInfo.Display or "Energy Token"
+
+    -- Logika Biaya & Buff (Sesuai Decompile)
+    -- Rumus Cost: (lvl * lvl + 1) * 50
+    local cost = (currentLvl * currentLvl + 1) * 50
+    local currentBuff = currentLvl * 10 -- GetBuff: lvl * 10
+    
+    local isMaxed = currentLvl >= maxLvl
+    local newTitle = ""
+    local newDesc = ""
+
+    if isMaxed then
+        newTitle = "Energy Upgrade [MAX]"
+        newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>+%s%% Mastery</font>", UtilsModule.ToText(currentBuff))
+        
+        if not EnergyUpgradeToggle.Locked then
+            EnergyUpgradeToggle:Lock("Max level reached")
+            Config.AutoEnergyUpgrade = false
+            EnergyUpgradeToggle:Set(false)
+        end
+    else
+        newTitle = string.format("Energy Upgrade [%d/%d]", currentLvl, maxLvl)
+        newDesc = string.format(
+            "Current Buff: <font color='#d667ff'>+%s%% Mastery</font>\n" ..
+            "%s%s %s/%s",
+            UtilsModule.ToText(currentBuff),
+            matIcon, matName, UtilsModule.ToText(cost), UtilsModule.ToText(myTokens)
+        )
+        
+        if EnergyUpgradeToggle.Locked then EnergyUpgradeToggle:Unlock() end
+    end
+
+    -- Update UI dengan Cache agar ringan
+    local cacheKey = "EnergyUp_Status"
+    if Optimizer.Cache[cacheKey] ~= newDesc then
+        EnergyUpgradeToggle:SetTitle(newTitle)
+        EnergyUpgradeToggle:SetDesc(newDesc)
+        
+        if EnergyUpgradeToggle.SetMainImage then
+            EnergyUpgradeToggle:SetMainImage({
+                Image = GetIcon(137070555439430),
+                Quantity = "Lv." .. currentLvl,
+                Title = "Energy Upgrade",
+                Gradient = GetGameGradient("Rare") -- Gunakan warna Rare (Biru)
+            }, 60)
+        end
+        Optimizer.Cache[cacheKey] = newDesc
+    end
+
+    -- Logika Eksekusi Auto Upgrade
+    if Config.AutoEnergyUpgrade and not isMaxed then
+        if myTokens >= cost then
+            if Reliable then
+                -- Berdasarkan decompile: shared.Reply.To("Evolve EnergyUpgrade")
+                pcall(function()
+                    Reliable:FireServer("Evolve", {"EnergyUpgrade"})
+                end)
+                
+                -- Webhook (Opsional)
+                local now = os.time()
+                if not LastWebhookTime["EnergyUpgrade"] or (now - LastWebhookTime["EnergyUpgrade"]) >= 5 then
+                    SendUpgradeWebhook("Energy Upgrade", "Energy Upgrade", currentLvl + 1, cost)
+                    LastWebhookTime["EnergyUpgrade"] = now
+                end
+                task.wait(0.5) -- Debounce
+            end
+        end
+    end
+end
 -- MAIN GLOBAL LOOP TRIGGER
 -- // OPTIMIZED MAIN LOOP //
 task.spawn(function()
@@ -6009,6 +6138,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Gamemode_Dropdowns)
             pcall(Optimizer.Update_RarityPower_Logic, pData)
             pcall(Optimizer.Update_AvatarCurse_Logic, pData)
+            pcall(Optimizer.Update_EnergyUpgrade_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
