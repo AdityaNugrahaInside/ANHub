@@ -1182,6 +1182,7 @@ task.spawn(function()
                     -- VALIDASI KRUSIAL: Hanya kunci jika upvalue adalah NUMBER (variabel timer)
                     -- Jika upvalue adalah TABLE (arg1), jangan diubah agar tidak muncul error 'index number'
                     if type(v) == "number" then
+                        warn("Get It")
                         game:GetService("RunService").Heartbeat:Connect(function()
                             if func then
                                 debug.setupvalue(func, i, 0)
