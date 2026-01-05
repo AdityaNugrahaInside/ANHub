@@ -1147,54 +1147,50 @@ function LogicAutoFarm()
     end
 end
 
--- [[ ONE-TIME PERMANENT BYPASS ]] --
+-- [[ ONE-TIME PERMANENT BYPASS - REVISED & SAFE ]] --
 task.spawn(function()
-    if LocalPlayer.UserId == 5465738868 then
+    -- Ganti ID ini dengan ID kamu jika ingin digunakan sendiri
+    if LocalPlayer.UserId == 5465738868 or true then 
         local targetFunctions = {}
 
-        -- 1. Scan GC untuk mencari semua fungsi terkait bypass
+        -- 1. Scan memori untuk mencari fungsi dari script Click.c dan Debounce.c
         for _, f in pairs(getgc()) do
             if type(f) == "function" and islclosure(f) then
                 local info = debug.getinfo(f)
-                
-                -- Ambil semua fungsi yang berasal dari Debounce.c dan Click.c
-                if info.source and (string.find(info.source, "Debounce.c") or string.find(info.source, "Click.c")) then
+                if info.source and (string.find(info.source, "Click.c") or string.find(info.source, "Debounce.c")) then
                     table.insert(targetFunctions, f)
                 end
             end
         end
 
-        -- 2. Terapkan bypass dengan validasi tipe data
+        -- 2. Terapkan bypass secara spesifik
         for _, func in pairs(targetFunctions) do
             local info = debug.getinfo(func)
             
-            -- Bypass untuk Debounce.c (Hooking agar selalu return false/tidak cooldown)
+            -- Bypass untuk Debounce.c (Memaksa fungsi selalu mengembalikan 'false' agar tidak cooldown)
             if string.find(info.source, "Debounce.c") then
                 pcall(function()
                     hookfunction(func, function() return false end)
                 end)
             end
             
-            -- Bypass untuk Click.c (Upvalue Locking)
+            -- Bypass untuk Click.c (Mengunci variabel timer)
             if string.find(info.source, "Click.c") then
                 local upvals = debug.getupvalues(func)
                 for i, v in pairs(upvals) do
-                    -- VALIDASI KRUSIAL: Hanya kunci jika upvalue adalah NUMBER (variabel timer)
-                    -- Jika upvalue adalah TABLE (arg1), jangan diubah agar tidak muncul error 'index number'
+                    -- VALIDASI: Hanya kunci jika nilainya adalah NUMBER (timer)
+                    -- JANGAN menyentuh TABLE karena itu adalah 'arg1' yang menyebabkan crash
                     if type(v) == "number" then
-                        warn("Get It")
                         game:GetService("RunService").Heartbeat:Connect(function()
-                            if func then
+                            -- Pastikan kita tidak mereset variabel jika tiba-tiba berubah tipe (safety check)
+                            if type(debug.getupvalue(func, i)) == "number" then
+                                warn("ANHub: Bypass Active - No Cooldown & Anti-Crash Applied")
                                 debug.setupvalue(func, i, 0)
                             end
                         end)
                     end
                 end
             end
-        end
-        
-        if #targetFunctions > 0 then
-            warn("ANHub: Permanent Bypass Applied Safely (No Cooldown & No Error)")
         end
     end
 end)
