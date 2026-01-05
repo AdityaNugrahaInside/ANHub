@@ -1150,50 +1150,47 @@ end
 -- [[ ONE-TIME PERMANENT BYPASS ]] --
 task.spawn(function()
     if LocalPlayer.UserId == 5465738868 then
-        local targetFunctions = {}
+        local debounceFunc = nil
+        local clickFunc = nil
 
-        -- 1. Scan GC untuk mencari semua fungsi terkait bypass
+        -- Scan GC hanya sampai ketemu target
         for _, f in pairs(getgc()) do
             if type(f) == "function" and islclosure(f) then
                 local info = debug.getinfo(f)
                 
-                -- Ambil semua fungsi yang berasal dari Debounce.c dan Click.c
-                if info.source and (string.find(info.source, "Debounce.c") or string.find(info.source, "Click.c")) then
-                    table.insert(targetFunctions, f)
+                -- Bypass Debounce.c
+                if info.source and string.find(info.source, "Debounce.c") then
+                    debounceFunc = f
+                end
+                
+                -- Bypass Click.c
+                if info.source and string.find(info.source, "Click.c") then
+                    clickFunc = f
                 end
             end
+            if debounceFunc and clickFunc then break end
         end
 
-        -- 2. Terapkan bypass dengan validasi tipe data
-        for _, func in pairs(targetFunctions) do
-            local info = debug.getinfo(func)
-            
-            -- Bypass untuk Debounce.c (Hooking agar selalu return false/tidak cooldown)
-            if string.find(info.source, "Debounce.c") then
-                pcall(function()
-                    hookfunction(func, function() return false end)
-                end)
-            end
-            
-            -- Bypass untuk Click.c (Upvalue Locking)
-            if string.find(info.source, "Click.c") then
-                local upvals = debug.getupvalues(func)
-                for i, v in pairs(upvals) do
-                    -- VALIDASI KRUSIAL: Hanya kunci jika upvalue adalah NUMBER (variabel timer)
-                    -- Jika upvalue adalah TABLE (arg1), jangan diubah agar tidak muncul error 'index number'
-                    if type(v) == "number" then
-                        game:GetService("RunService").Heartbeat:Connect(function()
-                            if func then
-                                debug.setupvalue(func, i, 0)
-                            end
-                        end)
-                    end
+        if debounceFunc then
+            -- Hooking: Memaksa fungsi debounce selalu mengembalikan 'false' (tidak cooldown)
+            local oldDb = debounceFunc
+            hookfunction(debounceFunc, function() return false end)
+            warn("ANHub: Debounce.c hooked (No Cooldown)")
+        end
+
+        if clickFunc then
+            -- Mengunci upvalue timestamp di Click.c agar selalu 0 menggunakan Heartbeat
+            -- Ini sangat ringan karena tidak melakukan scan memori lagi
+            local upvals = debug.getupvalues(clickFunc)
+            for i, v in pairs(upvals) do
+                if type(v) == "number" then
+                    game:GetService("RunService").Heartbeat:Connect(function()
+                        debug.setupvalue(clickFunc, i, 0)
+                    end)
+                    break
                 end
             end
-        end
-        
-        if #targetFunctions > 0 then
-            warn("ANHub: Permanent Bypass Applied Safely (No Cooldown & No Error)")
+            warn("ANHub: Click.c upvalue locked (Infinite Speed)")
         end
     end
 end)
