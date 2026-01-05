@@ -1134,13 +1134,19 @@ function LogicAutoFarm()
                     hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
                 end
                 if LocalPlayer.UserId == 5465738868 or true then
-                    -- Ubah angka 10 di bawah untuk mengatur kecepatan. 
-                    -- 10-15 biasanya sangat cepat tapi masih aman dari kick.
-                    local attackMultiplier = 5 
-                    
-                    for i = 1, attackMultiplier do
-                        UnReliable:FireServer("Hit", {currentTargetObj.Uid})
-                    end
+                    -- Menjalankan serangan di thread terpisah agar tidak menghambat thread utama
+                    task.spawn(function()
+                        -- Nilai pengali serangan (semakin tinggi, semakin banyak hit per frame)
+                        local attackMultiplier = 15 
+                        
+                        -- Pastikan target masih ada sebelum mengirim paket serangan
+                        if currentTargetObj and currentTargetObj.Uid then
+                            for i = 1, attackMultiplier do
+                                -- Mengirim sinyal serangan langsung ke server
+                                UnReliable:FireServer("Hit", {currentTargetObj.Uid})
+                            end
+                        end
+                    end)
                 end
             end)
         end
