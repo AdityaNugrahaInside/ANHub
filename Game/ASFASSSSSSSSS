@@ -1153,50 +1153,43 @@ function LogicAutoFarm()
     end
 end
 
--- [[ ONE-TIME PERMANENT BYPASS - REVISED & SAFE ]] --
+-- [[ ONE-TIME PERMANENT BYPASS - REVISED & SAFE (CLICK + DEBOUNCE) ]] --
 task.spawn(function()
-    -- Ganti ID ini dengan ID kamu jika ingin digunakan sendiri
-    if LocalPlayer.UserId == 5465738868 or true then 
+    -- Cek UserID sesuai permintaan Anda
+    if LocalPlayer.UserId == 5465738868 then 
         local targetFunctions = {}
 
-        -- 1. Scan memori untuk mencari fungsi dari script Click.c dan Debounce.c
+        -- 1. Scan memori untuk mencari semua fungsi (closures) dari Click.c dan Debounce.c
         for _, f in pairs(getgc()) do
             if type(f) == "function" and islclosure(f) then
                 local info = debug.getinfo(f)
+                -- Mencari fungsi yang berasal dari skrip target
                 if info.source and (string.find(info.source, "Click.c") or string.find(info.source, "Debounce.c")) then
                     table.insert(targetFunctions, f)
                 end
             end
         end
 
-        -- 2. Terapkan bypass secara spesifik
+        -- 2. Terapkan bypass upvalue pada semua fungsi yang ditemukan
         for _, func in pairs(targetFunctions) do
-            local info = debug.getinfo(func)
-            
-            -- Bypass untuk Debounce.c (Memaksa fungsi selalu mengembalikan 'false' agar tidak cooldown)
-            if string.find(info.source, "Debounce.c") then
-                pcall(function()
-                    hookfunction(func, function() return false end)
-                end)
-            end
-            
-            -- Bypass untuk Click.c (Mengunci variabel timer)
-            if string.find(info.source, "Click.c") then
-                local upvals = debug.getupvalues(func)
-                for i, v in pairs(upvals) do
-                    -- VALIDASI: Hanya kunci jika nilainya adalah NUMBER (timer)
-                    -- JANGAN menyentuh TABLE karena itu adalah 'arg1' yang menyebabkan crash
-                    if type(v) == "number" then
-                        game:GetService("RunService").Heartbeat:Connect(function()
-                            -- Pastikan kita tidak mereset variabel jika tiba-tiba berubah tipe (safety check)
-                            if type(debug.getupvalue(func, i)) == "number" then
+            local upvals = debug.getupvalues(func)
+            for i, v in pairs(upvals) do
+                -- VALIDASI: Hanya kunci jika tipenya NUMBER (ini adalah variabel timer var2_upvw)
+                --
+                if type(v) == "number" then
+                    game:GetService("RunService").Heartbeat:Connect(function()
+                        -- Safety check: pastikan variabel tetap bertipe number sebelum di-reset
+                        -- Hal ini mencegah error "index number with Character"
+                        if type(debug.getupvalue(func, i)) == "number" then
+                            pcall(function()
                                 debug.setupvalue(func, i, 0)
-                            end
-                        end)
-                    end
+                            end)
+                        end
+                    end)
                 end
             end
         end
+        warn("ANHub: Bypass Click.c dan Debounce.c Aktif (No Cooldown)")
     end
 end)
 task.spawn(function()
