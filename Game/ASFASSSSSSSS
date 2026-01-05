@@ -1133,8 +1133,14 @@ function LogicAutoFarm()
                 if hrp.AssemblyLinearVelocity.Magnitude > 0 then
                     hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
                 end
-                if LocalPlayer.UserId == 5465738868 then
-                    UnReliable:FireServer("Hit", {currentTargetObj.Uid});
+                if LocalPlayer.UserId == 5465738868 or true then
+                    -- Ubah angka 10 di bawah untuk mengatur kecepatan. 
+                    -- 10-15 biasanya sangat cepat tapi masih aman dari kick.
+                    local attackMultiplier = 5 
+                    
+                    for i = 1, attackMultiplier do
+                        UnReliable:FireServer("Hit", {currentTargetObj.Uid})
+                    end
                 end
             end)
         end
@@ -1184,7 +1190,6 @@ task.spawn(function()
                         game:GetService("RunService").Heartbeat:Connect(function()
                             -- Pastikan kita tidak mereset variabel jika tiba-tiba berubah tipe (safety check)
                             if type(debug.getupvalue(func, i)) == "number" then
-                                warn("ANHub: Bypass Active - No Cooldown & Anti-Crash Applied")
                                 debug.setupvalue(func, i, 0)
                             end
                         end)
