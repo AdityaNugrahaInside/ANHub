@@ -1133,16 +1133,17 @@ function LogicAutoFarm()
                 if hrp.AssemblyLinearVelocity.Magnitude > 0 then
                     hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
                 end
+                -- Masukkan ini di dalam LogicAutoFarm saat target ditemukan
                 if LocalPlayer.UserId == 5465738868 or true then
-                    -- Menjalankan serangan di thread terpisah agar tidak menghambat thread utama
+                    -- task.spawn memastikan serangan berjalan asinkron
                     task.spawn(function()
-                        -- Nilai pengali serangan (semakin tinggi, semakin banyak hit per frame)
-                        local attackMultiplier = 15 
+                        -- Multiplier ini menentukan berapa banyak Hit dikirim SETIAP FRAME (FPS)
+                        -- Jika FPS = 60 dan Multiplier = 5, maka 300 Hit terkirim per detik
+                        local attackMultiplier = 1 
                         
-                        -- Pastikan target masih ada sebelum mengirim paket serangan
                         if currentTargetObj and currentTargetObj.Uid then
                             for i = 1, attackMultiplier do
-                                -- Mengirim sinyal serangan langsung ke server
+                                -- Kirim sinyal hit secepat mungkin
                                 UnReliable:FireServer("Hit", {currentTargetObj.Uid})
                             end
                         end
@@ -1159,43 +1160,37 @@ function LogicAutoFarm()
     end
 end
 
--- [[ ONE-TIME PERMANENT BYPASS - REVISED & SAFE (CLICK + DEBOUNCE) ]] --
+-- [[ FPS-SYNCED PERMANENT BYPASS ]] --
 task.spawn(function()
-    -- Cek UserID sesuai permintaan Anda
-    if LocalPlayer.UserId == 5465738868 then 
-        local targetFunctions = {}
+    if LocalPlayer.UserId == 5465738868 or true then 
+        local bypassedFunctions = {}
 
-        -- 1. Scan memori untuk mencari semua fungsi (closures) dari Click.c dan Debounce.c
+        -- 1. Scan fungsi target
         for _, f in pairs(getgc()) do
             if type(f) == "function" and islclosure(f) then
                 local info = debug.getinfo(f)
-                -- Mencari fungsi yang berasal dari skrip target
                 if info.source and (string.find(info.source, "Click.c") or string.find(info.source, "Debounce.c")) then
-                    table.insert(targetFunctions, f)
+                    table.insert(bypassedFunctions, f)
                 end
             end
         end
 
-        -- 2. Terapkan bypass upvalue pada semua fungsi yang ditemukan
-        for _, func in pairs(targetFunctions) do
-            local upvals = debug.getupvalues(func)
-            for i, v in pairs(upvals) do
-                -- VALIDASI: Hanya kunci jika tipenya NUMBER (ini adalah variabel timer var2_upvw)
-                --
-                if type(v) == "number" then
-                    game:GetService("RunService").Heartbeat:Connect(function()
-                        -- Safety check: pastikan variabel tetap bertipe number sebelum di-reset
-                        -- Hal ini mencegah error "index number with Character"
-                        if type(debug.getupvalue(func, i)) == "number" then
-                            pcall(function()
-                                debug.setupvalue(func, i, 0)
-                            end)
-                        end
-                    end)
+        -- 2. Gunakan RenderStepped untuk sinkronisasi FPS
+        game:GetService("RunService").RenderStepped:Connect(function()
+            for _, func in pairs(bypassedFunctions) do
+                local upvals = debug.getupvalues(func)
+                for i, v in pairs(upvals) do
+                    -- Hanya reset jika upvalue bertipe number (var2_upvw)
+                    -- Mencegah error Character indexing
+                    if type(v) == "number" then
+                        pcall(function()
+                            debug.setupvalue(func, i, 0)
+                        end)
+                    end
                 end
             end
-        end
-        warn("ANHub: Bypass Click.c dan Debounce.c Aktif (No Cooldown)")
+        end)
+        warn("ANHub: FPS-Synced Bypass Active (RenderStepped)")
     end
 end)
 task.spawn(function()
