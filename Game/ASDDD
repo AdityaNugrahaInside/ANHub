@@ -504,7 +504,7 @@ end
 -- Jalankan pengecekan data
 LoadKeySystemData()
 
-UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
+UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main3.lua?v=" .. math.random()))()
 
 Window = UI:CreateWindow({
     Title = "AN Hub - Anime Weapons",
