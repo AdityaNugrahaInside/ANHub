@@ -58,8 +58,6 @@ MeteorState = {
     Position = nil,
     LandTime = 0
 }
-
-_UIDescCache = {}
 MegaBossState = {
     IsActive = false,
     TargetZone = nil,
@@ -4487,11 +4485,15 @@ end
 task.spawn(function()
     local wasClosed = Window.Closed == true
     while not Window.Destroyed do
+        local isClosed = Window.Closed == true
+        if wasClosed and not isClosed then
             pcall(function()
                 if Optimizer and Optimizer.MarkUIStale then
                     Optimizer.MarkUIStale()
                 end
             end)
+        end
+        wasClosed = isClosed
         task.wait(0.1)
     end
 end)
@@ -5629,6 +5631,8 @@ function Optimizer.Update_MegaBoss_Logic(pData)
         end
     end
 end
+
+_UIDescCache = {} 
 
 -- [[ HELPER LOGIKA UPGRADE UMUM (OPTIMIZED) ]] --
 function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule, toggleList, configPrefix, remoteName, currencyVal, currencyIcon)
