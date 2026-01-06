@@ -4482,21 +4482,42 @@ function Optimizer.MarkUIStale()
     _UIDescCache = {}
 end
 
-task.spawn(function()
-    local wasClosed = Window.Closed == true
-    while not Window.Destroyed do
-        local isClosed = Window.Closed == true
-        if wasClosed and not isClosed then
-            pcall(function()
-                if Optimizer and Optimizer.MarkUIStale then
-                    Optimizer.MarkUIStale()
-                end
-            end)
-        end
-        wasClosed = isClosed
-        task.wait(0.1)
+do
+    local function markUIStale()
+        pcall(function()
+            if Optimizer and Optimizer.MarkUIStale then
+                Optimizer.MarkUIStale()
+            end
+        end)
     end
-end)
+
+    if type(Window) == "table" and Window.OnOpen and Window.OnClose then
+        local wasClosed = Window.Closed == true
+
+        Window:OnOpen(function()
+            if wasClosed then
+                markUIStale()
+            end
+            wasClosed = false
+        end)
+
+        Window:OnClose(function()
+            wasClosed = true
+        end)
+    else
+        task.spawn(function()
+            local wasClosed = Window and Window.Closed == true
+            while Window and not Window.Destroyed do
+                local isClosed = Window.Closed == true
+                if wasClosed and not isClosed then
+                    markUIStale()
+                end
+                wasClosed = isClosed
+                task.wait(0.5)
+            end
+        end)
+    end
+end
 
 function Optimizer.Update_Gamemode_Dropdowns()
     -- Update setiap 1 detik
