@@ -2553,14 +2553,6 @@ ExchangeButton = GeneralManagerSection:Button({
             Notify("Error", "Select a token first!")
             return
         end
-
-        -- [LOGIKA REMOTE EVENT SESUAI DECOMPILE]
-        -- Decompile: shared.Reply.To("Convert Tokens", var6_upvw, var8_upvw, var9_upvw)
-        -- Arg 1: Action Name
-        -- Arg 2: Token Key (String)
-        -- Arg 3: Is Buying/Swap (Boolean)
-        -- Arg 4: Amount Slider (0.0 - 1.0)
-        
         local args = {
             "Convert Tokens",
             {
@@ -2604,6 +2596,19 @@ for _, rollType in ipairs(AllRollTypes) do
     RollToggleUI[rollType] = myToggle;
     _rollCount = _rollCount + 1;
 end;
+
+if not IsPremium then
+    for rollType, toggle in pairs(RollToggleUI) do
+        local configFlag = "AutoRoll" .. rollType
+        if Config[configFlag] then
+            Config[configFlag] = false
+        end
+        if toggle then
+            pcall(function() toggle:Set(false) end)
+            pcall(function() toggle:Lock("Need Premium User") end)
+        end
+    end
+end
 
 GeneralTab:Toggle({
     Title = "Auto Fuse Weapons",
@@ -3433,6 +3438,25 @@ FM_Add("Upgrade: Mega Boss", MegaBossToggle)
 MegaBossToggles = {}
 if MegaBossUpgradeConfig then
     CreateUpgradeSection(FarmTab, "Upgrade: Mega Boss", MegaBossUpgradeConfig, "AutoMegaBossUp_", MegaBossToggles, nil)
+end
+
+if not IsPremium then
+    pcall(function() MegaBossFilterDrop:Lock("Need Premium User") end)
+    if MegaBossToggle then
+        Config.AutoMegaBoss = false
+        pcall(function() MegaBossToggle:Set(false) end)
+        pcall(function() MegaBossToggle:Lock("Need Premium User") end)
+    end
+    for name, toggle in pairs(MegaBossToggles) do
+        local k = "AutoMegaBossUp_" .. name
+        if Config[k] then
+            Config[k] = false
+        end
+        if toggle then
+            pcall(function() toggle:Set(false) end)
+            pcall(function() toggle:Lock("Need Premium User") end)
+        end
+    end
 end
 
 AvatarStatusPara = FarmTab:Paragraph({
@@ -4944,6 +4968,20 @@ function Optimizer.Update_Exchange_Logic(pData)
 end
 
 function Optimizer.Update_Roll_Logic(pData)
+    if not IsPremium then
+        for rollType, toggle in pairs(RollToggleUI) do
+            local k = "AutoRoll" .. rollType
+            if Config[k] then
+                Config[k] = false
+            end
+            if toggle then
+                pcall(function() toggle:Set(false) end)
+                pcall(function() toggle:Lock("Need Premium User") end)
+            end
+        end
+        return
+    end
+
     if not pData.Vault then return end
     
     for rollType, toggle in pairs(RollToggleUI) do
@@ -5572,6 +5610,28 @@ end
 function Optimizer.Update_MegaBoss_Logic(pData)
     -- Pastikan config & module terload
     if not MegaBossUpgradeConfig or not MegaBossUpgradeModule then return end
+
+    if not IsPremium then
+        if MegaBossFilterDrop then
+            pcall(function() MegaBossFilterDrop:Lock("Need Premium User") end)
+        end
+        if MegaBossToggle then
+            Config.AutoMegaBoss = false
+            pcall(function() MegaBossToggle:Set(false) end)
+            pcall(function() MegaBossToggle:Lock("Need Premium User") end)
+        end
+        for name, toggle in pairs(MegaBossToggles) do
+            local k = "AutoMegaBossUp_" .. name
+            if Config[k] then
+                Config[k] = false
+            end
+            if toggle then
+                pcall(function() toggle:Set(false) end)
+                pcall(function() toggle:Lock("Need Premium User") end)
+            end
+        end
+        return
+    end
     
     -- Ambil Data Player
     local myUpgrades = pData.MegaBossUpgrades or {}
