@@ -62,7 +62,10 @@ MegaBossState = {
     IsActive = false,
     TargetZone = nil,
     ReturnZone = nil,
-    BossDeadCheck = 0
+    BossDeadCheck = 0,
+    PendingTargetZone = nil,
+    PendingZoneDisplayName = nil,
+    PendingReceivedAt = 0
 }
 IsTeleporting = false
 RollConfigs = {}
@@ -4287,8 +4290,6 @@ task.spawn(function()
         local zoneDisplayName = string.match(msgObj.Text, "Mega Boss Spawned at (.-)!")
         
         if zoneDisplayName then
-            if CheckIsFightingZone() then return end
-
             local targetZoneID = ZoneDisplayToID[zoneDisplayName]
             
             if targetZoneID then
@@ -4308,6 +4309,22 @@ task.spawn(function()
                 end
                 -- [AKHIR LOGIKA FILTER]
 
+                if CheckIsFightingZone() then
+                    MegaBossState.PendingTargetZone = targetZoneID
+                    MegaBossState.PendingZoneDisplayName = zoneDisplayName
+                    MegaBossState.PendingReceivedAt = os.time()
+                    return
+                end
+
+                local pData = getgenv().PlayerData
+                local currentZone = pData and pData.Attributes and pData.Attributes.Zone
+                if targetZoneID ~= currentZone and not Reliable then
+                    MegaBossState.PendingTargetZone = targetZoneID
+                    MegaBossState.PendingZoneDisplayName = zoneDisplayName
+                    MegaBossState.PendingReceivedAt = os.time()
+                    return
+                end
+
                 if not MegaBossState.IsActive then
                     MegaBossState.ReturnZone = GetCurrentMapStatus()
                 end
@@ -4315,10 +4332,13 @@ task.spawn(function()
                 MegaBossState.TargetZone = targetZoneID
                 MegaBossState.IsActive = true
                 MegaBossState.BossDeadCheck = 0
+                MegaBossState.PendingTargetZone = nil
+                MegaBossState.PendingZoneDisplayName = nil
+                MegaBossState.PendingReceivedAt = 0
                 
                 if Notify then Notify("Mega Boss", "Spawned at " .. zoneDisplayName .. "! Teleporting...") end
                 
-                if Reliable and targetZoneID ~= getgenv().PlayerData.Attributes.Zone then
+                if Reliable and targetZoneID ~= currentZone then
                     pcall(function() Reliable:FireServer("Zone Teleport", { targetZoneID }) end)
                 end
             end
@@ -4335,6 +4355,46 @@ task.spawn(function()
     if ChatConnection then
         ChatConnection:Disconnect()
         ChatConnection = nil
+    end
+end)
+
+task.spawn(function()
+    while not Window.Destroyed do
+        task.wait(0.5)
+
+        if not Config.AutoMegaBoss then
+            MegaBossState.PendingTargetZone = nil
+            MegaBossState.PendingZoneDisplayName = nil
+            MegaBossState.PendingReceivedAt = 0
+        else
+            local pendingZone = MegaBossState.PendingTargetZone
+            if pendingZone and not MegaBossState.IsActive and not IsTeleporting and not CheckIsFightingZone() then
+                local pData = getgenv().PlayerData
+                local currentZone = pData and pData.Attributes and pData.Attributes.Zone
+                if pendingZone ~= currentZone and not Reliable then
+                    continue
+                end
+
+                if not MegaBossState.IsActive then
+                    MegaBossState.ReturnZone = GetCurrentMapStatus()
+                end
+
+                MegaBossState.TargetZone = pendingZone
+                MegaBossState.IsActive = true
+                MegaBossState.BossDeadCheck = 0
+
+                local displayName = MegaBossState.PendingZoneDisplayName or tostring(pendingZone)
+                if Notify then Notify("Mega Boss", "Spawned at " .. displayName .. "! Teleporting...") end
+
+                if Reliable and pendingZone ~= currentZone then
+                    pcall(function() Reliable:FireServer("Zone Teleport", { pendingZone }) end)
+                end
+
+                MegaBossState.PendingTargetZone = nil
+                MegaBossState.PendingZoneDisplayName = nil
+                MegaBossState.PendingReceivedAt = 0
+            end
+        end
     end
 end)
 
