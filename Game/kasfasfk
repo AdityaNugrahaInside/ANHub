@@ -250,7 +250,7 @@ end
 local l = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua"))()
 -- local l = require("d:/Roblox/A/WindUI/src/Init.lua")
 local Window = l:CreateWindow({
-    Title = "AN Hub - Anime Advanced",
+    Title = "AN Hub Anime Advanced",
     Icon = "rbxassetid://84366761557806",
     Author = "Aditya Nugraha",
     Folder = "AnimeAdvanced",
@@ -267,7 +267,7 @@ local Window = l:CreateWindow({
         Title = "ANHub Access",
         Description = "Free Key: ANHUB-2025",
         Key = ValidKeys,
-        URL = "https://discord.gg/cy6uMRmeZ",
+        URL = "https://discord.gg/bUkCZvmrpH",
         Note = "Premium Users are auto-verified!",
         SaveKey = true
     }
@@ -1539,7 +1539,7 @@ local BaseProfile = {
         {
             Icon = "geist:logo-discord", 
             Callback = function() 
-                setclipboard("https://discord.gg/cy6uMRmeZ") 
+                setclipboard("https://discord.gg/bUkCZvmrpH") 
                 Notify("Discord", "Copied!", "geist:logo-discord") 
             end
         }, 
@@ -1712,7 +1712,7 @@ isAutoFruit = false
 -- [ADMIN FEATURE: AUTO FRUIT - PREMIUM ONLY]
 local FruitToggle = MainTab:Toggle({
     Title = "Auto Pick Fruits " .. (not IsPremium and "[PREMIUM]" or ""),
-    Desc = IsPremium and "Auto Teleport & Pick Fruits (Admin Map Only)" or "🔒 Fitur ini khusus untuk User Premium!",
+    Desc = IsPremium and "Auto Teleport & Pick Fruits (Admin Map Only)" or "🔒 Feature For User Premium!",
     Flag = "AutoFruit_Admin_Cfg",
     Callback = function(v)
         if not IsPremium then
