@@ -459,10 +459,13 @@ end
 function SaveZoneConfig(zone, selectedItem)
     if not zone or zone == "" or zone == "Unknown" then return end
     local valuesList = NormalizeEnemySelection(selectedItem)
-    if not valuesList then return end
-
-    Config.SelectedEnemy = valuesList
-    Config.ZoneConfigurations[zone] = { Values = valuesList }
+    if not valuesList then
+        Config.SelectedEnemy = nil
+        Config.ZoneConfigurations[zone] = nil
+    else
+        Config.SelectedEnemy = valuesList
+        Config.ZoneConfigurations[zone] = { Values = valuesList }
+    end
 
     if not isfolder(FolderPath) then
         makefolder(FolderPath)
@@ -1452,7 +1455,7 @@ FM_Category = FarmTab:Category({
         {Title="Farm", Icon=GetIcon(72039606576980)},
         {Title="GameModes", Icon=GetIcon(109634928579023)},
         {Title="Vault", Icon=GetIcon(90798559571883)},
-        {Title="Energy Upgrade", Icon=GetIcon(137070555439430)},
+        {Title="Energy Upgrade", Icon=GetIcon(92370510867554)},
         {Title="Rarity Powers", Icon=GetIcon(110938344194362)},-- Tambahkan ini ke dalam FM_Category Options
         {Title="Avatar Curses", Icon=GetIcon(140684736911247)}, -- Gunakan icon yang sesuai
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
@@ -1468,7 +1471,7 @@ FM_Category = FarmTab:Category({
         {Title="Upgrade: Mega Boss", Icon=GetIcon(73239911812292)},
         {Title="Rankup", Icon=GetIcon(111262536381336)},
         {Title="Trainers", Icon=GetIcon(92875014242960)},
-        {Title="Secret Quests", Icon=GetIcon(104488852837942)},
+        {Title="Secret Quests", Icon=GetIcon(98394716892889)},
         {Title="Crafts", Icon=GetIcon(132575095676543)}
     },
     Callback = FM_OnChange
@@ -1501,9 +1504,7 @@ EnemyDropdown = FarmTab:Dropdown({
         end;
         local normalized = NormalizeEnemySelection(selectedItem)
         Config.SelectedEnemy = normalized
-        if normalized then
-            SaveZoneConfig(CurrentZoneName, normalized);
-        end
+        SaveZoneConfig(CurrentZoneName, normalized);
     end
 });
 FM_Add("Farm", EnemyDropdown);
@@ -2922,6 +2923,15 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
         Image = iconId,
         ImageSize = 24,
         Callback = function(val)
+            if not IsPremium then
+                Config[flagName] = false
+                if myToggle then
+                    pcall(function() myToggle:Set(false) end)
+                    pcall(function() myToggle:Lock("Need Premium User") end)
+                end
+                return
+            end
+
             Config[flagName] = val
             
             if val then
@@ -3019,6 +3029,14 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
 
     CombinedToggleUI[name] = { Toggle = myToggle, Mod = mod, IsGacha = isGachaUpgrade }
     _totalItems = _totalItems + 1
+
+    if not IsPremium and myToggle then
+        if Config[flagName] then
+            Config[flagName] = false
+        end
+        pcall(function() myToggle:Set(false) end)
+        pcall(function() myToggle:Lock("Need Premium User") end)
+    end
 end
 
 for _, name in ipairs(ChanceSortedNames) do
