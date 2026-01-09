@@ -526,7 +526,7 @@ Window = UI:CreateWindow({
         Title = "ANHub Access",
         Description = "Free Key: ANHUB-2025",
         Key = ValidKeys,
-        URL = "https://discord.gg/cy6uMRmeZ",
+        URL = "https://discord.gg/bUkCZvmrpH",
         Note = "Premium Users are auto-verified!",
         SaveKey = true
     }
@@ -764,7 +764,7 @@ BaseProfile = {
     Badges = {
         {
             Icon = "geist:logo-discord", Title = "Discord", Desc = "Join ANHUB Discord",
-            Callback = function() setclipboard("https://discord.gg/cy6uMRmeZ") Notify("Discord", "Invite link copied to clipboard!", "geist:logo-discord") end
+            Callback = function() setclipboard("https://discord.gg/bUkCZvmrpH") Notify("Discord", "Invite link copied to clipboard!", "geist:logo-discord") end
         },
         {
             Icon = "youtube", Desc = "Subscribe to YouTube",
@@ -784,7 +784,7 @@ Window:Tab({
     Badges = {
         {
             Icon = "geist:logo-discord", Desc = "Join ANHUB Discord",
-            Callback = function() setclipboard("https://discord.gg/cy6uMRmeZ") Notify("Discord", "Invite link copied to clipboard!", "geist:logo-discord") end
+            Callback = function() setclipboard("https://discord.gg/bUkCZvmrpH") Notify("Discord", "Invite link copied to clipboard!", "geist:logo-discord") end
         },
         {
             Icon = "youtube", Desc = "Subscribe to YouTube",
@@ -1343,7 +1343,7 @@ DiscordInfo = InfoTab:Paragraph({
             Title = "Copy Discord",
             Icon = "copy",
             Callback = function()
-                setclipboard("https://discord.gg/cy6uMRmeZ");
+                setclipboard("https://discord.gg/bUkCZvmrpH");
             end
         }
     }
