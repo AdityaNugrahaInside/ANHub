@@ -470,9 +470,9 @@ local EnemyDropdown = FM_Add("Farm", FarmTab:Dropdown({
     end
 }))
 
+LastEnemiesState = nil
 -- LOGIKA REAL-TIME CHECK (Setiap 1 Detik)
 task.spawn(function()
-    LastEnemiesState = nil
     while task.wait() do
         -- Berhenti jika UI ditutup/hancur
         if not Window or Window.Destroyed then break end
