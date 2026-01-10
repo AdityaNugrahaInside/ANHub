@@ -1,6 +1,77 @@
 -- if game.PlaceId ~= 81897457567012 then return end
 repeat task.wait() until game:IsLoaded()
+-- Mencegah eksekusi ganda
+if _G.SafeHatchBypass then return end
+_G.SafeHatchBypass = true
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local EggSetup = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Client"):WaitForChild("EggSetup")
+local VaultGacha = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Client"):WaitForChild("VaultGachaSetup")
+
+-- 1. Hook task.wait secara SANGAT selektif untuk menghindari Overflow
+local oldWait
+oldWait = hookfunction(task.wait, function(n)
+    local caller = getcallingscript()
+    -- Jangan pernah mem-bypass wait untuk script bernama "Animate" karena menyebabkan crash/overflow
+    if caller and caller.Name ~= "Animate" then
+        if caller == EggSetup or caller == VaultGacha then
+            return oldWait(0)
+        end
+    end
+    return oldWait(n)
+end)
+
+-- 2. Bypass AnimationService (Mematikan durasi tunggu animasi secara sistem)
+local AnimationService = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Services"):WaitForChild("AnimationService")
+local AnimMod = require(AnimationService)
+local oldLoad = AnimMod.Load
+
+AnimMod.Load = function(arg1, arg2, arg3)
+    -- Memaksa animasi untuk tidak memiliki durasi tunggu
+    task.spawn(function()
+        local track = oldLoad(arg1, arg2, arg3)
+        if track then 
+            track:Stop() 
+            track:Destroy() 
+        end
+    end)
+    return nil
+end
+
+-- 3. Bypass Internal (Memperbaiki error "invalid argument #1")
+local function SafeBypassInternal()
+    -- Mencari fungsi lokal via getgc karena getsenv tidak bisa mengambil local function
+    local PlayRollQueue
+    for _, v in pairs(getgc()) do
+        if type(v) == "function" and debug.getinfo(v).name == "PlayRollQueue_upvr" then
+            PlayRollQueue = v
+            break
+        end
+    end
+
+    if PlayRollQueue then
+        -- Bypass status "sedang memproses" agar bisa klik terus menerus
+        local ups = debug.getupvalues(PlayRollQueue)
+        for i, v in pairs(ups) do
+            if type(v) == "boolean" then
+                debug.setupvalue(PlayRollQueue, i, false)
+            elseif type(v) == "table" then
+                -- tbl_2_upvr adalah queue, kita kosongkan agar tidak menumpuk
+                table.clear(v)
+            end
+        end
+    end
+end
+
+-- Jalankan pembersihan internal secara berkala
+task.spawn(function()
+    while _G.SafeHatchBypass do
+        pcall(SafeBypassInternal)
+        task.wait(1)
+    end
+end)
+
+print("Safe Bypass Aktif: Overflow dicegah, Hatch dipercepat!")
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading3.lua"))()
 
 local Players = game:GetService("Players")
@@ -32,71 +103,6 @@ local IsLoadingMapSelection = false
 
 local UI
 local Window
--- [[ 1. INTEGRASI SAFE HATCH & GACHA BYPASS ]] --
-if not _G.SafeHatchBypass then
-    _G.SafeHatchBypass = true
-
-    local EggSetup = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Client"):WaitForChild("EggSetup")
-    local VaultGacha = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Client"):WaitForChild("VaultGachaSetup")
-    local AnimationService = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Services"):WaitForChild("AnimationService")
-
-    -- Hook task.wait secara selektif (Cegah Overflow)
-    local oldWait
-    oldWait = hookfunction(task.wait, function(n)
-        local caller = getcallingscript()
-        -- Abaikan script "Animate" agar tidak crash
-        if caller and caller.Name ~= "Animate" then
-            if caller == EggSetup or caller == VaultGacha then
-                return oldWait(0)
-            end
-        end
-        return oldWait(n)
-    end)
-
-    -- Bypass AnimationService
-    local AnimMod = require(AnimationService)
-    local oldLoad = AnimMod.Load
-    AnimMod.Load = function(arg1, arg2, arg3)
-        task.spawn(function()
-            local track = oldLoad(arg1, arg2, arg3)
-            if track then 
-                track:Stop() 
-                track:Destroy() 
-            end
-        end)
-        return nil
-    end
-
-    -- Bypass Internal via getgc (Fix Invalid Argument #1)
-    local function SafeBypassInternal()
-        local PlayRollQueue
-        for _, v in pairs(getgc()) do
-            if type(v) == "function" and debug.getinfo(v).name == "PlayRollQueue_upvr" then
-                PlayRollQueue = v
-                break
-            end
-        end
-
-        if PlayRollQueue then
-            local ups = debug.getupvalues(PlayRollQueue)
-            for i, v in pairs(ups) do
-                if type(v) == "boolean" then
-                    debug.setupvalue(PlayRollQueue, i, false) -- Reset Lock
-                elseif type(v) == "table" then
-                    table.clear(v) -- Kosongkan Queue
-                end
-            end
-        end
-    end
-
-    task.spawn(function()
-        while _G.SafeHatchBypass do
-            pcall(SafeBypassInternal)
-            task.wait(1)
-        end
-    end)
-    print("Safe Bypass Aktif dalam AnimeWaves.lua!")
-end
 
 local NightXLibrary = require(game:GetService("ReplicatedStorage"):WaitForChild("NightX"):WaitForChild("Library"))
 local EnemiesIndex = NightXLibrary.GetIndex("Enemies")
@@ -155,7 +161,6 @@ local function JSONPretty(val, indent)
         end
     end;
 end;
-setclipboard(JSONPretty(GachaTargets,1))
 local function Notify(title, content, icon)
     task.spawn(function()
         pcall(function()
