@@ -51,6 +51,11 @@ task.spawn(function()
     local Gamepasses = LocalPlayer:FindFirstChild("Gamepasses")
     if Gamepasses then
         Gamepasses:SetAttribute("FastClick", true)
+        Gamepasses:SetAttribute("Lucky", true)
+        Gamepasses:SetAttribute("SuperLucky", true)
+        Gamepasses:SetAttribute("UltraLucky", true)
+        Gamepasses:SetAttribute("FastOpen", true)
+        Gamepasses:SetAttribute("FastSpin", true)
     end
 end)
 local function GetPlayerTokenAmount(tokenName)
