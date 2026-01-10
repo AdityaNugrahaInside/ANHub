@@ -1,7 +1,7 @@
--- if game.PlaceId ~= 81897457567012 then return end
+if game.PlaceId ~= 136894901443170 then return end
 repeat task.wait() until game:IsLoaded()
 -- Pastikan script tidak duplikat untuk mencegah hook overflow
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading3.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading4.lua"))()
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -696,7 +696,7 @@ end
 
 local function StartModularGacha(gachaName)
     task.spawn(function()        
-        while Config.AutoGacha[gachaName] do
+        while not Window.Destroyed and Config.AutoGacha[gachaName] do
             if CanAffordGacha(gachaName) then
                 pcall(function()
                     VaultRerollGacha(gachaName)
