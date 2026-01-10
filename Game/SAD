@@ -43,21 +43,6 @@ local EggsIndex = NightXLibrary.GetIndex("Eggs")
 local GameColors = NightXLibrary.GetIndex("Colors").Colors
 local AbbreviateService = NightXLibrary.GetService("AbbreviateService")
 local Debounce = require(game:GetService("ReplicatedStorage").NightX.Library.Services.DebounceService)
--- [[ GACHA ANIMATION BYPASS / NO ANIMATION ]] --
-
-task.spawn(function()
-    -- 1. Spoof Atribut FastSpin (Bypass logika internal game)
-    -- Berdasarkan baris 10 di VaultGachaSetup, game mengecek atribut ini
-    local Gamepasses = LocalPlayer:FindFirstChild("Gamepasses")
-    if Gamepasses then
-        Gamepasses:SetAttribute("FastClick", true)
-        Gamepasses:SetAttribute("Lucky", true)
-        Gamepasses:SetAttribute("SuperLucky", true)
-        Gamepasses:SetAttribute("UltraLucky", true)
-        Gamepasses:SetAttribute("FastOpen", true)
-        Gamepasses:SetAttribute("FastSpin", true)
-    end
-end)
 local function GetPlayerTokenAmount(tokenName)
     local itensFolder = LocalPlayer:FindFirstChild("Itens")
     local tokenObj = itensFolder and itensFolder:FindFirstChild(tokenName)
@@ -219,7 +204,22 @@ getgenv().IsPremium = IsPremium
 if IsPremium then
     Debounce.Check = function()
         return false
-    end
+    end    
+    -- [[ GACHA ANIMATION BYPASS / NO ANIMATION ]] --
+
+    task.spawn(function()
+        -- 1. Spoof Atribut FastSpin (Bypass logika internal game)
+        -- Berdasarkan baris 10 di VaultGachaSetup, game mengecek atribut ini
+        local Gamepasses = LocalPlayer:FindFirstChild("Gamepasses")
+        if Gamepasses then
+            Gamepasses:SetAttribute("FastClick", true)
+            Gamepasses:SetAttribute("Lucky", true)
+            Gamepasses:SetAttribute("SuperLucky", true)
+            Gamepasses:SetAttribute("UltraLucky", true)
+            Gamepasses:SetAttribute("FastOpen", true)
+            Gamepasses:SetAttribute("FastSpin", true)
+        end
+    end)
 end
 UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
 
@@ -285,7 +285,7 @@ local FM_CategoryDescriptions = {
     ["Rank Up"] = "Auto rank up and progression features.",
     ["Vault Gacha"] = "Auto roll for Races, Stands, Clans, and more.",
     ["Hatch Egg"] = "Auto open eggs with instant hatch support.",
-    ["Progress Upgrade"] = "Upgrade your permanent energy multiplier using Marine Tokens."
+    ["Progress Upgrade"] = "Upgrade your permanent energy or damage multiplier "
 }
 local function FM_GetElementFrame(elem)
     return rawget(elem, "ElementFrame") or (elem.UIElements and elem.UIElements.Main) or rawget(elem, "GroupFrame")
@@ -354,8 +354,8 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Farm", Icon = "rbxassetid://89761068698333"},
         {Title = "Rank Up", Icon = "rbxassetid://138853123472984"},
         {Title = "Vault Gacha", Icon = "rbxassetid://132940423305445"},
-        {Title = "Hatch Egg", Icon = "rbxassetid://10651034987"},
-        {Title = "Progress Upgrade", Icon = "rbxassetid://138853123472984"}
+        {Title = "Hatch Egg", Icon = "rbxassetid://128166775186475"},
+        {Title = "Progress Upgrade", Icon = "rbxassetid://133671652413407"}
     },
     Callback = FM_OnChange
 })
@@ -472,7 +472,8 @@ local EnemyDropdown = FM_Add("Farm", FarmTab:Dropdown({
 
 -- LOGIKA REAL-TIME CHECK (Setiap 1 Detik)
 task.spawn(function()
-    while task.wait(1) do
+    LastEnemiesState = nil
+    while task.wait() do
         -- Berhenti jika UI ditutup/hancur
         if not Window or Window.Destroyed then break end
         
@@ -491,8 +492,8 @@ task.spawn(function()
             local currentState = table.concat(currentNames, "|")
             
             -- 3. Cek apakah data tidak sama dengan sebelumnya
-            if currentState ~= LastEnemiesState then
-                LastEnemiesState = currentState -- Update state terakhir
+            if LocalPlayer:GetAttribute("CurrentArea") ~= LastEnemiesState then
+                LastEnemiesState = LocalPlayer:GetAttribute("CurrentArea") -- Update state terakhir
                 
                 -- Ambil data lengkap (Title, Desc, Images) dari GetEnemiesList()
                 local freshData = GetEnemiesList() 
@@ -517,8 +518,49 @@ FM_Add("Farm", FarmTab:Toggle({
         Config.AutoFarm = val
         if val then
             task.spawn(function()
+                local allAreaMode = false
+                local savedSelectedEnemies = nil
+                local lastAllEnemiesState = nil
                 while not Window.Destroyed and Config.AutoFarm do
                     task.wait()
+
+                    local currentArea = LocalPlayer:GetAttribute("CurrentArea")
+                    if currentArea == -3 then
+                        local enemiesFolder = workspace:FindFirstChild("_Enemies")
+                        if enemiesFolder then
+                            if not allAreaMode then
+                                allAreaMode = true
+                                savedSelectedEnemies = table.clone(Config.SelectedEnemies)
+                                currentTarget = nil
+                            end
+
+                            local currentNames = {}
+                            local seen = {}
+                            for _, v in pairs(enemiesFolder:GetChildren()) do
+                                if v and v.Name and not seen[v.Name] then
+                                    seen[v.Name] = true
+                                    table.insert(currentNames, v.Name)
+                                end
+                            end
+                            table.sort(currentNames)
+                            local state = table.concat(currentNames, "|")
+                            if state ~= lastAllEnemiesState then
+                                lastAllEnemiesState = state
+                                Config.SelectedEnemies = currentNames
+                                currentTarget = nil
+                            end
+                        end
+                    elseif allAreaMode then
+                        allAreaMode = false
+                        if savedSelectedEnemies then
+                            Config.SelectedEnemies = savedSelectedEnemies
+                        else
+                            Config.SelectedEnemies = {}
+                        end
+                        savedSelectedEnemies = nil
+                        lastAllEnemiesState = nil
+                        currentTarget = nil
+                    end
                     
                     -- Pastikan ada musuh yang dipilih di dropdown
                     if #Config.SelectedEnemies > 0 then
@@ -688,32 +730,66 @@ local currentGachaGroup = nil
 
 -- 3. Loop menggunakan daftar yang sudah disortir
 for _, name in ipairs(sortedGachaNames) do
-    local data = GachaTargets[name]
+    local gachaName = name
+    local data = GachaTargets[gachaName]
     local tokenName = data.CostData or "Token"
     local costRequirement = data.Cost or 5
-    local dataKey = data.Data -- e.g., "KekkeiGenkai", "Races"
+    local dataKey = data.Data
+    local contentList = data.Content
+    local multStyle = data.MultStyle
+    local mapId = data.Map or "0"
     local itemInfo = ItemsIndex[tokenName]
     local tokenIcon = itemInfo and itemInfo.Image or "rbxassetid://0"
+    local hasSecret = false
+    local lastLockReason = nil
     
     -- Pembuatan Group: 2 Toggle per Group
     if gachaCounter % 2 == 0 then
         currentGachaGroup = FM_Add("Vault Gacha", FarmTab:Group({
-            Title = "Gacha Collection - Map " .. (data.Map or "0")
+            Title = "Gacha Collection - Map " .. mapId
         }))
     end
     gachaCounter = gachaCounter + 1
 
     -- Tambahkan Toggle ke dalam Group aktif
     local GachaToggle = currentGachaGroup:Toggle({
-        Title = name,
+        Title = gachaName,
         Desc = "Loading stats...",
         Default = false,
-        Flag = "AutoGacha_" .. name:gsub(" ", ""),
+        Flag = "AutoGacha_" .. gachaName:gsub(" ", ""),
         Callback = function(val)
-            Config.AutoGacha[name] = val
-            if val then StartModularGacha(name) end
+            if val then
+                if not IsPremium then
+                    Config.AutoGacha[gachaName] = false
+                    pcall(function()
+                        GachaToggle:Unlock()
+                        GachaToggle:Set(false, false, true)
+                        GachaToggle:Lock("Premium Only")
+                    end)
+                    return
+                end
+                if hasSecret then
+                    Config.AutoGacha[gachaName] = false
+                    pcall(function()
+                        GachaToggle:Unlock()
+                        GachaToggle:Set(false, false, true)
+                        GachaToggle:Lock("Already Got Secret")
+                    end)
+                    return
+                end
+            end
+            Config.AutoGacha[gachaName] = val
+            if val then StartModularGacha(gachaName) end
         end
     })
+
+    if not IsPremium then
+        Config.AutoGacha[gachaName] = false
+        pcall(function()
+            GachaToggle:Set(false, false, true)
+            GachaToggle:Lock("Premium Only")
+        end)
+    end
 
     -- TASK: Real-time Update (Pity Bar, Material, & Equipped Image)
     task.spawn(function()
@@ -723,20 +799,43 @@ for _, name in ipairs(sortedGachaNames) do
             
             -- A. Deteksi Item Terpasang
             local vaultFolder = LocalPlayer:WaitForChild("VaultGachas", 5)
-            local equippedFolder = vaultFolder:FindFirstChild(name) or vaultFolder:FindFirstChild(dataKey)
+            local equippedFolder = vaultFolder:FindFirstChild(gachaName) or vaultFolder:FindFirstChild(dataKey)
             local equippedName = equippedFolder and equippedFolder:GetAttribute("Equipped") or "None"
 
             -- B. Ambil Data Rarity
             local rarity = "Common"
             local Multiplier = 0
-            if equippedName ~= "None" and data.Content then
-                for _, content in pairs(data.Content) do
+            hasSecret = false
+            if equippedName ~= "None" and contentList then
+                for _, content in pairs(contentList) do
                     if tostring(content.Id) == tostring(equippedName) then
                         rarity = content.Rarity or "Common"
                         Multiplier = content.Multiplier or 0
+                        hasSecret = rarity == "Secret"
                         break
                     end
                 end
+            end
+
+            local desiredLockReason = nil
+            if not IsPremium then
+                desiredLockReason = "Premium Only"
+            elseif hasSecret then
+                desiredLockReason = "Already Got Secret"
+            end
+
+            if desiredLockReason ~= lastLockReason then
+                lastLockReason = desiredLockReason
+                pcall(function()
+                    if desiredLockReason then
+                        Config.AutoGacha[gachaName] = false
+                        GachaToggle:Unlock()
+                        GachaToggle:Set(false, false, true)
+                        GachaToggle:Lock(desiredLockReason)
+                    else
+                        GachaToggle:Unlock()
+                    end
+                end)
             end
 
             -- C. Logika Progress Bar Pity Secret (Max 15K)
@@ -783,7 +882,7 @@ for _, name in ipairs(sortedGachaNames) do
                 colorHex,
                 formattedAmount,
                 formattedCost,
-                data.MultStyle,
+                multStyle,
                 Multiplier
             ))
         end
@@ -949,15 +1048,46 @@ for i, def in ipairs(ProgressUpgrades) do
     local configKey = def.ConfigKey
 
     local index = NightXLibrary.GetIndex(progressionName)
+    local isMaxed = false
+    local lastLockReason = nil
+
     local upgradeToggle = progressUpgradeGroup:Toggle({
         Title = displayName .. " Progress Upgrade",
         Desc = "Loading " .. displayName:lower() .. " stats...",
         Default = false,
         Flag = flag,
         Callback = function(val)
+            if val then
+                if not IsPremium then
+                    Config[configKey] = false
+                    pcall(function()
+                        upgradeToggle:Unlock()
+                        upgradeToggle:Set(false, false, true)
+                        upgradeToggle:Lock("Premium Only")
+                    end)
+                    return
+                end
+                if isMaxed then
+                    Config[configKey] = false
+                    pcall(function()
+                        upgradeToggle:Unlock()
+                        upgradeToggle:Set(false, false, true)
+                        upgradeToggle:Lock("Max Level")
+                    end)
+                    return
+                end
+            end
             Config[configKey] = val
         end
     })
+
+    if not IsPremium then
+        Config[configKey] = false
+        pcall(function()
+            upgradeToggle:Set(false, false, true)
+            upgradeToggle:Lock("Premium Only")
+        end)
+    end
 
     task.spawn(function()
         local progFolder = LocalPlayer:WaitForChild(progressionName, 10)
@@ -967,6 +1097,29 @@ for i, def in ipairs(ProgressUpgrades) do
 
             local currentLevel = progFolder:GetAttribute("Level") or 0
             local currentBoost = progFolder:GetAttribute("Energy") or 1
+            local maxLevel = index.Max
+            isMaxed = (type(maxLevel) == "number") and (currentLevel >= maxLevel) or false
+
+            local desiredLockReason = nil
+            if not IsPremium then
+                desiredLockReason = "Premium Only"
+            elseif isMaxed then
+                desiredLockReason = "Max Level"
+            end
+
+            if desiredLockReason ~= lastLockReason then
+                lastLockReason = desiredLockReason
+                pcall(function()
+                    if desiredLockReason then
+                        Config[configKey] = false
+                        upgradeToggle:Unlock()
+                        upgradeToggle:Set(false, false, true)
+                        upgradeToggle:Lock(desiredLockReason)
+                    else
+                        upgradeToggle:Unlock()
+                    end
+                end)
+            end
 
             local tokenNeeded = math.clamp(math.floor(currentLevel / 10) * 3 + 1, 1, 100)
             local successChance = math.clamp(100 - math.floor(currentLevel / 9) * (index.PercentPer9Upgrades or 0), 1, 100)
@@ -990,7 +1143,7 @@ for i, def in ipairs(ProgressUpgrades) do
                 tokenNeeded
             ))
 
-            if Config[configKey] then
+            if Config[configKey] and IsPremium and not isMaxed then
                 if currentLevel < (index.Max or 999) then
                     if myTokens >= tokenNeeded then
                         ProgressUpgrade(progressionName)
