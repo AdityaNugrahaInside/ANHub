@@ -1,7 +1,7 @@
 if game.PlaceId ~= 136894901443170 then return end
 repeat task.wait() until game:IsLoaded()
 -- Pastikan script tidak duplikat untuk mencegah hook overflow
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading4.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading3.lua"))()
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -518,49 +518,8 @@ FM_Add("Farm", FarmTab:Toggle({
         Config.AutoFarm = val
         if val then
             task.spawn(function()
-                local allAreaMode = false
-                local savedSelectedEnemies = nil
-                local lastAllEnemiesState = nil
                 while not Window.Destroyed and Config.AutoFarm do
                     task.wait()
-
-                    local currentArea = LocalPlayer:GetAttribute("CurrentArea")
-                    if currentArea == -3 then
-                        local enemiesFolder = workspace:FindFirstChild("_Enemies")
-                        if enemiesFolder then
-                            if not allAreaMode then
-                                allAreaMode = true
-                                savedSelectedEnemies = table.clone(Config.SelectedEnemies)
-                                currentTarget = nil
-                            end
-
-                            local currentNames = {}
-                            local seen = {}
-                            for _, v in pairs(enemiesFolder:GetChildren()) do
-                                if v and v.Name and not seen[v.Name] then
-                                    seen[v.Name] = true
-                                    table.insert(currentNames, v.Name)
-                                end
-                            end
-                            table.sort(currentNames)
-                            local state = table.concat(currentNames, "|")
-                            if state ~= lastAllEnemiesState then
-                                lastAllEnemiesState = state
-                                Config.SelectedEnemies = currentNames
-                                currentTarget = nil
-                            end
-                        end
-                    elseif allAreaMode then
-                        allAreaMode = false
-                        if savedSelectedEnemies then
-                            Config.SelectedEnemies = savedSelectedEnemies
-                        else
-                            Config.SelectedEnemies = {}
-                        end
-                        savedSelectedEnemies = nil
-                        lastAllEnemiesState = nil
-                        currentTarget = nil
-                    end
                     
                     -- Pastikan ada musuh yang dipilih di dropdown
                     if #Config.SelectedEnemies > 0 then
@@ -577,7 +536,7 @@ FM_Add("Farm", FarmTab:Toggle({
                             local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                             if myRoot then
                                 local distance = (myRoot.Position - currentTarget.HumanoidRootPart.Position).Magnitude
-                                if distance > 3 then 
+                                if distance > 10 then 
                                     myRoot.CFrame = currentTarget.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
                                 end
                             end
