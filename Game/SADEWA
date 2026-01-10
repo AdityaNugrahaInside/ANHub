@@ -288,7 +288,7 @@ if not _G.GlobalHatchBypass then
     end)
 
     -- 4. Modifikasi Variable Internal (Bypass Lock & Queue)
-    local function BypassInternal()
+    task.spawn(function()
         -- Bypass EggSetup Queue
         local eggEnv = getsenv(EggSetup)
         if eggEnv then
@@ -307,9 +307,7 @@ if not _G.GlobalHatchBypass then
                 wait = function() return nil end
             }
         end
-    end
-
-    BypassInternal()
+    end)
 end
 Window:Tab({
     Profile = MakeProfile({ Title = "ANHub Script", Desc = "Anime Waves" }),
