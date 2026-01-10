@@ -577,7 +577,7 @@ FM_Add("Farm", FarmTab:Toggle({
                             local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
                             if myRoot then
                                 local distance = (myRoot.Position - currentTarget.HumanoidRootPart.Position).Magnitude
-                                if distance > 10 then 
+                                if distance > 3 then 
                                     myRoot.CFrame = currentTarget.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
                                 end
                             end
