@@ -470,12 +470,12 @@ local EnemyDropdown = FM_Add("Farm", FarmTab:Dropdown({
     end
 }))
 
-
+LastEnemiesState = nil
 -- LOGIKA REAL-TIME CHECK (Setiap 1 Detik)
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(2) do
         -- Berhenti jika UI ditutup/hancur
-        if not Window or Window.Destroyed then break end
+        if Window.Destroyed then break end
         
         local enemiesFolder = workspace:FindFirstChild("_Enemies")
         if enemiesFolder then
@@ -492,8 +492,8 @@ task.spawn(function()
             local currentState = table.concat(currentNames, "|")
             
             -- 3. Cek apakah data tidak sama dengan sebelumnya
-            if currentState ~= LastEnemiesState then
-                LastEnemiesState = currentState -- Update state terakhir
+            if LocalPlayer:GetAttribute("CurrentArea") ~= LastEnemiesState then
+                LastEnemiesState = LocalPlayer:GetAttribute("CurrentArea") -- Update state terakhir
                 
                 -- Ambil data lengkap (Title, Desc, Images) dari GetEnemiesList()
                 local freshData = GetEnemiesList() 
