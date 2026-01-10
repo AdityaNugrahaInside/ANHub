@@ -923,6 +923,7 @@ for _, eggData in ipairs(sortedEggs) do
                     while not Window.Destroyed and Config.AutoHatch[name] do
                         -- Gunakan mode "Multi" untuk efisiensi
                         ExecHatch(name, "Multi")
+                        task.wait() 
                     end
                 end)
             end
