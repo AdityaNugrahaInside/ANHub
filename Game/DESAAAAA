@@ -238,7 +238,7 @@ Window = UI:CreateWindow({
 task.delay(1.0, function() Window:CollapseSidebar() end)
 task.delay(3.0, function() Window:ExpandSidebar() end)
 
-if _G.GlobalHatchBypass then
+if not _G.GlobalHatchBypass then
     _G.GlobalHatchBypass = true
         
     local EggSetup = ReplicatedStorage.NightX.Library.Client.EggSetup
@@ -270,7 +270,11 @@ if _G.GlobalHatchBypass then
     -- Ini menghapus layar hitam/transisi yang biasanya menutupi gacha
     task.spawn(function()
         local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-        while not Window.Destroyed and task.wait() do
+        while task.wait() do
+            if Window.Destroyed then
+                _G.GlobalHatchBypass = false
+                break
+            end
             local AnimGui = PlayerGui:FindFirstChild("Animation")
             if AnimGui then
                 -- Sembunyikan elemen animasi agar hasil gacha langsung terlihat
@@ -882,7 +886,6 @@ end
 local function ExecHatch(eggName, hatchType)
     local eggsFolder = workspace:FindFirstChild("_Eggs")
     local eggModel = eggsFolder and eggsFolder:FindFirstChild(eggName)
-    print(eggName)
     
     if eggModel then
         local magPart = eggModel:WaitForChild("Magnitude", 5)
