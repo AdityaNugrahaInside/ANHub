@@ -32,6 +32,71 @@ local IsLoadingMapSelection = false
 
 local UI
 local Window
+-- [[ 1. INTEGRASI SAFE HATCH & GACHA BYPASS ]] --
+if not _G.SafeHatchBypass then
+    _G.SafeHatchBypass = true
+
+    local EggSetup = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Client"):WaitForChild("EggSetup")
+    local VaultGacha = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Client"):WaitForChild("VaultGachaSetup")
+    local AnimationService = ReplicatedStorage:WaitForChild("NightX"):WaitForChild("Library"):WaitForChild("Services"):WaitForChild("AnimationService")
+
+    -- Hook task.wait secara selektif (Cegah Overflow)
+    local oldWait
+    oldWait = hookfunction(task.wait, function(n)
+        local caller = getcallingscript()
+        -- Abaikan script "Animate" agar tidak crash
+        if caller and caller.Name ~= "Animate" then
+            if caller == EggSetup or caller == VaultGacha then
+                return oldWait(0)
+            end
+        end
+        return oldWait(n)
+    end)
+
+    -- Bypass AnimationService
+    local AnimMod = require(AnimationService)
+    local oldLoad = AnimMod.Load
+    AnimMod.Load = function(arg1, arg2, arg3)
+        task.spawn(function()
+            local track = oldLoad(arg1, arg2, arg3)
+            if track then 
+                track:Stop() 
+                track:Destroy() 
+            end
+        end)
+        return nil
+    end
+
+    -- Bypass Internal via getgc (Fix Invalid Argument #1)
+    local function SafeBypassInternal()
+        local PlayRollQueue
+        for _, v in pairs(getgc()) do
+            if type(v) == "function" and debug.getinfo(v).name == "PlayRollQueue_upvr" then
+                PlayRollQueue = v
+                break
+            end
+        end
+
+        if PlayRollQueue then
+            local ups = debug.getupvalues(PlayRollQueue)
+            for i, v in pairs(ups) do
+                if type(v) == "boolean" then
+                    debug.setupvalue(PlayRollQueue, i, false) -- Reset Lock
+                elseif type(v) == "table" then
+                    table.clear(v) -- Kosongkan Queue
+                end
+            end
+        end
+    end
+
+    task.spawn(function()
+        while _G.SafeHatchBypass do
+            pcall(SafeBypassInternal)
+            task.wait(1)
+        end
+    end)
+    print("Safe Bypass Aktif dalam AnimeWaves.lua!")
+end
 
 local NightXLibrary = require(game:GetService("ReplicatedStorage"):WaitForChild("NightX"):WaitForChild("Library"))
 local EnemiesIndex = NightXLibrary.GetIndex("Enemies")
@@ -41,8 +106,8 @@ local ItemsIndex = NightXLibrary.GetIndex("Itens")
 local RanksIndex = NightXLibrary.GetIndex("Ranks")
 local EggsIndex = NightXLibrary.GetIndex("Eggs")
 local GameColors = NightXLibrary.GetIndex("Colors").Colors
-local Debounce = require(game:GetService("ReplicatedStorage").NightX.Library.Services.DebounceService)
 local AbbreviateService = NightXLibrary.GetService("AbbreviateService")
+local Debounce = require(game:GetService("ReplicatedStorage").NightX.Library.Services.DebounceService)
 -- [[ GACHA ANIMATION BYPASS / NO ANIMATION ]] --
 
 task.spawn(function()
@@ -848,12 +913,9 @@ for _, eggData in ipairs(sortedEggs) do
         Flag = "AutoHatch_" .. name:gsub(" ", ""),
         Callback = function(val)
             Config.AutoHatch[name] = val
-            print(val)
-            print(name)
             if val then
-                print(val)
                 task.spawn(function()
-                    while Config.AutoHatch[name] do
+                    while not Window.Destroyed and Config.AutoHatch[name] do
                         -- Gunakan mode "Multi" untuk efisiensi
                         ExecHatch(name, "Multi")
                         task.wait(0.5) 
