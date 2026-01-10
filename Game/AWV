@@ -1,7 +1,7 @@
 if game.PlaceId ~= 136894901443170 then return end
 repeat task.wait() until game:IsLoaded()
 -- Pastikan script tidak duplikat untuk mencegah hook overflow
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading3.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading4.lua"))()
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
