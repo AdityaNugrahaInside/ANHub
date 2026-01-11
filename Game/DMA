@@ -1191,7 +1191,7 @@ local FamilyElements = {}
 local NenElements = {}
 local PassiveAbilityElements = {}
 
--- [[ HELPER: AUTO EQUIP BEST ENERGY (VAULT VERSION) ]] --
+-- [[ HELPER: AUTO EQUIP BEST ENERGY (VAULT BASED) ]] --
 local function EquipBestEnergy(category)
     local pData = getgenv().PlayerData
     if not pData or not pData.Vault then return end
@@ -1206,15 +1206,15 @@ local function EquipBestEnergy(category)
     local vaultKey = vaultKeys[category]
     if not vaultKey or not pData.Vault[vaultKey] then return end
     
-    local myVault = pData.Vault[vaultKey]
+    local myVault = pData.Vault[vaultKey] -- Data item ada di Vault
     local sharedData = MetaManager.Shared[category]
     
     local bestItem = nil
     local bestValue = -1
 
-    -- Loop melalui item di Vault pemain untuk mencari multiplier Energy tertinggi
+    -- Loop melalui item di Vault pemain
     for id, owned in pairs(myVault) do
-        if owned then
+        if owned then -- Jika item tersebut dimiliki
             local info = sharedData[id]
             if info and info.Multipliers and info.Multipliers.Energy then
                 local val = tonumber(info.Multipliers.Energy) or 0
@@ -1226,7 +1226,7 @@ local function EquipBestEnergy(category)
         end
     end
 
-    -- Eksekusi jika ditemukan item yang lebih baik dari yang sedang dipakai
+    -- Eksekusi pasang via Bridge
     if bestItem then
         local currentEquippedKey = (category == "Passives") and "Passive" or category
         if pData[currentEquippedKey] ~= bestItem then
@@ -1362,13 +1362,15 @@ task.spawn(function()
                     end
                 end
 
-                -- Sync Stats & Info
+                -- [[ PENGECEKAN INVENTORY UNTUK GACHA ]] --
+                local inventory = pData.Inventory and pData.Inventory.Items or {} -- Cek koin di Inventory
+                local coins = inventory[coinKey] or 0
+                
+                -- Sync Stats & Info UI
                 local pityData = pData.Pity or {}
                 local pityCount = pityData[typeKey] or 0
                 local pityPhase = (pData.PityPhase and pData.PityPhase[typeKey]) or "Mythical"
                 local maxPity = (pityPhase == "Mythical") and 1200 or 30000
-                local inventory = pData.Inventory and pData.Inventory.Items or {}
-                local coins = inventory[coinKey] or 0
                 local multipliers = GetMultipliersText(typeKey, currentVal)
 
                 toggleObj:SetTitle("Fast Auto " .. typeKey .. ": " .. currentVal)
@@ -1379,19 +1381,21 @@ task.spawn(function()
                     (Config["AutoReroll"..typeKey] and (coins > 0 and "Rolling..." or "Out of Coins!") or "Idle")
                 ))
 
-                -- [[ AUTO REROLL & 10s EQUIP LOGIC ]] --
+                -- [[ LOGIKA AUTO REROLL (CHECK INVENTORY) & AUTO EQUIP (CHECK VAULT) ]] --
                 if Config["AutoReroll"..typeKey] then
+                    -- A. Eksekusi Reroll (Gacha)
                     if coins > 0 then
                         pcall(function()
                             MetaManager.Bridge:Fire(bridgeKey, "Reroll")
                         end)
                     else
+                        -- Matikan jika koin di Inventory habis & panggil EquipBest (Vault)
                         Config["AutoReroll"..typeKey] = false
                         toggleObj:Set(false)
-                        EquipBestEnergy(typeKey) -- Auto Equip saat koin habis
+                        EquipBestEnergy(typeKey) -- Pengecekan Vault di dalam fungsi ini
                     end
 
-                    -- Timer 10 Detik: Menjaga Energy Tertinggi tetap terpasang
+                    -- B. Timer 10 Detik: Cek Vault untuk pasang item terbaik saat sedang reroll
                     if tick() - lastEquipTime[typeKey] >= 10 then
                         lastEquipTime[typeKey] = tick()
                         EquipBestEnergy(typeKey)
@@ -1399,6 +1403,7 @@ task.spawn(function()
                 end
             end
 
+            -- Jalankan proses untuk setiap kategori
             ProcessCategory("Family", "Family", AutoFamilyToggle, "Family", "Family Coin")
             ProcessCategory("Nen", "Nen", AutoNenToggle, "Nen", "Nen Token")
             ProcessCategory("Passives", "Passive", AutoPassiveToggle, "Passives", "Passive Token")
