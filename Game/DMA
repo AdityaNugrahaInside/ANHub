@@ -1415,7 +1415,7 @@ task.spawn(function()
 
                 toggleObj:SetTitle("Fast Auto " .. typeKey .. ": " .. currentVal)
                 toggleObj:SetDesc(string.format(
-                    "Coins: %d | Multipliers: [%s]\nPity [%s]: %d/%d\nStatus: %s",
+                    "Coins: %d | Boost: [%s]\nPity [%s]: %d/%d\nStatus: %s",
                     coins, multipliers, (pityPhase == "Mythical" and "Mythical" or "Secret"),
                     pityCount, maxPity,
                     (Config["AutoReroll"..typeKey] and (coins > 0 and "Rolling..." or "Out of Coins!") or "Idle")
@@ -1429,8 +1429,8 @@ task.spawn(function()
                             MetaManager.Bridge:Fire(bridgeKey, "Reroll")
                         end)
                     else
-                        Config["AutoReroll"..typeKey] = false
-                        toggleObj:Set(false)
+                        -- Config["AutoReroll"..typeKey] = false
+                        -- toggleObj:Set(false)
                         EquipBestEnergy(typeKey) -- Cek Vault saat koin habis
                     end
 
