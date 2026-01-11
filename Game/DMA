@@ -1428,10 +1428,6 @@ task.spawn(function()
                         pcall(function()
                             MetaManager.Bridge:Fire(bridgeKey, "Reroll")
                         end)
-                    else
-                        -- Config["AutoReroll"..typeKey] = false
-                        -- toggleObj:Set(false)
-                        EquipBestEnergy(typeKey) -- Cek Vault saat koin habis
                     end
 
                     -- B. Timer 10 Detik (Menjaga Energy tetap tertinggi saat reroll)
