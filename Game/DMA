@@ -1348,6 +1348,9 @@ task.spawn(function()
                 
                 local infoDB = MetaManager.Shared[typeKey]
                 local currentInfo = infoDB and infoDB[currentVal]
+                if currentInfo.Icon == "" then
+                    currentInfo.Icon = "rbxassetid://135703908712176"
+                end
                 
                 -- Visual Sync
                 if currentVal ~= lastData[typeKey] then
@@ -1394,7 +1397,7 @@ task.spawn(function()
                     end
 
                     -- B. Timer 10 Detik (Menjaga Energy tetap tertinggi saat reroll)
-                    if tick() - lastEquipTime[typeKey] >= 4 then
+                    if tick() - lastEquipTime[typeKey] >= 10 then
                         lastEquipTime[typeKey] = tick()
                         EquipBestEnergy(typeKey)
                     end
