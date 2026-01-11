@@ -1190,14 +1190,12 @@ end)
 local FamilyElements = {}
 local NenElements = {}
 local PassiveAbilityElements = {}
-
 -- [[ HELPER: AUTO EQUIP BEST ENERGY (LOGIKA VAULT) ]] --
 local function EquipBestEnergy(category)
     local pData = getgenv().PlayerData
-    -- Cek jalur Vault sesuai decompile baris 472, 538, 604
     if not pData or not pData.Vault then return end
     
-    -- Mapping penamaan key: Remote "Passives" menggunakan data Vault "Passive"
+    -- Mapping key: Remote menggunakan "Passives" sedangkan data Vault menggunakan "Passive"
     local vaultKeys = {
         ["Family"] = "Family",
         ["Nen"] = "Nen",
@@ -1207,15 +1205,15 @@ local function EquipBestEnergy(category)
     local vaultKey = vaultKeys[category]
     if not vaultKey or not pData.Vault[vaultKey] then return end
     
-    local myVault = pData.Vault[vaultKey] -- Mengambil data dari Vault
+    local myVault = pData.Vault[vaultKey] -- Data item tersimpan di Vault
     local sharedData = MetaManager.Shared[category]
     
     local bestItem = nil
     local bestValue = -1
 
-    -- Mencari item dengan multiplier Energy tertinggi di database Shared
+    -- Loop melalui item di Vault pemain untuk mencari multiplier Energy tertinggi
     for id, owned in pairs(myVault) do
-        if owned then -- Jika item tersebut dimiliki di dalam Vault
+        if owned then
             local info = sharedData[id]
             if info and info.Multipliers and info.Multipliers.Energy then
                 local val = tonumber(info.Multipliers.Energy) or 0
@@ -1227,18 +1225,16 @@ local function EquipBestEnergy(category)
         end
     end
 
-    -- Eksekusi pasang via Bridge jika ditemukan item yang lebih baik
+    -- Eksekusi pemasangan via Bridge jika ditemukan yang lebih baik
     if bestItem then
         local currentEquippedKey = (category == "Passives") and "Passive" or category
         if pData[currentEquippedKey] ~= bestItem then
             pcall(function()
                 MetaManager.Bridge:Fire("Vault", "Equip", category, bestItem)
             end)
-            Notify("Auto Equip", "Best Energy " .. category .. " Equipped!", "zap")
         end
     end
 end
-
 local KeepLists = {
     Family = {},
     Nen = {},
@@ -1262,7 +1258,7 @@ local function GetMultipliersText(category, name)
     return table.concat(buffs, " | ")
 end
 
--- [[ TOGGLES PASSIVE ]] --
+-- [[ TOGGLES PASSIVE DENGAN CALLBACK EQUIPBEST ]] --
 
 local AutoFamilyToggle = FM_Add("Passive", FarmTab:Toggle({
     Title = "Auto Reroll Family",
@@ -1271,7 +1267,7 @@ local AutoFamilyToggle = FM_Add("Passive", FarmTab:Toggle({
     Flag = "AutoFamily_Toggle",
     Callback = function(val) 
         Config.AutoRerollFamily = val 
-        if not val then EquipBestEnergy("Family") end 
+        if not val then EquipBestEnergy("Family") end -- Pasang terbaik saat OFF
     end
 }))
 table.insert(FamilyElements, AutoFamilyToggle)
@@ -1282,8 +1278,8 @@ local AutoNenToggle = FM_Add("Passive", FarmTab:Toggle({
     Default = false,
     Flag = "AutoNen_Toggle",
     Callback = function(val) 
-        Config.AutoNen = val 
-        if not val then EquipBestEnergy("Nen") end 
+        Config.AutoRerollNen = val 
+        if not val then EquipBestEnergy("Nen") end -- Pasang terbaik saat OFF
     end
 }))
 table.insert(NenElements, AutoNenToggle)
@@ -1295,21 +1291,24 @@ local AutoPassiveToggle = FM_Add("Passive", FarmTab:Toggle({
     Flag = "AutoPassive_Toggle",
     Callback = function(val) 
         Config.AutoRerollPassives = val 
-        if not val then EquipBestEnergy("Passives") end 
+        if not val then EquipBestEnergy("Passives") end -- Pasang terbaik saat OFF
     end
 }))
 table.insert(PassiveAbilityElements, AutoPassiveToggle)
 
 -- ==========================================
--- MAIN TASK: SYNC, AUTO REROLL & 10s EQUIP TIMER
+-- MAIN TASK: SYNC, AUTO REROLL & 10s TIMER
 -- ==========================================
 task.spawn(function()
     local lockStates = { Family = false, Nen = false, Passives = false }
     local lastData = { Family = "", Nen = "", Passives = "" }
+    
+    -- Tracker waktu untuk interval 10 detik
     local lastEquipTime = { Family = 0, Nen = 0, Passives = 0 }
     
     while task.wait(0.1) do
         if not Window or Window.Destroyed then break end
+
         local pData = getgenv().PlayerData
         if pData then
             local currentMap = pData.Map or ""
@@ -1350,12 +1349,12 @@ task.spawn(function()
                 local infoDB = MetaManager.Shared[typeKey]
                 local currentInfo = infoDB and infoDB[currentVal]
                 
-                -- Sync Visual
+                -- Visual Sync
                 if currentVal ~= lastData[typeKey] then
                     lastData[typeKey] = currentVal
                     if currentInfo then
                         toggleObj:SetMainImage({
-                            Image = currentInfo.Icon or "rbxassetid://93194721632859",
+                            Image = currentInfo.Icon or "rbxassetid://135703908712176",
                             Gradient = MetaManager.Utils.Colors:GetRarity(currentInfo.Rarity),
                             Title = currentVal,
                             Quantity = currentInfo.Rarity,
@@ -1363,11 +1362,12 @@ task.spawn(function()
                     end
                 end
 
-                -- Sync Stats & Info (Cek koin di Inventory)
+                -- Info Koin & Pity (Cek via Inventory)
                 local pityData = pData.Pity or {}
                 local pityCount = pityData[typeKey] or 0
                 local pityPhase = (pData.PityPhase and pData.PityPhase[typeKey]) or "Mythical"
                 local maxPity = (pityPhase == "Mythical") and 1200 or 30000
+                
                 local inventory = pData.Inventory and pData.Inventory.Items or {}
                 local coins = inventory[coinKey] or 0
                 local multipliers = GetMultipliersText(typeKey, currentVal)
@@ -1380,9 +1380,9 @@ task.spawn(function()
                     (Config["AutoReroll"..typeKey] and (coins > 0 and "Rolling..." or "Out of Coins!") or "Idle")
                 ))
 
-                -- [[ AUTO REROLL & 10s EQUIP LOGIC ]] --
+                -- [[ LOGIKA AUTO REROLL & 10s EQUIP ]] --
                 if Config["AutoReroll"..typeKey] then
-                    -- A. Eksekusi Reroll
+                    -- A. Gacha Logic
                     if coins > 0 then
                         pcall(function()
                             MetaManager.Bridge:Fire(bridgeKey, "Reroll")
@@ -1390,11 +1390,10 @@ task.spawn(function()
                     else
                         Config["AutoReroll"..typeKey] = false
                         toggleObj:Set(false)
-                        EquipBestEnergy(typeKey) -- Menggunakan logika Vault
-                        Notify("Auto Stop", "Out of coins! Equipped best energy.", "alert-triangle")
+                        EquipBestEnergy(typeKey) -- Cek Vault saat koin habis
                     end
 
-                    -- B. Timer 10 Detik
+                    -- B. Timer 10 Detik (Menjaga Energy tetap tertinggi saat reroll)
                     if tick() - lastEquipTime[typeKey] >= 10 then
                         lastEquipTime[typeKey] = tick()
                         EquipBestEnergy(typeKey)
@@ -1402,12 +1401,14 @@ task.spawn(function()
                 end
             end
 
+            -- Eksekusi per Kategori
             ProcessCategory("Family", "Family", AutoFamilyToggle, "Family", "Family Coin")
             ProcessCategory("Nen", "Nen", AutoNenToggle, "Nen", "Nen Token")
             ProcessCategory("Passives", "Passive", AutoPassiveToggle, "Passives", "Passive Token")
         end
     end
 end)
+
 -- [[ ELEMEN UNTUK KATEGORI ZERINGAN ]] --
 
 local ZeringanElements = {}
