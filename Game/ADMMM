@@ -569,54 +569,89 @@ task.spawn(function()
         end
     end
 end)
--- [[ UPDATE LOGIKA AUTO FARM ]] --
-FM_Add("Farm", FarmTab:Toggle({
-    Title = "Auto Farm",
-    Default = false,
-    Flag = "AutoFarm_Toggle",
-    Callback = function(val)
-        Config.AutoFarm = val
-        if val then
-            currentTargetIndex = 0
-            task.spawn(function()
-                while not Window.Destroyed do
-                    -- JIKA SEDANG TELEPORT (MANUAL/AUTO), BERHENTI TOTAL
-                    if IsTeleporting then 
-                        task.wait(0.5) 
-                        continue 
-                    end
+-- -- [[ UPDATE LOGIKA AUTO FARM ]] --
+-- FM_Add("Farm", FarmTab:Toggle({
+--     Title = "Auto Farm",
+--     Default = false,
+--     Flag = "AutoFarm_Toggle",
+--     Callback = function(val)
+--         Config.AutoFarm = val
+--         if val then
+--             currentTargetIndex = 0
+--             task.spawn(function()
+--                 while not Window.Destroyed do
+--                     -- JIKA SEDANG TELEPORT (MANUAL/AUTO), BERHENTI TOTAL
+--                     if IsTeleporting then 
+--                         task.wait(0.5) 
+--                         continue 
+--                     end
 
-                    if Config.AutoFarm then
-                        if not currentTarget or not currentTarget.Parent or (currentTarget:GetAttribute("Health") or 0) <= 0 then
-                            currentTarget = GetTargetBySequence()
-                        end
+--                     if Config.AutoFarm then
+--                         if not currentTarget or not currentTarget.Parent or (currentTarget:GetAttribute("Health") or 0) <= 0 then
+--                             currentTarget = GetTargetBySequence()
+--                         end
 
-                        if currentTarget then
-                            local myCharacter = LocalPlayer.Character
-                            local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+--                         if currentTarget then
+--                             local myCharacter = LocalPlayer.Character
+--                             local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
                             
-                            -- Pastikan karakter sudah "landed" di map baru
-                            if myRoot and not IsTeleporting then
-                                local distance = (myRoot.Position - currentTarget.Position).Magnitude
-                                if distance > 10 then
-                                    myRoot.CFrame = currentTarget.CFrame * CFrame.new(0, 3, 3)
-                                end
-                            end
-                        end
-                    end
+--                             -- Pastikan karakter sudah "landed" di map baru
+--                             if myRoot and not IsTeleporting then
+--                                 local distance = (myRoot.Position - currentTarget.Position).Magnitude
+--                                 if distance > 10 then
+--                                     myRoot.CFrame = currentTarget.CFrame * CFrame.new(0, 3, 3)
+--                                 end
+--                             end
+--                         end
+--                     end
                     
-                    pcall(function()
-                        BypassAttackInternal()
-                        AttackModule.Click(true)
-                    end)
+--                     pcall(function()
+--                         BypassAttackInternal()
+--                         AttackModule.Click(true)
+--                     end)
                     
-                    task.wait() 
+--                     task.wait() 
+--                 end
+--             end)
+--         end
+--     end
+-- }))
+
+-- [[ FITUR: AUTO TARGET ALL ENEMY (MULTI-HIT) ]] --
+
+-- 1. Tambahkan Toggle ke Kategori Farm
+local AutoTargetAllToggle = FM_Add("Farm", FarmTab:Toggle({
+    Title = "Auto Farm All Enemy",
+    Desc = "Attack all enemies in massive range Disable Your Auto Click For Used",
+    Default = false,
+    Flag = "AutoTargetAll_Toggle",
+    Callback = function(val)
+        Config.AutoTargetAll = val
+    end
+}))
+
+-- 2. Task Utama: High-Speed Range Attack
+task.spawn(function()
+    while task.wait() do -- Kecepatan maksimal (Zero Delay)
+        if not Window or Window.Destroyed then break end
+        
+        local pData = getgenv().PlayerData
+        if pData and Config.AutoTargetAll then
+            pcall(function()
+                local currentRange = 100000 * (1 + (pData["Range-Stats"].Length or 0) / 100)
+                local targets1, targets2 = MetaManager.ProximityEnemy:GetAll(currentRange)
+                if targets1 then
+                    MetaManager.Bridge:Fire("Attack", "RangeAttack", targets1, targets2, true)
+                    AutoTargetAllToggle:SetDesc(string.format(
+                        "Range: %d | Targets: %d\nStatus: ATTACKING ALL\nNoted: Turn off Your Slow Click or Fast Click", 
+                        math.floor(currentRange), 
+                        #targets1
+                    ))
                 end
             end)
         end
     end
-}))
-
+end)
 -- [[ ELEMEN UNTUK KATEGORI GAME MODE ]] --
 
 local GameModeElements = {}
@@ -1400,7 +1435,62 @@ task.spawn(function()
         end
     end
 end)
+-- [[ TAMBAHAN FITUR: INSTANT ZERINGAN (NO COOLDOWN) ]] --
 
+-- 1. Tambahkan Toggle ke Kategori Zeringan
+local InstantZeringanToggle = FM_Add("Zeringan", FarmTab:Toggle({
+    Title = "Instant No Cooldown Mode",
+    Desc = "Force activate Sharingan without cooldown.",
+    Default = false,
+    Flag = "InstantZeringan_Toggle",
+    Callback = function(val)
+        Config.InstantZeringan = val
+        -- Sinyal Server: Memberitahu server untuk mengaktifkan Auto Sharingan
+        pcall(function()
+            MetaManager.Bridge:Fire("AntiAFK", "SetAutoSharingan", val)
+        end)
+    end
+}))
+
+-- 2. Task Utama: Bypass & Auto Activate
+task.spawn(function()
+    local ModeScript = MetaManager.Scripts.Mode
+    
+    while task.wait() do -- Kecepatan maksimal (Zero Delay)
+        if not Window or Window.Destroyed then break end
+        
+        local pData = getgenv().PlayerData
+        if pData and Config.InstantZeringan and pData.Mode ~= "None" then
+            local char = LocalPlayer.Character
+            if char then
+                -- A. BYPASS COOLDOWN (Atribut Karakter)
+                -- Memaksa cooldown menjadi nil agar UI dan sistem menganggap mode 'Ready'
+                if char:GetAttribute("ModeCooldown") then
+                    char:SetAttribute("ModeCooldown", nil)
+                end
+
+                -- B. BYPASS INTERNAL LOCK (Upvalue var8_upvw)
+                -- Mereset kunci aktivasi (debounce 3.5 detik) secara paksa
+                if ModeScript and ModeScript.Activate then
+                    -- Upvalue 2 pada fungsi Activate adalah lock 'var8_upvw'
+                    pcall(function()
+                        debug.setupvalue(ModeScript.Activate, 2, nil)
+                    end)
+                end
+
+                -- C. AUTO ACTIVATION
+                -- Jika mode tidak aktif (Attribute Mode ~= true), langsung nyalakan
+                if char:GetAttribute("Mode") ~= true then
+                    pcall(function()
+                        ModeScript.Activate()
+                        -- Kirim Fire tambahan untuk memastikan sinkronisasi status server
+                        MetaManager.Bridge:Fire("AntiAFK", "SetAutoSharingan", true)
+                    end)
+                end
+            end
+        end
+    end
+end)
 -- [[ ELEMEN UNTUK KATEGORI RANGE UPGRADE ]] --
 
 local RangeElements = {}
@@ -1517,7 +1607,7 @@ local function GetNearestStarModel()
     if not root then return nil end
     
     local nearest = nil
-    local minDist = 30
+    local minDist = 15
     
     for _, v in pairs(game:GetService("CollectionService"):GetTagged("StarModel")) do
         local starRoot = v:FindFirstChild("HumanoidRootPart")
