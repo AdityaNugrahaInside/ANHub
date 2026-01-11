@@ -380,16 +380,6 @@ task.spawn(function()
         VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
         task.wait(1)
         VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-        
-        -- 2. Bypass Server Anti-AFK (Mencegah Kick Game/Server)
-        -- Menggunakan instruksi sinyal dari decompile AntAfk
-        pcall(function()
-            if MetaManager and MetaManager.Bridge then
-                MetaManager.Bridge:Fire("AntiAFK", "SendInput", true)
-            end
-        end)
-        
-        Notify("Anti-AFK", "Server-side timer has been reset!", "zap")
     end)
 end)
 task.spawn(function()
