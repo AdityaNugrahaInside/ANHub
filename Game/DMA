@@ -390,6 +390,7 @@ task.spawn(function()
     end
 end)
 local AttackModule = MetaManager.Scripts.Attack
+local OriginalAttackClick = AttackModule.Click
 local ItemsData = MetaManager.Shared.Items
 local AccessoriesData = MetaManager.Shared.Accessories
 local DropElements = {} -- Tabel untuk melacak elemen UI drops yang aktif
@@ -651,36 +652,83 @@ end)
 
 -- [[ FITUR: AUTO TARGET ALL ENEMY (MULTI-HIT) ]] --
 
--- 1. Tambahkan Toggle ke Kategori Farm
+AttackModule.Click = function(arg1)
+    if Config.AutoTargetAll then
+        local pData = getgenv().PlayerData
+        if pData then
+            pcall(function()
+                -- Kalkulasi Range Raksasa sesuai permintaan: $100,000 * (1 + Length/100)$
+                local currentRange = 100000 * (1 + (pData["Range-Stats"].Length or 0) / 100)
+                
+                -- Ambil semua musuh di sekitar
+                local targets1, targets2 = MetaManager.ProximityEnemy:GetAll(currentRange)
+                
+                if targets1 then
+                    -- Kirim serangan massal dengan bypass cooldown (true)
+                    MetaManager.Bridge:Fire("Attack", "RangeAttack", targets1, targets2, true)
+                end
+            end)
+        end
+        return 
+    else
+        return OriginalAttackClick(arg1)
+    end
+end
+
+-- 2. Toggle Auto Farm (All Enemies) dengan Sinyal Anti-AFK Server
 local AutoTargetAllToggle = FM_Add("Farm", FarmTab:Toggle({
     Title = "Auto Farm (All Enemies)",
-    Desc = "Attacks all enemies within a huge range. Disable Auto Click to use.",
+    Desc = "Zero Cooldown, Massive Range, and Full Anti-AFK.",
     Default = false,
     Flag = "AutoTargetAll_Toggle",
     Callback = function(val)
         Config.AutoTargetAll = val
+        
+        -- Sinyal Server: Memberitahu server bahwa pemain sedang melakukan serangan otomatis
+        -- Ini mencegah pendeteksian AFK di sisi server
+        pcall(function()
+            MetaManager.Bridge:Fire("AntiAFK", "SetAutoAttack", val)
+        end)
     end
 }))
 
--- 2. Task Utama: High-Speed Range Attack
+-- 3. Task Utama: High-Speed Attack & Engine Anti-AFK
 task.spawn(function()
+    local lastAntiAFK = 0
+    
     while task.wait() do -- Kecepatan maksimal (Zero Delay)
         if not Window or Window.Destroyed then break end
         
-        local pData = getgenv().PlayerData
-        if pData and Config.AutoTargetAll then
+        if Config.AutoTargetAll then
+            -- A. Eksekusi Serangan via Hook
             pcall(function()
-                local currentRange = 100000 * (1 + (pData["Range-Stats"].Length or 0) / 100)
-                local targets1, targets2 = MetaManager.ProximityEnemy:GetAll(currentRange)
-                if targets1 then
-                    MetaManager.Bridge:Fire("Attack", "RangeAttack", targets1, targets2, true)
+                AttackModule.Click(true)
+            end)
+            
+            -- B. Engine Anti-AFK: Mencegah Kick 20 Menit Roblox
+            -- Melakukan simulasi input setiap 60 detik agar tetap terhitung aktif oleh engine
+            if tick() - lastAntiAFK > 60 then
+                lastAntiAFK = tick()
+                pcall(function()
+                    local VirtualUser = game:GetService("VirtualUser")
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                end)
+            end
+            
+            -- C. Update UI Info Periodik
+            if tick() % 1 < 0.1 then -- Update setiap 1 detik untuk menghemat FPS
+                local pData = getgenv().PlayerData
+                if pData then
+                    local currentRange = 100000 * (1 + (pData["Range-Stats"].Length or 0) / 100)
+                    local targets = MetaManager.ProximityEnemy:GetAll(currentRange)
                     AutoTargetAllToggle:SetDesc(string.format(
-                        "Range: %d | Targets: %d\nStatus: ATTACKING ALL\nNote: Turn off Slow Click or Fast Click",
+                        "Range: %d | Targets: %d\nStatus: ATTACKING ALL\nAnti-AFK: ACTIVE",
                         math.floor(currentRange), 
-                        #targets1
+                        targets and #targets or 0
                     ))
                 end
-            end)
+            end
         end
     end
 end)
