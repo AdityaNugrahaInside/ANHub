@@ -230,6 +230,47 @@ pcall(function()
 end)
 
 local FM_Categories = {}
+local FeatureElements = {}
+local function RegisterFeatureElement(elem)
+    if elem then
+        table.insert(FeatureElements, elem)
+    end
+    return elem
+end
+
+local function ApplyFreeUserRestrictions()
+    if IsPremium then
+        return
+    end
+
+    local lockText = "Premium Only"
+
+    for _, elem in ipairs(FeatureElements) do
+        if elem and elem.__type == "Toggle" then
+            pcall(function() elem:Unlock() end)
+            pcall(function() elem:Set(false, true) end)
+        elseif elem and elem.__type == "Dropdown" then
+            pcall(function() elem:Select(nil) end)
+        end
+
+        pcall(function()
+            if elem and elem.Lock then
+                elem:Lock(lockText)
+            end
+        end)
+
+        pcall(function()
+            if elem and type(elem) == "table" then
+                for _, v in pairs(elem) do
+                    if type(v) == "table" and type(v.Lock) == "function" then
+                        v:Lock(lockText)
+                    end
+                end
+            end
+        end)
+    end
+end
+
 local FM_CategoryDescriptions = {
     ["Farm"] = "Auto farm enemies and specific targets.",
     ["Ascension"] = "Manage your character ascension and auto-evolve.", -- Tambahkan ini
@@ -273,6 +314,7 @@ end
 local function FM_Add(cat, elem)
     if not FM_Categories[cat] then FM_Categories[cat] = {} end
     table.insert(FM_Categories[cat], elem)
+    RegisterFeatureElement(elem)
     local frame = FM_GetElementFrame(elem)
     if frame then frame.Visible = false end
     return elem
@@ -621,8 +663,8 @@ end)
 
 -- 1. Tambahkan Toggle ke Kategori Farm
 local AutoTargetAllToggle = FM_Add("Farm", FarmTab:Toggle({
-    Title = "Auto Farm All Enemy",
-    Desc = "Attack all enemies in massive range Disable Your Auto Click For Used",
+    Title = "Auto Farm (All Enemies)",
+    Desc = "Attacks all enemies within a huge range. Disable Auto Click to use.",
     Default = false,
     Flag = "AutoTargetAll_Toggle",
     Callback = function(val)
@@ -643,7 +685,7 @@ task.spawn(function()
                 if targets1 then
                     MetaManager.Bridge:Fire("Attack", "RangeAttack", targets1, targets2, true)
                     AutoTargetAllToggle:SetDesc(string.format(
-                        "Range: %d | Targets: %d\nStatus: ATTACKING ALL\nNoted: Turn off Your Slow Click or Fast Click", 
+                        "Range: %d | Targets: %d\nStatus: ATTACKING ALL\nNote: Turn off Slow Click or Fast Click",
                         math.floor(currentRange), 
                         #targets1
                     ))
@@ -667,13 +709,15 @@ FM_Add("Game Mode", FarmTab:Dropdown({
     },
     AllowNone = true,
     Flag = "GameMode_Dropdown",
-    Callback = function(val) SelectedRaidType = val.RawName end
+    Callback = function(val)
+        SelectedRaidType = (val and val.RawName) or ""
+    end
 }))
 
 -- 2. Toggle Auto Start/Join
 local AutoRaidToggle = FM_Add("Game Mode", FarmTab:Toggle({
     Title = "Auto Start/Join Raid",
-    Desc = "Otomatis memulai atau bergabung saat di Lobby.",
+    Desc = "Automatically start or join while in the lobby.",
     Default = false,
     Flag = "AutoRaid_Toggle",
     Callback = function(val) Config.AutoRaid = val end
@@ -696,6 +740,9 @@ task.spawn(function()
         
         local pData = getgenv().PlayerData
         if pData and Config.AutoRaid then
+            if SelectedRaidType == "" then
+                continue
+            end
             if inRaid then
                 if pData and Config.AutoLeaveWave > 0 then
                     local hud = LocalPlayer.PlayerGui.UI.HUD.Gamemodes:FindFirstChild(SelectedRaidType)
@@ -747,7 +794,7 @@ end)
 
 local AscensionToggle = FM_Add("Ascension", FarmTab:Toggle({
     Title = "Auto Ascension",
-    Desc = "Menunggu data...",
+    Desc = "Waiting for data...",
     Default = false,
     Flag = "AutoAscension_Toggle",
     Callback = function(val)
@@ -841,7 +888,7 @@ end)
 -- 1. Paragraph Preview dengan Viewport
 local SkinStatusPara = FarmTab:Paragraph({
     Title = "Skin 3D Preview",
-    Desc = "Memuat data skin...",
+    Desc = "Loading skin data...",
 })
 FM_Add("Skins", SkinStatusPara)
 
@@ -982,7 +1029,7 @@ end)
 -- 4. Toggle Auto Evolve Skin (Tetap Sama)
 local AutoEvolveSkinToggle = FM_Add("Skins", FarmTab:Toggle({
     Title = "Auto Evolve Skin",
-    Desc = "Evolve skin yang sedang digunakan secara otomatis.",
+    Desc = "Automatically evolve the currently equipped skin.",
     Default = false,
     Flag = "AutoEvolveSkin_Toggle",
     Callback = function(val)
@@ -1144,6 +1191,53 @@ local FamilyElements = {}
 local NenElements = {}
 local PassiveAbilityElements = {}
 
+-- [[ HELPER: AUTO EQUIP BEST ENERGY (VAULT VERSION) ]] --
+local function EquipBestEnergy(category)
+    local pData = getgenv().PlayerData
+    if not pData or not pData.Vault then return end
+    
+    -- Mapping key: Remote "Passives" menggunakan data Vault "Passive"
+    local vaultKeys = {
+        ["Family"] = "Family",
+        ["Nen"] = "Nen",
+        ["Passives"] = "Passive"
+    }
+    
+    local vaultKey = vaultKeys[category]
+    if not vaultKey or not pData.Vault[vaultKey] then return end
+    
+    local myVault = pData.Vault[vaultKey]
+    local sharedData = MetaManager.Shared[category]
+    
+    local bestItem = nil
+    local bestValue = -1
+
+    -- Loop melalui item di Vault pemain untuk mencari multiplier Energy tertinggi
+    for id, owned in pairs(myVault) do
+        if owned then
+            local info = sharedData[id]
+            if info and info.Multipliers and info.Multipliers.Energy then
+                local val = tonumber(info.Multipliers.Energy) or 0
+                if val > bestValue then
+                    bestValue = val
+                    bestItem = id
+                end
+            end
+        end
+    end
+
+    -- Eksekusi jika ditemukan item yang lebih baik dari yang sedang dipakai
+    if bestItem then
+        local currentEquippedKey = (category == "Passives") and "Passive" or category
+        if pData[currentEquippedKey] ~= bestItem then
+            pcall(function()
+                MetaManager.Bridge:Fire("Vault", "Equip", category, bestItem)
+            end)
+            Notify("Auto Equip", "Best Energy " .. category .. " Equipped!", "zap")
+        end
+    end
+end
+
 local KeepLists = {
     Family = {},
     Nen = {},
@@ -1167,12 +1261,17 @@ local function GetMultipliersText(category, name)
     return table.concat(buffs, " | ")
 end
 
+-- [[ TOGGLES PASSIVE WITH REFINED LOGIC ]] --
+
 local AutoFamilyToggle = FM_Add("Passive", FarmTab:Toggle({
     Title = "Auto Reroll Family",
     Desc = "Checking map status...",
     Default = false,
     Flag = "AutoFamily_Toggle",
-    Callback = function(val) Config.AutoRerollFamily = val end
+    Callback = function(val) 
+        Config.AutoRerollFamily = val 
+        if not val then EquipBestEnergy("Family") end 
+    end
 }))
 table.insert(FamilyElements, AutoFamilyToggle)
 
@@ -1181,7 +1280,10 @@ local AutoNenToggle = FM_Add("Passive", FarmTab:Toggle({
     Desc = "Checking map status...",
     Default = false,
     Flag = "AutoNen_Toggle",
-    Callback = function(val) Config.AutoRerollNen = val end
+    Callback = function(val) 
+        Config.AutoNen = val 
+        if not val then EquipBestEnergy("Nen") end 
+    end
 }))
 table.insert(NenElements, AutoNenToggle)
 
@@ -1190,26 +1292,28 @@ local AutoPassiveToggle = FM_Add("Passive", FarmTab:Toggle({
     Desc = "Checking map status...",
     Default = false,
     Flag = "AutoPassive_Toggle",
-    Callback = function(val) Config.AutoRerollPassives = val end
+    Callback = function(val) 
+        Config.AutoRerollPassives = val 
+        if not val then EquipBestEnergy("Passives") end 
+    end
 }))
 table.insert(PassiveAbilityElements, AutoPassiveToggle)
 
 -- ==========================================
--- MAIN TASK: SYNC & AUTO REROLL
+-- MAIN TASK: SYNC, AUTO REROLL & 10s EQUIP TIMER
 -- ==========================================
 task.spawn(function()
     local lockStates = { Family = false, Nen = false, Passives = false }
     local lastData = { Family = "", Nen = "", Passives = "" }
+    local lastEquipTime = { Family = 0, Nen = 0, Passives = 0 }
     
     while task.wait(0.1) do
         if not Window or Window.Destroyed then break end
-
         local pData = getgenv().PlayerData
         if pData then
             local currentMap = pData.Map or ""
 
-            -- 1. LOGIKA LOCKING PER KATEGORI
-            -- Family: Leaf Village
+            -- 1. LOGIKA LOCKING MAP
             if currentMap ~= "Leaf Village" then
                 if not lockStates.Family then
                     lockStates.Family = true
@@ -1222,7 +1326,6 @@ task.spawn(function()
                 end
             end
 
-            -- Nen & Passives: Hunter Town
             local hunterTownCheck = (currentMap ~= "Hunter Town")
             if hunterTownCheck then
                 if not lockStates.Nen then
@@ -1238,17 +1341,15 @@ task.spawn(function()
                 end
             end
 
-            -- 2. UPDATE & AUTO LOGIC HELPER
-            local function ProcessCategory(typeKey, dataKey, toggleObj, bridgeKey, coinKey, isCategoryLocked)
-                -- if isCategoryLocked then return end
-                
+            -- 2. UPDATE & AUTO LOGIC PER KATEGORI
+            local function ProcessCategory(typeKey, dataKey, toggleObj, bridgeKey, coinKey)
                 local currentVal = pData[dataKey]
                 if not currentVal then return end
                 
                 local infoDB = MetaManager.Shared[typeKey]
                 local currentInfo = infoDB and infoDB[currentVal]
                 
-                -- Visual Sync
+                -- Sync Visual
                 if currentVal ~= lastData[typeKey] then
                     lastData[typeKey] = currentVal
                     if currentInfo then
@@ -1261,12 +1362,11 @@ task.spawn(function()
                     end
                 end
 
-                -- Pity & Coins Info
+                -- Sync Stats & Info
                 local pityData = pData.Pity or {}
                 local pityCount = pityData[typeKey] or 0
                 local pityPhase = (pData.PityPhase and pData.PityPhase[typeKey]) or "Mythical"
                 local maxPity = (pityPhase == "Mythical") and 1200 or 30000
-                
                 local inventory = pData.Inventory and pData.Inventory.Items or {}
                 local coins = inventory[coinKey] or 0
                 local multipliers = GetMultipliersText(typeKey, currentVal)
@@ -1279,27 +1379,32 @@ task.spawn(function()
                     (Config["AutoReroll"..typeKey] and (coins > 0 and "Rolling..." or "Out of Coins!") or "Idle")
                 ))
 
-                -- AUTO REROLL BYPASS
+                -- [[ AUTO REROLL & 10s EQUIP LOGIC ]] --
                 if Config["AutoReroll"..typeKey] then
                     if coins > 0 then
                         pcall(function()
                             MetaManager.Bridge:Fire(bridgeKey, "Reroll")
                         end)
-                    elseif coins <= 0 then
+                    else
                         Config["AutoReroll"..typeKey] = false
                         toggleObj:Set(false)
+                        EquipBestEnergy(typeKey) -- Auto Equip saat koin habis
+                    end
+
+                    -- Timer 10 Detik: Menjaga Energy Tertinggi tetap terpasang
+                    if tick() - lastEquipTime[typeKey] >= 10 then
+                        lastEquipTime[typeKey] = tick()
+                        EquipBestEnergy(typeKey)
                     end
                 end
             end
 
-            -- Execute per Map Logic
-            ProcessCategory("Family", "Family", AutoFamilyToggle, "Family", "Family Coin", lockStates.Family)
-            ProcessCategory("Nen", "Nen", AutoNenToggle, "Nen", "Nen Token", lockStates.Nen)
-            ProcessCategory("Passives", "Passive", AutoPassiveToggle, "Passives", "Passive Token", lockStates.Nen)
+            ProcessCategory("Family", "Family", AutoFamilyToggle, "Family", "Family Coin")
+            ProcessCategory("Nen", "Nen", AutoNenToggle, "Nen", "Nen Token")
+            ProcessCategory("Passives", "Passive", AutoPassiveToggle, "Passives", "Passive Token")
         end
     end
 end)
-
 -- [[ ELEMEN UNTUK KATEGORI ZERINGAN ]] --
 
 local ZeringanElements = {}
@@ -1599,8 +1704,44 @@ end)
 -- [[ ELEMEN UNTUK KATEGORI HATCH PETS ]] --
 
 local HatchElements = {}
+local StarsModule = MetaManager.Scripts.Stars -- Referensi modul gacha asli
+local StarsAnimModule = MetaManager.Scripts.StarsAnimation -- Referensi modul animasi
 
--- 1. Helper: Mendapatkan Star Terdekat (Sesuai Decompile)
+-- 1. HOOKING MODULE FUNCTIONS (Mematikan Semua Animasi & UI)
+local OriginalJoin = StarsModule.Join
+local OriginalLeave = StarsModule.Leave
+local OriginalSpinAnim = StarsAnimModule.Spin
+
+-- Fungsi untuk mengaktifkan/mematikan Hooking secara global
+local function ToggleHatchHooks(state)
+    if state then
+        -- Hook Modul Stars: Mematikan UI HUD & Tween
+        StarsModule.Join = function() end 
+        StarsModule.Leave = function() end
+        
+        -- Hook Modul StarsAnimation: Mematikan Efek Bintang 3D & Camera Binding
+        StarsAnimModule.Spin = function() 
+            -- Paksa attribute tetap false agar loop tidak berhenti
+            LocalPlayer:SetAttribute("StarAnimation", false) 
+        end
+        
+        -- Sembunyikan UI HUD & Reveal secara paksa agar tidak berkedip di layar
+        pcall(function()
+            local UI = LocalPlayer.PlayerGui:FindFirstChild("UI")
+            if UI then
+                if UI.HUD:FindFirstChild("Star") then UI.HUD.Star.Visible = false end
+                if UI:FindFirstChild("Star") then UI.Star.Visible = false end
+            end
+        end)
+    else
+        -- Mengembalikan fungsi asli saat toggle dimatikan
+        StarsModule.Join = OriginalJoin
+        StarsModule.Leave = OriginalLeave
+        StarsAnimModule.Spin = OriginalSpinAnim
+    end
+end
+
+-- 2. Helper: Mendapatkan Star Terdekat
 local function GetNearestStarModel()
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -1622,54 +1763,51 @@ local function GetNearestStarModel()
     return nearest
 end
 
--- 2. Toggle Auto Multi Hatch (Zero Delay)
+-- 3. Toggle Auto Multi Hatch (Instant & Full Silent)
 local AutoHatchToggle = FM_Add("Hatch Pets", FarmTab:Toggle({
     Title = "Auto Multi Hatch (Instant)",
-    Desc = "Menunggu di dekat Star...",
+    Desc = "Zero Animation & No Wait Mode.",
     Default = false,
     Flag = "AutoHatch_Toggle",
     Callback = function(val)
         Config.AutoHatch = val
-        -- Reset status animasi saat dinyalakan
+        ToggleHatchHooks(val) -- Menjalankan Hooking pada kedua modul sekaligus
         if val then
             LocalPlayer:SetAttribute("StarAnimation", false)
         end
     end
 }))
 
--- 3. Task Utama: Instant Gacha & Animation Bypass
+-- 4. Task Utama: Instant Gacha Loop
 task.spawn(function()
-    while task.wait() do
+    while task.wait(0.1) do -- Batas aman pengiriman Remote
         if not Window or Window.Destroyed then break end
         
-        local pData = getgenv().PlayerData
-        if pData and Config.AutoHatch then
+        if Config.AutoHatch then
             local starModel = GetNearestStarModel()
             
             if starModel then
                 local starName = starModel.Parent.Parent.Name
                 local eggType = LocalPlayer.Character:GetAttribute("Egg") or "Normal"
                 
-                -- [[ BYPASS ANIMASI & COOLDOWN ]]
-                -- Memaksa atribut animasi menjadi false agar tidak ada jeda input
+                -- [[ INSTANT BYPASS ]]
+                -- Paksa attribute selalu false agar server mau menerima request baru secara instan
                 LocalPlayer:SetAttribute("StarAnimation", false)
                 
-                -- Mengirim sinyal Multi secara instan
                 pcall(function()
+                    -- Tembak remote Multi secara langsung ke server
                     MetaManager.Bridge:Fire("Stars", "Multi", starName, eggType)
                 end)
                 
-                -- Update UI Status
+                -- Update Info di Hub secara Real-time
                 local mapInfo = MetaManager.Shared.Maps[starName]
-                local pity = pData.Pity and pData.Pity[tostring(mapInfo and mapInfo.Index or "")] or 0
+                local pity = getgenv().PlayerData.Pity and getgenv().PlayerData.Pity[tostring(mapInfo and mapInfo.Index or "")] or 0
                 
-                AutoHatchToggle:SetTitle("Hatching: " .. starName)
                 AutoHatchToggle:SetDesc(string.format(
-                    "Egg Type: %s\nPity: %d/1200",
-                    eggType, math.clamp(pity, 0, 1200)
+                    "Hatching: %s\nType: %s | Pity: %d/1200\nStatus: FULL HOOK (Silent)",
+                    starName, eggType, math.clamp(pity, 0, 1200)
                 ))
             else
-                AutoHatchToggle:SetTitle("Auto Multi Hatch")
                 AutoHatchToggle:SetDesc("Status: Standby (Mendekatlah ke Star)")
             end
         end
@@ -1710,6 +1848,8 @@ local SwordDropdown = FM_Add("Sword Management", FarmTab:Dropdown({
             if getgenv().PlayerData.Sword ~= SelectedSwordID then
                 pcall(function() MetaManager.Bridge:Fire("Swords", "Equip", SelectedSwordID) end)
             end
+        else
+            SelectedSwordID = ""
         end
     end
 }))
@@ -1718,7 +1858,7 @@ table.insert(SwordElements, SwordDropdown)
 -- 2. Toggle Auto Evolve (Statistik Pedang Terpilih)
 local AutoEvolveSwordToggle = FM_Add("Sword Management", FarmTab:Toggle({
     Title = "Auto Evolve Sword",
-    Desc = "Pilih pedang untuk melihat statistik.",
+    Desc = "Select a sword to view stats.",
     Default = false,
     Flag = "AutoEvolveSword_Toggle",
     Callback = function(val) Config.AutoEvolveSword = val end
@@ -1746,12 +1886,14 @@ local ForgeDropdown = FM_Add("Sword Management", FarmTab:Dropdown({
         return l
     end)(),
     Flag = "Forge_Dropdown",
-    Callback = function(val) SelectedCraftItem = val.RawName end
+    Callback = function(val)
+        SelectedCraftItem = (val and val.RawName) or ""
+    end
 }))
 
 local AutoCraftToggle = FM_Add("Sword Management", FarmTab:Toggle({
     Title = "Auto Craft Item",
-    Desc = "Pilih item untuk melihat material.",
+    Desc = "Select an item to view materials.",
     Default = false,
     Flag = "AutoCraft_Toggle",
     Callback = function(val) Config.AutoCraft = val end
@@ -1886,15 +2028,15 @@ end
 -- [[ Settings Tab ]] --
 SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings-2" });
 SettingsTab:Section({ Title = "Config Manager", Icon = "save", Opened = true });
-SettingsTab:Input({
+RegisterFeatureElement(SettingsTab:Input({
     Title = "Config Name",
     Placeholder = "ANConfig",
     Flag = "ConfigName_Input",
     Callback = function(txt)
         ConfigName = (txt and txt ~= "" and txt) or "ANConfig"
     end
-})
-SettingsTab:Button({
+}))
+RegisterFeatureElement(SettingsTab:Button({
     Title = "Save Config",
     Icon = "save",
     Callback = function()
@@ -1909,8 +2051,8 @@ SettingsTab:Button({
         end
         Notify("Success", "Saved!", "check")
     end
-})
-SettingsTab:Button({
+}))
+RegisterFeatureElement(SettingsTab:Button({
     Title = "Load Config",
     Icon = "upload",
     Callback = function()
@@ -1925,9 +2067,10 @@ SettingsTab:Button({
         LoadMapDB()
         ApplySavedEnemyForMap(GetCurrentMapName(), CurrentMapEnemiesCache)
         Notify("Success", "Loaded!", "check")
+        ApplyFreeUserRestrictions()
     end
-})
-SettingsTab:Button({
+}))
+RegisterFeatureElement(SettingsTab:Button({
     Title = "Delete Config",
     Icon = "trash",
     Callback = function()
@@ -1938,8 +2081,8 @@ SettingsTab:Button({
         end
         Notify("Success", "Deleted!", "trash")
     end
-})
-SettingsTab:Button({
+}))
+RegisterFeatureElement(SettingsTab:Button({
     Title = "Rejoin Server",
     Icon = "rotate-cw",
     Callback = function()
@@ -1954,7 +2097,7 @@ SettingsTab:Button({
             TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
         end
     end
-})
+}))
 -- [[ PERFORMANCE / FPS BOOST SECTION ]] --
 SettingsTab:Section({ Title = "Performance & FPS Boost", Icon = "zap", Opened = false });
 
@@ -1998,9 +2141,9 @@ local function ApplyFPSBoost()
     Notify("FPS Boost", "Performance settings applied!", "zap")
 end
 
-SettingsTab:Toggle({
+RegisterFeatureElement(SettingsTab:Toggle({
     Title = "High Performance Mode",
-    Desc = "Menghapus tekstur, bayangan, dan efek untuk menaikkan FPS.",
+    Desc = "Removes textures, shadows, and effects to increase FPS.",
     Default = false,
     Callback = function(val)
         if val then
@@ -2009,12 +2152,12 @@ SettingsTab:Toggle({
             Notify("Info", "Rejoin server untuk mengembalikan grafik normal.", "info")
         end
     end
-})
+}))
 
-SettingsTab:Button({
+RegisterFeatureElement(SettingsTab:Button({
     Title = "Clean Workspace (Lag Fix)",
     Icon = "trash-2",
-    Desc = "Menghapus sampah visual di workspace.",
+    Desc = "Removes visual clutter in the workspace.",
     Callback = function()
         for _, v in pairs(workspace:GetChildren()) do
             if v:IsA("BasePart") and v.Transparency == 1 and not v:IsA("Terrain") then
@@ -2023,7 +2166,7 @@ SettingsTab:Button({
         end
         Notify("Cleaned", "Workspace items optimized.", "check")
     end
-})
+}))
 -- [[ ADVANCED SMOOTHNESS FUNCTIONS ]] --
 local function Toggle3DRendering(state)
     -- Benar-benar mematikan render dunia (layar jadi abu-abu/putih)
@@ -2045,9 +2188,9 @@ local function BoostCPU()
     settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Low
 end
 -- Toggle untuk mematikan Rendering 3D
-SettingsTab:Toggle({
+RegisterFeatureElement(SettingsTab:Toggle({
     Title = "CPU Mode (White Screen)",
-    Desc = "Mematikan render 3D. Sangat cocok untuk AFK semalaman (Hemat GPU).",
+    Desc = "Disables 3D rendering. Great for AFK overnight (saves GPU).",
     Default = false,
     Callback = function(val)
         Toggle3DRendering(val)
@@ -2057,28 +2200,29 @@ SettingsTab:Toggle({
             Notify("CPU Mode", "3D Rendering Enabled.", "monitor")
         end
     end
-})
+}))
 
 -- Toggle untuk Mute Suara (Mengurangi beban CPU audio)
-SettingsTab:Toggle({
+RegisterFeatureElement(SettingsTab:Toggle({
     Title = "Mute All Sounds",
-    Desc = "Mematikan semua suara di dalam game.",
+    Desc = "Mutes all in-game sounds.",
     Default = false,
     Callback = function(val)
         if val then MuteAllSounds() end
     end
-})
+}))
 
 -- Tombol untuk Force Low Quality (Engine Level)
-SettingsTab:Button({
+RegisterFeatureElement(SettingsTab:Button({
     Title = "Force Ultra Low Quality",
     Icon = "mouse-pointer-2",
-    Desc = "Memaksa engine Roblox menggunakan settingan terendah.",
+    Desc = "Forces Roblox to use the lowest engine settings.",
     Callback = function()
         BoostCPU()
         Notify("Success", "Engine optimized for low-end PC.", "check")
     end
-})
+}))
+ApplyFreeUserRestrictions()
 FM_OnChange("Farm")
 
 Window:SelectTab(FarmTab.Index);
@@ -2099,6 +2243,8 @@ task.spawn(function()
         -- PENTING: Set kembali ke false agar loop Auto Save bisa berjalan
         IsLoadingConfig = false 
     end)
+    
+    ApplyFreeUserRestrictions()
 
     -- Loop Auto Save 10 Detik
     while not Window.Destroyed do
