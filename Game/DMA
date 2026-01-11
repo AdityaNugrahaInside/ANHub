@@ -1585,55 +1585,65 @@ task.spawn(function()
         end
     end
 end)
--- [[ TAMBAHAN FITUR: INSTANT ZERINGAN (NO COOLDOWN) ]] --
+-- [[ REFINED BYPASS: ZERINGAN NO COOLDOWN & INSTANT MODE ]] --
 
--- 1. Tambahkan Toggle ke Kategori Zeringan
-local InstantZeringanToggle = FM_Add("Zeringan", FarmTab:Toggle({
-    Title = "Instant No Cooldown Mode",
-    Desc = "Force activate Sharingan without cooldown.",
+local ModeModule = MetaManager.Scripts.Mode
+
+-- 1. Helper: Reset Internal Lock (Upvalue)
+local function BypassZeringanLock()
+    -- var8_upvw adalah upvalue ke-2 di fungsi Activate dan upvalue ke-1 di Disable
+    if ModeModule.Activate then
+        pcall(function()
+            debug.setupvalue(ModeModule.Activate, 2, nil)
+        end)
+    end
+    if ModeModule.Disable then
+        pcall(function()
+            debug.setupvalue(ModeModule.Disable, 1, nil)
+        end)
+    end
+end
+
+-- 2. Toggle Instant Mode
+local InstantModeToggle = FM_Add("Zeringan", FarmTab:Toggle({
+    Title = "Instant Sharingan",
+    Desc = "Force activate Zeringan without waiting for cooldown.",
     Default = false,
-    Flag = "InstantZeringan_Toggle",
+    Flag = "InstantMode_Toggle",
     Callback = function(val)
         Config.InstantZeringan = val
-        -- Sinyal Server: Memberitahu server untuk mengaktifkan Auto Sharingan
+        -- Beritahu server bahwa Auto Sharingan aktif untuk sinkronisasi
         pcall(function()
             MetaManager.Bridge:Fire("AntiAFK", "SetAutoSharingan", val)
         end)
     end
 }))
 
--- 2. Task Utama: Bypass & Auto Activate
+-- 3. Task Utama: Bypass Loop
 task.spawn(function()
-    local ModeScript = MetaManager.Scripts.Mode
-    
-    while task.wait() do -- Kecepatan maksimal (Zero Delay)
+    while task.wait() do -- Zero Delay Loop
         if not Window or Window.Destroyed then break end
         
         local pData = getgenv().PlayerData
         if pData and Config.InstantZeringan and pData.Mode ~= "None" then
             local char = LocalPlayer.Character
             if char then
-                -- A. BYPASS COOLDOWN (Atribut Karakter)
-                -- Memaksa cooldown menjadi nil agar UI dan sistem menganggap mode 'Ready'
+                -- A. BYPASS ATRIBUT COOLDOWN
+                -- Menghapus atribut agar sistem Heartbeat menganggap cooldown selesai
                 if char:GetAttribute("ModeCooldown") then
                     char:SetAttribute("ModeCooldown", nil)
                 end
 
-                -- B. BYPASS INTERNAL LOCK (Upvalue var8_upvw)
-                -- Mereset kunci aktivasi (debounce 3.5 detik) secara paksa
-                if ModeScript and ModeScript.Activate then
-                    -- Upvalue 2 pada fungsi Activate adalah lock 'var8_upvw'
-                    pcall(function()
-                        debug.setupvalue(ModeScript.Activate, 2, nil)
-                    end)
-                end
+                -- B. BYPASS INTERNAL DEBOUNCE
+                -- Mereset variabel var8_upvw agar fungsi Activate bisa dipanggil kapan saja
+                BypassZeringanLock()
 
                 -- C. AUTO ACTIVATION
-                -- Jika mode tidak aktif (Attribute Mode ~= true), langsung nyalakan
+                -- Jika mode mati (Attribute Mode ~= true), aktifkan seketika
                 if char:GetAttribute("Mode") ~= true then
                     pcall(function()
-                        ModeScript.Activate()
-                        -- Kirim Fire tambahan untuk memastikan sinkronisasi status server
+                        ModeModule.Activate()
+                        -- Pastikan Anti-AFK Server tetap sinkron
                         MetaManager.Bridge:Fire("AntiAFK", "SetAutoSharingan", true)
                     end)
                 end
