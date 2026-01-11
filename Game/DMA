@@ -1394,7 +1394,7 @@ task.spawn(function()
                     end
 
                     -- B. Timer 10 Detik (Menjaga Energy tetap tertinggi saat reroll)
-                    if tick() - lastEquipTime[typeKey] >= 10 then
+                    if tick() - lastEquipTime[typeKey] >= 4 then
                         lastEquipTime[typeKey] = tick()
                         EquipBestEnergy(typeKey)
                     end
