@@ -565,7 +565,7 @@ MetaManager.TTeleport.AddEffect = function(targetMap)
     end)
     
     -- Beri jeda 3 detik agar animasi selesai sebelum membuka kunci farm
-    task.delay(4, function() 
+    task.delay(3, function() 
         IsTeleporting = false
     end)
     
@@ -575,7 +575,8 @@ end
 task.spawn(function()
     local lastMapDropdown = "" -- Menyimpan nama map terakhir yang terdeteksi
     
-    while not IsTeleporting and task.wait() do -- Cek tiap detik
+    while not IsTeleporting do
+        task.wait()
         if not Window or Window.Destroyed then break end
         
         local pData = getgenv().PlayerData
