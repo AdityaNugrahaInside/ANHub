@@ -1344,7 +1344,7 @@ task.spawn(function()
     -- Tracker waktu untuk interval 10 detik
     local lastEquipTime = { Family = 0, Nen = 0, Passives = 0 }
     
-    while task.wait(0.1) do
+    while task.wait() do
         if not Window or Window.Destroyed then break end
 
         local pData = getgenv().PlayerData
