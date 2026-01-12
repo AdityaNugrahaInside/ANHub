@@ -395,15 +395,6 @@ local ItemsData = MetaManager.Shared.Items
 local AccessoriesData = MetaManager.Shared.Accessories
 local DropElements = {} -- Tabel untuk melacak elemen UI drops yang aktif
 
--- Fungsi untuk Bypass Cooldown Internal (0.001s)
-local function BypassAttackInternal()
-    if AttackModule and AttackModule.Click then
-        -- Upvalue 1: var4_upvw (Lock), Upvalue 2: var13_upvw (Cooldown)
-        debug.setupvalue(AttackModule.Click, 1, false) 
-        debug.setupvalue(AttackModule.Click, 2, false)
-    end
-end
-
 local function GetEnemiesList()
     local list = {}
     local processed = {}
@@ -497,8 +488,9 @@ local function GetTargetBySequence()
                 if v:IsA("BasePart") then
                     local health = v:GetAttribute("Health") or 0 --
                     local isDied = v:GetAttribute("Died") --
+                    local isBoss = v:GetAttribute("Difficult") --
                     
-                    if health > 0 and not isDied then
+                    if health > 0 and not isDied and isBoss == "Boss" then
                         return v -- Serang musuh raid pertama yang ditemukan
                     end
                 end
@@ -602,58 +594,12 @@ task.spawn(function()
         end
     end
 end)
--- -- [[ UPDATE LOGIKA AUTO FARM ]] --
--- FM_Add("Farm", FarmTab:Toggle({
---     Title = "Auto Farm",
---     Default = false,
---     Flag = "AutoFarm_Toggle",
---     Callback = function(val)
---         Config.AutoFarm = val
---         if val then
---             currentTargetIndex = 0
---             task.spawn(function()
---                 while not Window.Destroyed do
---                     -- JIKA SEDANG TELEPORT (MANUAL/AUTO), BERHENTI TOTAL
---                     if IsTeleporting then 
---                         task.wait(0.5) 
---                         continue 
---                     end
 
---                     if Config.AutoFarm then
---                         if not currentTarget or not currentTarget.Parent or (currentTarget:GetAttribute("Health") or 0) <= 0 then
---                             currentTarget = GetTargetBySequence()
---                         end
-
---                         if currentTarget then
---                             local myCharacter = LocalPlayer.Character
---                             local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
-                            
---                             -- Pastikan karakter sudah "landed" di map baru
---                             if myRoot and not IsTeleporting then
---                                 local distance = (myRoot.Position - currentTarget.Position).Magnitude
---                                 if distance > 10 then
---                                     myRoot.CFrame = currentTarget.CFrame * CFrame.new(0, 3, 3)
---                                 end
---                             end
---                         end
---                     end
-                    
---                     pcall(function()
---                         BypassAttackInternal()
---                         AttackModule.Click(true)
---                     end)
-                    
---                     task.wait() 
---                 end
---             end)
---         end
---     end
--- }))
 
 -- [[ FITUR: AUTO TARGET ALL ENEMY (MULTI-HIT) ]] --
 
 AttackModule.Click = function(arg1)
-    if Config.AutoTargetAll then
+    if Config.AutoFarm then
         local pData = getgenv().PlayerData
         if pData then
             pcall(function()
@@ -665,7 +611,7 @@ AttackModule.Click = function(arg1)
                 
                 if targets1 then
                     -- Kirim serangan massal dengan bypass cooldown (true)
-                    MetaManager.Bridge:Fire("Attack", "RangeAttack", targets1, targets2, true)
+                    MetaManager.Bridge:Fire("Attack", "RangeAttack", targets1, targets2, false)
                 end
             end)
         end
@@ -675,63 +621,52 @@ AttackModule.Click = function(arg1)
     end
 end
 
--- 2. Toggle Auto Farm (All Enemies) dengan Sinyal Anti-AFK Server
-local AutoTargetAllToggle = FM_Add("Farm", FarmTab:Toggle({
-    Title = "Auto Farm (All Enemies)",
-    Desc = "Zero Cooldown, Massive Range, and Full Anti-AFK.",
+-- [[ UPDATE LOGIKA AUTO FARM ]] --
+FM_Add("Farm", FarmTab:Toggle({
+    Title = "Auto Farm",
     Default = false,
-    Flag = "AutoTargetAll_Toggle",
+    Flag = "AutoFarm_Toggle",
     Callback = function(val)
-        Config.AutoTargetAll = val
-        
-        -- Sinyal Server: Memberitahu server bahwa pemain sedang melakukan serangan otomatis
-        -- Ini mencegah pendeteksian AFK di sisi server
-        pcall(function()
-            MetaManager.Bridge:Fire("AntiAFK", "SetAutoAttack", val)
-        end)
-    end
-}))
+        Config.AutoFarm = val
+        if val then
+            currentTargetIndex = 0
+            task.spawn(function()
+                while not Window.Destroyed do
+                    -- JIKA SEDANG TELEPORT (MANUAL/AUTO), BERHENTI TOTAL
+                    if IsTeleporting then 
+                        task.wait(0.5) 
+                        continue 
+                    end
 
--- 3. Task Utama: High-Speed Attack & Engine Anti-AFK
-task.spawn(function()
-    local lastAntiAFK = 0
-    
-    while task.wait() do -- Kecepatan maksimal (Zero Delay)
-        if not Window or Window.Destroyed then break end
-        
-        if Config.AutoTargetAll then
-            -- A. Eksekusi Serangan via Hook
-            pcall(function()
-                AttackModule.Click(true)
-            end)
-            
-            -- B. Engine Anti-AFK: Mencegah Kick 20 Menit Roblox
-            -- Melakukan simulasi input setiap 60 detik agar tetap terhitung aktif oleh engine
-            if tick() - lastAntiAFK > 60 then
-                lastAntiAFK = tick()
-                pcall(function()
-                    local VirtualUser = game:GetService("VirtualUser")
-                    VirtualUser:CaptureController()
-                    VirtualUser:ClickButton2(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-                end)
-            end
-            
-            -- C. Update UI Info Periodik
-            if tick() % 1 < 0.1 then -- Update setiap 1 detik untuk menghemat FPS
-                local pData = getgenv().PlayerData
-                if pData then
-                    local currentRange = 100000 * (1 + (pData["Range-Stats"].Length or 0) / 100)
-                    local targets = MetaManager.ProximityEnemy:GetAll(currentRange)
-                    AutoTargetAllToggle:SetDesc(string.format(
-                        "Range: %d | Targets: %d\nStatus: ATTACKING ALL\nAnti-AFK: ACTIVE",
-                        math.floor(currentRange), 
-                        targets and #targets or 0
-                    ))
+                    if Config.AutoFarm then
+                        if not currentTarget or not currentTarget.Parent or (currentTarget:GetAttribute("Health") or 0) <= 0 then
+                            currentTarget = GetTargetBySequence()
+                        end
+
+                        if currentTarget then
+                            local myCharacter = LocalPlayer.Character
+                            local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+                            
+                            -- Pastikan karakter sudah "landed" di map baru
+                            if myRoot and not IsTeleporting then
+                                local distance = (myRoot.Position - currentTarget.Position).Magnitude
+                                if distance > 10 then
+                                    myRoot.CFrame = currentTarget.CFrame * CFrame.new(0, 3, 3)
+                                end
+                            end
+                        end
+                    end
+                    
+                    pcall(function()
+                        AttackModule.Click(true)
+                    end)
+                    
+                    task.wait() 
                 end
-            end
+            end)
         end
     end
-end)
+}))
 -- [[ ELEMEN UNTUK KATEGORI GAME MODE ]] --
 
 local GameModeElements = {}
