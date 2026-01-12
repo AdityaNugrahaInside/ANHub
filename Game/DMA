@@ -584,9 +584,6 @@ task.spawn(function()
             if pData.Map ~= lastMapDropdown then
                 lastMapDropdown = pData.Map
                 
-                -- Jeda 2 detik agar Workspace memuat folder musuh di map baru
-                task.wait(2) 
-                
                 if EnemyDropdown and EnemyDropdown.Refresh then
                     -- Gunakan pcall agar tidak kena Capability Error jika map belum stabil
                     pcall(function()
