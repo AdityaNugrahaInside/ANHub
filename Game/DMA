@@ -571,25 +571,34 @@ MetaManager.TTeleport.AddEffect = function(targetMap)
     
     if not success then warn("Teleport Handled: " .. tostring(err)) end
 end
--- [[ TASK: MAP MONITOR & AUTO REFRESH DROPDOWN ]] --
+-- [[ FIX: MAP MONITOR & AUTO REFRESH DROPDOWN ]] --
 task.spawn(function()
-    local lastMapDropdown = "" -- Menyimpan nama map terakhir yang terdeteksi
+    local lastMapDropdown = "" 
     
-    while not IsTeleporting do
-        task.wait()
+    while true do
+        task.wait(1) -- Beri jeda 1 detik agar tidak membebani CPU
+        
         if not Window or Window.Destroyed then break end
+        
+        -- Jika sedang teleport, lewati pengecekan (tapi jangan matikan loop)
+        if IsTeleporting then 
+            continue 
+        end
         
         local pData = getgenv().PlayerData
         if pData and pData.Map then
-            -- Jika terdeteksi perubahan nama Map
+            -- Deteksi perubahan map
             if pData.Map ~= lastMapDropdown then
                 lastMapDropdown = pData.Map
                 
+                -- Beri jeda sedikit agar data world/enemies di map baru sempat dimuat oleh game
+                task.wait(2) 
+                
                 if EnemyDropdown and EnemyDropdown.Refresh then
-                    -- Gunakan pcall agar tidak kena Capability Error jika map belum stabil
                     pcall(function()
                         local newList = GetEnemiesList()
                         EnemyDropdown:Refresh(newList)
+                        Notify("Map Updated", "Enemy list refreshed for: " .. pData.Map, "refresh-cw")
                     end)
                 end
             end
@@ -1588,102 +1597,102 @@ end)
 
 local RangeElements = {}
 
--- 1. Toggle Utama
-local AutoRangeToggle = FM_Add("Range Upgrade", FarmTab:Toggle({
-    Title = "Auto Range Upgrade",
-    Desc = "Checking range status...",
+-- 1. Toggle Unlock Feature (Quest Ging)
+local AutoUnlockRangeToggle = FM_Add("Range Upgrade", FarmTab:Toggle({
+    Title = "Auto Unlock Range (Quest)",
+    Desc = "Requires 1x Range Coin",
+    Default = false,
+    Flag = "AutoUnlockRange_Toggle",
+    Callback = function(val)
+        Config.AutoUnlockRange = val
+    end
+}))
+table.insert(RangeElements, AutoUnlockRangeToggle)
+
+-- 2. Toggle Level Up (Range Upgrader)
+local AutoRangeUpgradeToggle = FM_Add("Range Upgrade", FarmTab:Toggle({
+    Title = "Auto Range Level Up",
+    Desc = "Requires Range Upgrader item",
     Default = false,
     Flag = "AutoRange_Toggle",
     Callback = function(val)
         Config.AutoRangeUpgrade = val
     end
 }))
-table.insert(RangeElements, AutoRangeToggle)
+table.insert(RangeElements, AutoRangeUpgradeToggle)
 
--- 2. Task Utama: Sync Unlock, Level, & Material
+-- 3. Task Utama: Logika Terpisah untuk Quest & Upgrade
 task.spawn(function()
-    local isMaxed = false
     local lastLevel = -1
-    local localIsLocked = false -- Perbaikan: Definisi variabel lokal untuk locking
     
     while task.wait(0.5) do
         if not Window or Window.Destroyed then break end
 
         local pData = getgenv().PlayerData
         if pData then
-            -- A. CEK STATUS UNLOCK (Sesuai Decompile Ging)
-            local isUnlocked = pData.Range ~= nil 
+            -- DATA DARI DECOMPILE
+            local isUnlocked = pData.Range ~= nil -- Mengecek apakah fitur sudah terbuka
             local stats = pData["Range-Stats"] or { Level = 0, Length = 0 }
             local currentLevel = stats.Level or 0
             
             local inventory = pData.Inventory and pData.Inventory.Items or {}
-            -- Menggunakan "Range Coin" sesuai decompile NPC Ging
-            local coinCount = inventory["Range Coin"] or 0
+            local rangeCoin = inventory["Range Coin"] or 0 -- Untuk Quest
+            local rangeUpgrader = inventory["Range Upgrader"] or 0 -- Untuk Level Up
 
-            -- B. LOGIKA LOCKING (MAX LEVEL 100)
-            if currentLevel >= 100 then
-                if not isMaxed then
-                    isMaxed = true
-                    for _, elem in ipairs(RangeElements) do
-                        if elem.Lock then elem:Lock("Max Upgrade Reach") end
-                    end
-                end
+            -- [[ A. LOGIKA VISUAL UNTUK UNLOCK QUEST ]] --
+            if isUnlocked then
+                AutoUnlockRangeToggle:Lock("Feature Already Unlocked")
+                AutoUnlockRangeToggle:SetTitle("Range Feature: UNLOCKED")
             else
-                if localIsLocked then
-                    localIsLocked = false
-                    for _, elem in ipairs(RangeElements) do
-                        if elem.Unlock then elem:Unlock() end
-                    end
-                end
+                AutoUnlockRangeToggle:Unlock()
+                AutoUnlockRangeToggle:SetTitle("Auto Unlock Range (Quest)")
+                AutoUnlockRangeToggle:SetDesc(string.format(
+                    "Requirement: 1x Range Coin\nInventory: %d\nStatus: %s",
+                    rangeCoin, (Config.AutoUnlockRange and "Processing Quest..." or "Idle")
+                ))
             end
 
-            -- C. UPDATE UI & VISUAL
-            if not isMaxed then
+            -- [[ B. LOGIKA VISUAL UNTUK LEVEL UP ]] --
+            if not isUnlocked then
+                AutoRangeUpgradeToggle:Lock("Unlock Feature First")
+            elseif currentLevel >= 100 then
+                AutoRangeUpgradeToggle:Lock("Max Level Reached")
+            else
+                AutoRangeUpgradeToggle:Unlock()
+                
+                -- Update Visual jika level berubah
                 if currentLevel ~= lastLevel then
                     lastLevel = currentLevel
-                    AutoRangeToggle:SetMainImage({
+                    AutoRangeUpgradeToggle:SetMainImage({
                         Image = "rbxassetid://86884305951467",
-                        Gradient = MetaManager.Utils.Colors:GetRarity(currentLevel >= 20 and "Mythical" or "Legendary"),
-                        Title = isUnlocked and "Range Upgrade" or "Quest: Ging",
-                        Quantity = isUnlocked and ("Lv. " .. currentLevel) or "LOCKED",
-                        Rate = coinCount .. " Coins"
+                        Gradient = MetaManager.Utils.Colors:GetRarity(currentLevel >= 50 and "Mythical" or "Legendary"),
+                        Title = "Range Upgrader",
+                        Quantity = "Lv. " .. currentLevel,
+                        Rate = "+" .. (stats.Length or 0) .. "%"
                     }, 60)
                 end
 
-                local statusStr = "Idle"
-                if Config.AutoRangeUpgrade then
-                    if not isUnlocked then
-                        statusStr = coinCount > 0 and "Unlocking Feature..." or "Need Range Coin (Quest)"
-                    else
-                        statusStr = coinCount > 0 and "Upgrading..." or "Out of Coins"
-                    end
-                end
-
-                -- Deskripsi Dinamis: Menampilkan info Quest jika belum Unlock
-                if not isUnlocked then
-                    AutoRangeToggle:SetTitle("Quest Status: Locked")
-                    AutoRangeToggle:SetDesc(string.format(
-                        "Status: Need to talk to Ging\nRequirement: 1x Range Coin\nInventory: %d Coins\nAction: %s",
-                        coinCount, statusStr
-                    ))
-                else
-                    local nextLevel = currentLevel + 1
-                    local nextLength = (stats.Length or 0) + 5
-                    AutoRangeToggle:SetTitle(string.format("Range Level: %d", currentLevel))
-                    AutoRangeToggle:SetDesc(string.format(
-                        "Multiplier: +%d%% ➔ +%d%%\nLevel: %d ➔ %d\nRange Coin: %d\nStatus: %s",
-                        stats.Length or 0, nextLength,
-                        currentLevel, nextLevel,
-                        coinCount, statusStr
-                    ))
-                end
+                AutoRangeUpgradeToggle:SetDesc(string.format(
+                    "Multiplier: +%d%% ➔ +%d%%\nNext Level: %d\nItem: %d Range Upgrader\nStatus: %s",
+                    stats.Length or 0, (stats.Length or 0) + 5,
+                    currentLevel + 1, rangeUpgrader,
+                    (Config.AutoRangeUpgrade and (rangeUpgrader > 0 and "Upgrading..." or "Need More Items") or "Idle")
+                ))
             end
 
-            -- D. LOGIKA EKSEKUSI (AUTO UNLOCK & UPGRADE)
-            if Config.AutoRangeUpgrade and currentLevel < 100 and coinCount > 0 then
+            -- [[ C. EKSEKUSI REMOTE ]] --
+            
+            -- 1. Eksekusi Quest (Gunakan Range Coin)
+            if Config.AutoUnlockRange and not isUnlocked and rangeCoin > 0 then
                 pcall(function()
-                    -- Sinyal Bridge tetap sama untuk Unlock maupun Upgrade
                     MetaManager.Bridge:Fire("Inventory", "Use", "Range Coin")
+                end)
+            end
+
+            -- 2. Eksekusi Upgrade (Gunakan Range Upgrader)
+            if Config.AutoRangeUpgrade and isUnlocked and currentLevel < 100 and rangeUpgrader > 0 then
+                pcall(function()
+                    MetaManager.Bridge:Fire("Inventory", "Use", "Range Upgrader")
                 end)
             end
         end
