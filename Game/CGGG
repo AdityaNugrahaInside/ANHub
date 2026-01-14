@@ -737,6 +737,24 @@ FM_Add("Farm", FarmTab:Toggle({
         end
     end
 }))
+-- [[ PERBAIKAN LOGIKA AUTO ATTACK ]] --
+FM_Add("FastClick", FarmTab:Toggle({
+    Title = "Auto Fast Attack",
+    Default = false,
+    Flag = "AutoFastAttack_Toggle",
+    Callback = function(val)
+        Config.FastClick = val
+        if val then
+            task.spawn(function()
+                while Config.FastClick do
+                    task.wait(0.05) -- Kecepatan respon loop
+                    if not Window or Window.Destroyed then break end
+                    SendConnection("System", "_main", "_click")
+                end
+            end)
+        end
+    end
+}))
 -- [[ AUTO COLLECT TIME REWARDS ]] --
 Config.AutoTimeRewards = false
 
