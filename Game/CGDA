@@ -1,0 +1,1395 @@
+-- if game.PlaceId ~= 81897457567012 then return end
+repeat task.wait() until game:IsLoaded()
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading3.lua"))()
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
+
+local FolderPath = "ANUI/AnimeSpike"
+local ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
+local IsPremium = false
+local ValidKeys = {"ANHUB-2025"}
+local MapDBFile = "Map_Database.json"
+local Config = {
+    SelectedEnemies = {}, -- Berubah menjadi tabel untuk mendukung Multi-Select
+    AutoFarm = false
+}
+
+-- Variabel global untuk menampung target aktif saat ini
+local currentTarget = nil
+local ConfigName = "ANHub"
+local CurrentMapEnemiesCache = {}
+local IsLoadingConfig = false
+local IsLoadingMapSelection = false
+
+local UI
+local Window
+
+-- Jalur Library yang benar sesuai decompile
+-- Tambahkan di bawah variabel Config (Sekitar baris 30)
+local LastEnemiesState = ""
+local DifficultyOrder = {["Easy"] = 1, ["Normal"] = 2, ["Hard"] = 3, ["Boss"] = 4}
+local ItemRarityColors = {
+    Common = Color3.fromRGB(200, 200, 200),
+    Rare = Color3.fromRGB(0, 150, 255),
+    Legendary = Color3.fromRGB(255, 200, 0)
+}
+
+-- ==========================================
+-- MANUAL SERVICE LOCATOR (FIX ERROR)
+-- ==========================================
+local LibraryModule = ReplicatedStorage:WaitForChild("frame_work"):WaitForChild("library")
+
+local NightXLibrary = {}
+
+-- Bypass get_service: Langsung require ke folder _services
+function NightXLibrary.get_service(name)
+    return require(LibraryModule:WaitForChild("_services"):WaitForChild(name))
+end
+
+-- Bypass get_index: Langsung require ke folder _index
+function NightXLibrary.get_index(name)
+    return require(LibraryModule:WaitForChild("_index"):WaitForChild(name))
+end
+
+-- Bypass get_connection: Langsung ambil dari module connection
+function NightXLibrary.get_connection()
+    return require(LibraryModule:WaitForChild("connection")).getConnection()
+end
+
+-- ==========================================
+-- INISIALISASI DATA & SERVICES
+-- ==========================================
+local Debounce = NightXLibrary.get_service("debounce_service")
+local Connection = NightXLibrary.get_connection()
+local AbbreviateService = NightXLibrary.get_service("abbreviate_service")
+local GradientFolder = ReplicatedStorage:WaitForChild("_assets"):WaitForChild("_gradients")
+local EnemiesIndex = NightXLibrary.get_index("_enemies")
+local DropsIndex = NightXLibrary.get_index("_drops")
+local ItemsIndex = NightXLibrary.get_index("_items")
+local VaultGachasIndex = NightXLibrary.get_index("_vault_gachas")
+local AccessoriesIndex = NightXLibrary.get_index("_accessories")
+local AscensionData = NightXLibrary.get_index("_ascension")
+local IslandsIndex = NightXLibrary.get_index("_islands")
+local WeaponsIndex = NightXLibrary.get_index("_weapons")
+local MultsIndex = NightXLibrary.get_index("_mults")
+-- Fungsi untuk mengecek apakah sedang dalam Minigame
+local function IsInMinigame()
+    local enemiesFolder = workspace:FindFirstChild("_enemies")
+    if enemiesFolder then
+        local firstEnemy = enemiesFolder:FindFirstChildOfClass("Model")
+        -- Mengecek atribut Minigame sesuai logika decompile sebelumnya
+        if firstEnemy and firstEnemy:GetAttribute("Minigame") then
+            return true
+        end
+    end
+    return false
+end
+local function GetBestTarget()
+    local enemiesFolder = workspace:FindFirstChild("_enemies")
+    if not enemiesFolder then return nil end
+    
+    local inMinigame = IsInMinigame()
+    -- Jika tidak di minigame dan tidak ada yang dipilih, maka return nil
+    if not inMinigame and #Config.SelectedEnemies == 0 then return nil end
+    
+    local target = nil
+    local shortestDist = math.huge
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
+    for _, v in pairs(enemiesFolder:GetChildren()) do
+        -- LOGIKA BARU: Jika di minigame, abaikan table.find (pilih semua musuh)
+        local isSelected = inMinigame or table.find(Config.SelectedEnemies, v.Name)
+        
+        if isSelected and v:FindFirstChild("HumanoidRootPart") and v:GetAttribute("_id") then
+            local currentHP = v:GetAttribute("_h")
+            if currentHP and currentHP > 0 then
+                local dist = (v.HumanoidRootPart.Position - myRoot.Position).Magnitude
+                if dist < shortestDist then
+                    shortestDist = dist
+                    target = v
+                end
+            end
+        end
+    end
+    return target
+end
+local function GetEnemiesList()
+    local list = {}
+    local processed = {}
+    local enemiesFolder = workspace:FindFirstChild("_enemies")
+    
+    if enemiesFolder then
+        for _, enemy in pairs(enemiesFolder:GetChildren()) do
+            if enemy:GetAttribute("_id") and not processed[enemy.Name] then
+                processed[enemy.Name] = true
+                
+                local stats = EnemiesIndex[enemy.Name]
+                if stats then
+                    local displayName = stats[1]
+                    local mapId = stats[3] -- Ini adalah ID Area (misal: 1, 2, 3)
+                    
+                    local liveHP = enemy:GetAttribute("_h") or 0
+                    local maxHP = enemy:GetAttribute("_m_h") or stats[2]
+                    local hpDisplay = AbbreviateService and AbbreviateService:Comma(liveHP) or tostring(liveHP)
+                    local maxDisplay = AbbreviateService and AbbreviateService:Comma(maxHP) or tostring(maxHP)
+                    
+                    local dropCards = {}
+                    -- Mencoba ambil drop spesifik musuh (misal: _kakashi)
+                    local targetDropData = DropsIndex[enemy.Name]
+
+                    -- LOGIKA FALLBACK BARU: Ambil dari Island yang sesuai mapId
+                    if not targetDropData then
+                        for islandKey, islandInfo in pairs(IslandsIndex) do
+                            -- islandInfo[3] adalah ID Area di index _islands
+                            if islandInfo[3] == mapId then
+                                targetDropData = DropsIndex[islandKey]
+                                if targetDropData then break end
+                            end
+                        end
+                    end
+                    
+                    -- PROSES DATA DROP
+                    if targetDropData then
+                        for groupIndex, groupItems in pairs(targetDropData) do
+                            if typeof(groupIndex) == "number" and typeof(groupItems) == "table" then
+                                for rate, details in pairs(groupItems) do
+                                    if typeof(rate) == "number" and typeof(details) == "table" then
+                                        local itemId = details[1]
+                                        local rawAmount = details[2]
+                                        local dropType = details[3] -- "Item" atau "Accessory"
+                                        
+                                        local itemInfo = nil
+                                        local itemName = "Unknown"
+                                        local itemImage = "rbxassetid://0"
+                                        
+                                        -- Cek di AccessoriesIndex terlebih dahulu jika tipenya Accessory
+                                        if dropType == "Accessory" or AccessoriesIndex[itemId] then
+                                            itemInfo = AccessoriesIndex[itemId]
+                                            if itemInfo then
+                                                itemName = itemInfo[1]
+                                                itemImage = itemInfo["_image"]
+                                            end
+                                        end
+                                        
+                                        -- Jika tidak ada di accessory, cari di Items
+                                        if not itemInfo then
+                                            itemInfo = ItemsIndex[itemId]
+                                            if itemInfo then
+                                                itemName = itemInfo[1][1]
+                                                itemImage = itemInfo["_image"]
+                                            end
+                                        end
+                                        
+                                        if itemInfo then
+                                            local amountStr = (typeof(rawAmount) == "table") and (rawAmount[1] .. "-" .. rawAmount[2] .. "x") or (tostring(rawAmount or 1) .. "x")
+                                            
+                                            -- Ambil gradien dari folder _gradients berdasarkan nama Rarity
+                                            local rarityName = (dropType == "Accessory") and "Legendary" or (itemInfo.Rarity or "Common")
+                                            local gradObj = GradientFolder:FindFirstChild(rarityName)
+
+                                            table.insert(dropCards, {
+                                                Title = itemName,
+                                                Quantity = amountStr,
+                                                Rate = rate .. "%",
+                                                Gradient = gradObj and gradObj.Color or Color3.fromRGB(0, 162, 255),
+                                                Image = itemImage
+                                            })
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    
+                    table.insert(list, {
+                        Title = string.format("%s", displayName),
+                        Desc = string.format("HP: %s", maxDisplay),
+                        Images = dropCards, 
+                        RawName = enemy.Name,
+                        Rarity = maxHP -- Digunakan untuk sorting
+                    })
+                end
+            end
+        end
+    end
+
+    -- Sorting musuh berdasarkan urutan Map/Island
+    table.sort(list, function(a, b) return (a.Rarity or 0) < (b.Rarity or 0) end)
+    return list
+end
+
+local function SendConnection(...)
+    -- Simpan kode biner panjang di dalam variabel agar rapi
+    local binaryData = "01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101111 01101110 01101110 01100101 01100011 01110100 01101001 01101111 01101110 00101110 01110100 01101000 01110010 01100101 01100001 01100100 01011111 01110011 01100101 01100011 01110101 01110010 01101001 01110100 01111001 00111010 00110001 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101111 01101110 01101110 01100101 01100011 01110100 01101001 01101111 01101110 00111010 00110001 00110101 00110110 00100000 01100110 01110101 01101110 01100011 01110100 01101001 01101111 01101110 00100000 01110011 01100101 01101110 01100100 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101100 01101001 01100101 01101110 01110100 00101110 01000101 01100111 01100111 01010011 01100101 01110100 01110101 01110000 00111010 00110001 00110010 00110101 00100000 01100110 01110101 01101110 01100011 01110100 01101001 01101111 01101110 00100000 01001111 01110000 01100101 01101110 01000101 01100111 01100111 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101100 01101001 01100101 01101110 01110100 00101110 01000101 01100111 01100111 01010011 01100101 01110100 01110101 01110000 00111010 00110011 00110101 00111000 00001010"
+    
+    -- Menggabungkan biner dengan argumen tambahan yang kamu masukkan
+    local args = {binaryData}
+    local extra = {...}
+    
+    for i = 1, #extra do
+        table.insert(args, extra[i])
+    end
+
+    -- Mencari RemoteEvent dan mengirim data
+    for _, v in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+        if v:IsA("RemoteEvent") then
+            v:FireServer(unpack(args))
+        end
+    end
+end
+
+local function JSONPretty(val, indent)
+    indent = indent or 0;
+    local valType = typeof(val); -- Menggunakan typeof untuk deteksi Instance
+    
+    if valType == "table" then
+        local s = "{\n";
+        for k, v in pairs(val) do
+            local formattedKey = typeof(k) == "number" and tostring(k) or "\"" .. tostring(k) .. "\"";
+            s = s .. string.rep("    ", indent + 1) .. formattedKey .. ": " .. tostring(JSONPretty(v, indent + 1)) .. ",\n";
+        end;
+        return s .. string.rep("    ", indent) .. "}";
+    elseif valType == "string" then
+        return "\"" .. val .. "\"";
+    elseif valType == "Instance" then
+        -- PERBAIKAN: Jika objek adalah Instance, ambil jalur lengkapnya (Hierarchy)
+        return "\"" .. val:GetFullName() .. "\""; 
+    elseif valType == "function" then
+        local info = debug.getinfo(val)
+        return "\"function: " .. tostring(info.source) .. " | Line: " .. tostring(info.linedefined) .. "\"";
+    else
+        -- Untuk tipe data lain seperti boolean, number, atau RBXScriptConnection
+        local result = tostring(val)
+        if valType == "number" or valType == "boolean" then
+            return result
+        else
+            return "\"" .. result .. "\""
+        end
+    end;
+end;
+
+setclipboard(JSONPretty(DropsIndex, 1))
+local function Notify(title, content, icon)
+    task.spawn(function()
+        pcall(function()
+            if UI and UI.Notify then
+                UI:Notify({ Title = title, Content = content, Icon = icon, Duration = 3 })
+            end
+        end)
+    end)
+end
+
+task.spawn(function()
+    repeat task.wait() until game:GetService("Players").LocalPlayer
+    local LP = game:GetService("Players").LocalPlayer
+
+    LP.Idled:Connect(function()
+        local VirtualUser = game:GetService("VirtualUser")
+        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end)
+
+local GameIconURL = string.format("rbxthumb://type=GameIcon&id=%d&w=150&h=150", game.GameId)
+local BaseProfile = {
+    Banner = "rbxassetid://124762019485618", 
+    Avatar = "rbxassetid://84366761557806", 
+    Status = true,
+    Badges = {
+        {
+            Icon = "geist:logo-discord", Title = "Discord", Desc = "Join ANHUB Discord",
+            Callback = function() setclipboard("https://discord.gg/cy6uMRmeZ") Notify("Discord", "Invite link copied!", "geist:logo-discord") end
+        },
+        {
+            Icon = "youtube", Desc = "Subscribe to YouTube",
+            Callback = function() setclipboard("https://www.youtube.com/@ANHubRoblox") Notify("YouTube", "Channel link copied!", "youtube") end
+        }
+    }
+}
+
+local function MakeProfile(data)
+    local p = table.clone(BaseProfile)
+    for k, v in pairs(data or {}) do p[k] = v end
+    return p
+end
+
+local function SecureWipe()
+    if not isfile or (not delfile) or (not readfile) or (not listfiles) then
+        return
+    end
+    
+    local currentTime = os.time()
+    local isExpired = false
+
+    if isfile(ExpiryFile) then
+        local savedTime = tonumber(readfile(ExpiryFile)) or 0
+        if currentTime > savedTime then
+            isExpired = true
+        end
+    elseif isfolder and isfolder(FolderPath) then
+        isExpired = true
+    end
+
+    if isExpired then
+        if isfile(ExpiryFile) then
+            delfile(ExpiryFile)
+        end
+
+        local possiblePaths = { FolderPath }
+        local userId = tostring(LocalPlayer.UserId)
+        
+        for _, path in pairs(possiblePaths) do
+            if isfolder and isfolder(path) then
+                for _, file in pairs(listfiles(path)) do
+                    if string.find(file, ".key") or string.find(file, ".json") or string.find(file, userId) then
+                        pcall(function()
+                            delfile(file)
+                        end)
+                    end
+                end
+            end
+        end
+        task.wait(0.5)
+    end
+end
+
+SecureWipe()
+
+pcall(function()
+    if makefolder and isfolder then
+        if not isfolder("ANUI") then makefolder("ANUI") end
+        if not isfolder(FolderPath) then makefolder(FolderPath) end
+    end
+end)
+
+local function LoadKeySystemData()
+    local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key.txt"
+    local success, response = pcall(function()
+        return game:HttpGet(url)
+    end)
+    
+    if success then
+        for line in response:gmatch("[^\r\n]+") do
+            local parts = string.split(line, ":")
+            if #parts >= 2 then
+                local useridInFile = string.gsub(parts[1], "%s+", "")
+                local keyInFile = string.gsub(parts[2], "%s+", "")
+                
+                table.insert(ValidKeys, keyInFile)
+                
+                if useridInFile == tostring(LocalPlayer.UserId) then
+                    IsPremium = true
+                end
+            end
+        end
+    end
+end
+
+LoadKeySystemData()
+getgenv().IsPremium = IsPremium
+
+UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
+
+Window = UI:CreateWindow({
+    Title = "AN Hub - Anime Spike",
+    Icon = "rbxassetid://84366761557806",
+    Author = "Aditya Nugraha",
+    Folder = "AnimeSpike",
+    Size = UDim2.fromOffset(580, 460),
+    KeySystem = {
+        Enabled = not IsPremium,
+        Title = "ANHub Access",
+        Description = "Free Key: ANHUB-2025",
+        Key = ValidKeys,
+        URL = "https://discord.gg/cy6uMRmeZ",
+        Note = "Premium Users are auto-verified!",
+        SaveKey = true
+    }
+})
+
+task.delay(1.0, function() Window:CollapseSidebar() end)
+task.delay(3.0, function() Window:ExpandSidebar() end)
+Window:Tab({
+    Profile = MakeProfile({ Title = "ANHub Script", Desc = "Anime Spike" }),
+    SidebarProfile = true
+})
+
+local function IsWindowAlive()
+    return Window and not Window.Destroyed
+end
+
+local function IsWindowOpen()
+    return IsWindowAlive() and not Window.Closed
+end
+
+do
+    if IsPremium then
+        Window:Tag({
+            Title = "Premium User",
+            Icon = "crown",
+            Color = Color3.fromHex("#FFD700")
+        })
+        Notify("Welcome!", "Premium Access Verified. Enjoy!", "crown")
+    else
+        Window:Tag({
+            Title = "Free User",
+            Icon = "user",
+            Color = Color3.fromHex("#FFFFFF")
+        })
+    end
+end
+
+OriginalDebounceCheck = Debounce.Check
+-- Cara 1: Menimpa fungsi Check agar selalu mengembalikan false (No Debounce)
+if IsPremium then
+    Debounce.Check = function(player, action, duration)
+        if action == "_combat" or action == "_click_client" then
+            return false
+        elseif action == "AntiAfkCounter" then
+            return true
+        end
+        return OriginalDebounceCheck(player, action, duration)
+    end
+end
+-- local oldCheck
+-- oldCheck = hookfunction(Debounce.Check, function(player, action, duration)
+--     if action == "_combat" or action == "_click_client" then
+--         return false
+--     end
+--     return oldCheck(player, action, duration)
+-- end)
+pcall(function()
+    if writefile and isfile and (not isfile(ExpiryFile)) then
+        writefile(ExpiryFile, tostring(os.time() + 86400))
+    end
+end)
+
+local FM_Categories = {}
+local FM_CategoryDescriptions = {
+    ["Farm"] = "Auto farm enemies and specific targets.",
+    ["Rank Up"] = "Auto rank up and progression features.",
+    ["Vault Gachas"] = "Remote gacha machines from anywhere.", -- Deskripsi baru
+}
+local function FM_GetElementFrame(elem)
+    return rawget(elem, "ElementFrame") or (elem.UIElements and elem.UIElements.Main) or rawget(elem, "GroupFrame")
+end
+
+local function FM_UpdateTabProfile(selected)
+    local desc = FM_CategoryDescriptions[selected] or ""
+    local containers = {}
+    if FarmTab and FarmTab.UIElements then
+        table.insert(containers, FarmTab.UIElements.ContainerFrameCanvas)
+        table.insert(containers, FarmTab.UIElements.ContainerFrame)
+    end
+    for _, cf in ipairs(containers) do
+        if cf then
+            local header = cf:FindFirstChild("ProfileHeader")
+            if header then
+                local tc = header:FindFirstChild("TextContainer")
+                if tc then
+                    for _, child in ipairs(tc:GetChildren()) do
+                        if child:IsA("TextLabel") then
+                            if child.LayoutOrder == 1 then child.Text = selected end
+                            if child.LayoutOrder == 2 then child.Text = desc end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function FM_Add(cat, elem)
+    if not FM_Categories[cat] then FM_Categories[cat] = {} end
+    table.insert(FM_Categories[cat], elem)
+    local frame = FM_GetElementFrame(elem)
+    if frame then frame.Visible = false end
+    return elem
+end
+
+local function FM_OnChange(selected)
+    for name, elems in pairs(FM_Categories) do
+        local vis = (name == selected)
+        for _, e in ipairs(elems) do
+            local f = FM_GetElementFrame(e)
+            if f then f.Visible = vis end
+        end
+    end
+    pcall(function() FM_UpdateTabProfile(selected) end)
+end
+
+-- [[ FARM TAB ]] --
+FarmTab = Window:Tab({
+    Title = "Main Feature",
+    Icon = "swords",
+    Profile = MakeProfile({
+        Avatar = GameIconURL,
+        Title = "Main Feature",
+        Desc = "Anime Spike"
+    }),
+    SidebarProfile = false
+});
+
+FM_CategorySelector = FarmTab:Category({
+    Title = "Select Category",
+    Default = "Farm",
+    Options = {
+        {Title = "Farm", Icon = "rbxassetid://89761068698333"},
+        {Title = "Rank Up", Icon = "rbxassetid://74044855367151"},
+        {Title = "Vault Gachas", Icon = "rbxassetid://89761068698333"},
+        {Title = "Mini Game", Icon = "rbxassetid://109634928579023"},
+        {Title = "Eggs", Icon = "rbxassetid://92349810618564"},
+        {Title = "Weapon Shop", Icon = "rbxassetid://107655675881805"}
+    },
+    Callback = FM_OnChange
+})
+
+-- [[ ELEMEN UNTUK KATEGORI FARM ]] --
+
+local EnemyDropdown = FM_Add("Farm", FarmTab:Dropdown({
+    Title = "Select Enemy",
+    Desc = "Daftar musuh update otomatis.",
+    Values = GetEnemiesList(),
+    Multi = true,
+    AllowNone = true,
+    Flag = "EnemySelector_Config",
+    Callback = function(val)
+        Config.SelectedEnemies = {}
+        if typeof(val) == "table" then
+            for _, item in ipairs(val) do table.insert(Config.SelectedEnemies, item.RawName) end
+        end
+        currentTarget = nil
+    end
+}))
+
+-- [[ PERBAIKAN LOGIKA AUTO ATTACK ]] --
+FM_Add("Farm", FarmTab:Toggle({
+    Title = "Auto Attack Enemies",
+    Default = false,
+    Flag = "AutoAttack_Toggle",
+    Callback = function(val)
+        Config.AutoFarm = val
+        if val then
+            task.spawn(function()
+                while Config.AutoFarm do
+                    task.wait(1) -- Kecepatan respon loop
+                    if not Window or Window.Destroyed then break end
+                    
+                   -- Ganti bagian ini di dalam loop task.spawn AutoFarm:
+                    if IsInMinigame() or #Config.SelectedEnemies > 0 then
+                        -- Cek apakah target masih valid (Ada, Hidup)
+                        local isValid = currentTarget and 
+                                        currentTarget.Parent and 
+                                        (IsInMinigame() or table.find(Config.SelectedEnemies, currentTarget.Name)) and 
+                                        (currentTarget:GetAttribute("_h") and currentTarget:GetAttribute("_h") > 0)
+                        
+                        if not isValid then
+                            currentTarget = GetBestTarget()
+                        end
+
+                        if currentTarget and currentTarget:FindFirstChild("HumanoidRootPart") then
+                            local char = LocalPlayer.Character
+                            local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+                            if myRoot then
+                                local distance = (myRoot.Position - currentTarget.HumanoidRootPart.Position).Magnitude
+                                if distance > 10 then 
+                                    myRoot.CFrame = currentTarget.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
+                                end
+                            end
+                        end
+                    else
+                        -- Jika tidak ada musuh yang dipilih di dropdown, hapus target aktif
+                        currentTarget = nil
+                    end
+                end
+            end)
+        end
+    end
+}))
+-- [[ AUTO COLLECT TIME REWARDS ]] --
+Config.AutoTimeRewards = false
+
+FM_Add("Farm", FarmTab:Toggle({
+    Title = "Auto Collect Time Rewards",
+    Desc = "Automatically claims playtime rewards when ready.",
+    Default = false,
+    Flag = "AutoTimeRewards_Toggle",
+    Callback = function(val)
+        Config.AutoTimeRewards = val
+    end
+}))
+
+-- [[ TIME REWARDS AUTO-COLLECT LOGIC ]] --
+task.spawn(function()
+    local TimeRewardsIndex = NightXLibrary.get_index("_time_rewards")
+    local TimeRewardsFolder = LocalPlayer:WaitForChild("TimeRewards")
+
+    while task.wait(5) do -- Check every 5 seconds to save CPU
+        if not Window or Window.Destroyed then break end
+        
+        if Config.AutoTimeRewards then
+            local currentPlaytime = LocalPlayer:GetAttribute("RewardsTime") or 0
+            
+            -- Loop through the reward index (usually 1 to 12)
+            for i = 1, #TimeRewardsIndex do
+                local rewardData = TimeRewardsIndex[i]
+                local rewardId = tostring(i)
+                
+                if rewardData then
+                    local requiredTime = rewardData[1]
+                    local isClaimed = TimeRewardsFolder:GetAttribute(rewardId)
+                    
+                    -- Check if time is reached and not already claimed
+                    if currentPlaytime >= requiredTime and not isClaimed then
+                        -- Send the exact remote signal used by the game
+                        SendConnection("System", "_main", "_collect_reward", rewardId)
+                        
+                        Notify("Farm", "Collected Time Reward #" .. rewardId, "gift")
+                        task.wait(0.5) -- Small delay between claims
+                    end
+                end
+            end
+        end
+    end
+end)
+-- [[ ELEMEN UNTUK KATEGORI RANK UP ]] --
+
+local RankUpToggle = FM_Add("Rank Up", FarmTab:Toggle({
+    Title = "Auto Rank Up",
+    Desc = "Mengecek persyaratan...",
+    Default = false,
+    Flag = "AutoRankUp_Toggle",
+    Callback = function(val)
+        Config.AutoRankUp = val
+    end
+}))
+
+-- Task untuk Update UI & Logika Direct Remote Ascension
+task.spawn(function()
+    while task.wait() do
+        if not Window or Window.Destroyed then break end
+        
+        -- Ambil data langsung dari atribut sesuai decompile 'ascension'
+        local currentRank = LocalPlayer:GetAttribute("Rank") or 0
+        local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
+        
+        -- Ambil data index rank berikutnya
+        local nextRankData = AscensionData[currentRank + 1]
+        local currentRankData = AscensionData[currentRank]
+        
+        if nextRankData then
+            local cost = nextRankData[1]
+            local progress = math.clamp(currentCoins / cost, 0, 1)
+            
+            -- Update Visual pada Toggle (UI)
+            RankUpToggle:SetTitle(string.format("Rank: %s | Bonus: +%s%%", currentRank, (currentRankData[2] - 1) * 100))
+            
+            local barLen = 15
+            local filled = math.floor(progress * barLen)
+            local bar = "[" .. string.rep("█", filled) .. string.rep("░", barLen - filled) .. "]"
+            
+            RankUpToggle:SetDesc(string.format(
+                "%s %s%%\nCoins: %s / %s", 
+                bar, 
+                math.floor(progress * 100), 
+                AbbreviateService:Comma(currentCoins), 
+                AbbreviateService:Comma(cost)
+            ))
+            
+            -- LOGIKA BYPASS REMOTE (Direct Ascension)
+            if Config.AutoRankUp and currentCoins >= cost then
+                -- Langsung kirim sinyal ke server tanpa klik tombol UI
+                SendConnection("System", "_main", "_ascension")
+                
+                -- Opsional: Tambahkan notifikasi saat berhasil naik rank
+                Notify("Rank Up!", "Berhasil naik ke Rank " .. (currentRank + 1), "arrow-up")
+                task.wait(1) -- Delay agar tidak spam berlebihan
+            end
+        else
+            RankUpToggle:SetTitle("Rank: MAX")
+            RankUpToggle:SetDesc("Kamu telah mencapai Rank tertinggi!")
+        end
+    end
+end)
+
+-- [[ ELEMEN UNTUK KATEGORI VAULT GACHAS ]] --
+
+local ActiveGachaToggles = {}
+-- Tambahkan tabel cache untuk menyimpan state terakhir agar tidak terjadi double update
+local GachaStateCache = {}
+-- [[ ELEMEN UNTUK KATEGORI VAULT GACHAS (GROUP VERSION) ]] --
+
+-- 1. Kumpulkan data agar bisa diurutkan (Pairs acak, jadi perlu tabel biasa)
+local SortedGachas = {}
+for gachaId, gachaData in pairs(VaultGachasIndex) do
+    table.insert(SortedGachas, {ID = gachaId, Data = gachaData})
+end
+
+-- 2. Urutkan berdasarkan ID (Nama) agar posisi item stabil
+table.sort(SortedGachas, function(a, b) return a.ID < b.ID end)
+
+-- 3. Fungsi Pembuat Toggle (Agar codingan lebih bersih & bisa dipanggil di loop)
+local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
+    local cleanName = gachaId:gsub("^_", ""):gsub("_", " ")
+    cleanName = cleanName:sub(1,1):upper() .. cleanName:sub(2)
+
+    local costId = gachaData.Cost
+    local costItem = ItemsIndex[costId]
+    local costName = costItem and costItem[1][1] or "Unknown"
+    
+    local LastEquippedId = "init" 
+    local LastDesc = ""
+    local vaultFolder = LocalPlayer:WaitForChild("VaultGachas", 5):FindFirstChild(gachaId)
+
+    -- Buat Toggle DI DALAM Group
+    local GachaToggle = ParentGroup:Toggle({
+        Title = cleanName, -- Judul dipendekkan agar muat di grid
+        Default = false,
+        Image = gachaData[1] and gachaData[1].Image or "rbxassetid://0", 
+        Flag = "AutoGacha_" .. gachaId,
+        Callback = function(val)
+            Config["AutoGacha_" .. gachaId] = val
+            if val then
+                task.spawn(function()
+                    while Config["AutoGacha_" .. gachaId] do
+                        if not Window or Window.Destroyed then break end
+                        local invItem = LocalPlayer.Inventory.Items:FindFirstChild(costId)
+                        local owned = invItem and invItem:GetAttribute("Amount") or 0
+                        if owned >= 1 then
+                            SendConnection("System", "_main", "_gachas", gachaId, 1)
+                        end
+                        task.wait(3)
+                    end
+                end)
+            end
+        end
+    })
+
+    -- Logic Update UI & Auto Lock (Versi Fix)
+    task.spawn(function()
+        while task.wait(0.5) do
+            if not Window or Window.Destroyed then break end
+            if not GachaToggle then break end
+            
+            -- [FIX: Cari Folder Vault Real-Time]
+            if not vaultFolder then
+                local mainFolder = LocalPlayer:FindFirstChild("VaultGachas")
+                if mainFolder then
+                    vaultFolder = mainFolder:FindFirstChild(gachaId)
+                end
+            end
+
+            local invItem = LocalPlayer.Inventory.Items:FindFirstChild(costId)
+            local owned = invItem and invItem:GetAttribute("Amount") or 0
+            local price = 1 
+            local equippedId = vaultFolder and vaultFolder:GetAttribute("Name") or ""
+            local equippedNum = tonumber(equippedId) or -1 
+            local equippedData = gachaData[equippedNum]
+
+            -- [FIX: Auto Lock Secret (ID 1)]
+            if equippedNum == 1 then
+                if not GachaToggle.Locked then
+                    GachaToggle:Lock("Secret Equipped!")
+                    if Config["AutoGacha_" .. gachaId] then
+                        Config["AutoGacha_" .. gachaId] = false
+                        GachaToggle:Set(false) 
+                    end
+                end
+            else
+                if GachaToggle.Locked then
+                    GachaToggle:Unlock()
+                end
+            end
+
+            -- Update Deskripsi UI
+            local colorCode = (owned >= price) and "#00FF00" or "#FF0000"
+            local materialStatus = string.format("<font color=\"%s\">%s: %s/%s</font>", colorCode, costName, AbbreviateService:Comma(owned), price)
+            
+            local currentDesc = ""
+            if equippedData and equippedId ~= "" then
+                currentDesc = string.format("Equipped: %s (%s%%)\n%s\nStats:", equippedData[2], equippedData[1], materialStatus)
+                for stat, val in pairs(equippedData.Mults or {}) do
+                    currentDesc = currentDesc .. string.format("\n• %s: +%s%%", stat, val * 100)
+                end
+            else
+                currentDesc = "Empty\n" .. materialStatus
+            end
+
+            if currentDesc ~= LastDesc then
+                GachaToggle:SetDesc(currentDesc)
+                LastDesc = currentDesc
+            end
+
+            if equippedId ~= LastEquippedId then
+                LastEquippedId = equippedId
+                if equippedData and equippedId ~= "" then
+                    local rarityName = equippedData[2]
+                    local gradientObj = GradientFolder:FindFirstChild(rarityName)
+                    GachaToggle:SetMainImage({
+                        Image = equippedData.Image or "rbxassetid://0",
+                        Gradient = gradientObj and gradientObj.Color or nil,
+                        Quantity = equippedData[1] .. "%",
+                        Title = rarityName
+                    }, 50) -- Ukuran gambar sedikit dikecilkan agar pas di Group
+                end
+            end
+        end
+    end)
+
+    ActiveGachaToggles[gachaId] = GachaToggle
+end
+
+-- 4. Loop Utama: Pasang Group setiap 2 Item
+for i = 1, #SortedGachas, 2 do
+    local item1 = SortedGachas[i]
+    local item2 = SortedGachas[i+1] -- Bisa nil jika jumlah gacha ganjil
+
+    -- Buat Group Container & Daftarkan ke sistem Kategori
+    local Group = FM_Add("Vault Gachas", FarmTab:Group({}))
+
+    -- Pasang Toggle Item 1
+    CreateGachaToggle(Group, item1.ID, item1.Data)
+
+    -- Pasang Toggle Item 2 (Jika ada)
+    if item2 then
+        CreateGachaToggle(Group, item2.ID, item2.Data)
+    end
+end
+-- [[ MINI GAME CATEGORY ELEMENTS ]] --
+
+-- Control variables
+Config.AutoTrialEasy = false
+Config.AutoLeaveWave = false
+Config.TargetWave = 10 
+Config.LastIsland = "_hub" -- Default return location
+local lastTrialMinute = -1
+
+-- 1. Auto Enter Toggle
+FM_Add("Mini Game", FarmTab:Toggle({
+    Title = "Auto Enter Trial Easy",
+    Desc = "Enters Trial Easy automatically at minute 00 and 30.",
+    Default = false,
+    Flag = "AutoTrialEasy_Toggle", --
+    Callback = function(val)
+        Config.AutoTrialEasy = val
+    end
+}))
+
+-- 2. Auto Leave Toggle
+FM_Add("Mini Game", FarmTab:Toggle({
+    Title = "Auto Leave Trial",
+    Desc = "Returns to the previous map after reaching target wave.",
+    Default = false,
+    Flag = "AutoLeaveWave_Toggle", --
+    Callback = function(val)
+        Config.AutoLeaveWave = val
+    end
+}))
+
+-- 3. Target Wave Input
+FM_Add("Mini Game", FarmTab:Input({
+    Title = "Target Wave to Leave",
+    Placeholder = "e.g., 10",
+    Default = "10",
+    Flag = "TargetWave_Input", --
+    Callback = function(val)
+        local num = tonumber(val)
+        if num then
+            Config.TargetWave = num
+        end
+    end
+}))
+
+-- [[ SCHEDULER & LOCATION RECORDING LOGIC ]] --
+task.spawn(function()
+    while task.wait(1) do
+        if not Window or Window.Destroyed then break end
+        
+        if Config.AutoTrialEasy then
+            local currentTime = os.date("*t")
+            local minute = currentTime.min
+            
+            -- Check for minute 00 or 30
+            if (minute == 0 or minute == 30) and minute ~= lastTrialMinute then
+                lastTrialMinute = minute
+                
+                -- RECORD CURRENT LOCATION BEFORE TELEPORT
+                local currentAreaId = LocalPlayer:GetAttribute("CurrentArea")
+                for id, info in pairs(IslandsIndex) do
+                    -- Match Area ID with Island Index
+                    if info[3] == currentAreaId and id ~= "_trial_easy" and id ~= "_hub" then
+                        Config.LastIsland = id
+                        break
+                    end
+                end
+
+                local IslandService = NightXLibrary.get_service("island_service")
+                pcall(function()
+                    -- Teleport to Trial Easy Area
+                    IslandService._teleport("_trial_easy")
+                    Notify("Mini Game", "Entering Trial Easy. Return location saved: " .. Config.LastIsland, "info")
+                end)
+                
+                task.wait(60) -- Prevent multiple teleports in the same minute
+            end
+        end
+    end
+end)
+
+-- [[ AUTO LEAVE & RETURN LOGIC ]] --
+-- Listens to wave updates from the server
+Connection:receive("_update_minigame", function(arg1)
+    -- arg1[2] contains the current wave number
+    if Config.AutoLeaveWave and arg1 and arg1[2] then
+        local currentWave = tonumber(arg1[2])
+        
+        if currentWave and currentWave >= Config.TargetWave then
+            local IslandService = NightXLibrary.get_service("island_service")
+            
+            pcall(function()
+                -- TELEPORT BACK TO RECORDED ISLAND
+                IslandService._teleport(Config.LastIsland, "Lobby")
+                Notify("Mini Game", "Wave " .. currentWave .. " reached. Returning to " .. Config.LastIsland, "log-out")
+            end)
+        end
+    end
+end)
+
+-- [[ UPDATED EGGS CATEGORY ]] --
+
+local EggsIndex = NightXLibrary.get_index("_eggs")
+
+-- 1. Egg Selection Dropdown
+local EggList = {
+    {Title = "Ninja Village Egg (50)", Value = 1},
+    {Title = "Tokyo City Egg (250M)", Value = 2},
+    {Title = "XYZ Province Egg (5T)", Value = 3},
+    {Title = "Dragon Island Egg (500Q)", Value = 4}
+}
+
+FM_Add("Eggs", FarmTab:Dropdown({
+    Title = "Select Egg",
+    Desc = "Choose which egg you want to hatch.",
+    Values = EggList,
+    Flag = "SelectedEgg_Dropdown",
+    Callback = function(val)
+        Config.SelectedEgg = val.Value
+    end
+}))
+
+-- 3. Auto Hatch Toggle
+FM_Add("Eggs", FarmTab:Toggle({
+    Title = "Auto Hatch Eggs",
+    Desc = "Uses Manual Hatch logic with no delay.",
+    Default = false,
+    Flag = "AutoHatch_Toggle",
+    Callback = function(val)
+        Config.AutoHatch = val
+        local EggService = require(ReplicatedStorage.frame_work.library._services.animations_service.egg)
+        if val then
+            if not getgenv().OriginalEggAnimation then
+                getgenv().OriginalEggAnimation = EggService._s
+            end
+            EggService._s = function() end --
+        else
+            if getgenv().OriginalEggAnimation then
+                EggService._s = getgenv().OriginalEggAnimation
+            end
+        end
+    end
+}))
+
+-- [[ MANUAL-STYLE AUTO HATCH LOGIC ]] --
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if not Window or Window.Destroyed then break end
+        
+        if Config.AutoHatch then
+            local charPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if not charPos then continue end
+
+            -- Logic from _open_upvr: Check all eggs in workspace
+            for _, eggModel in pairs(workspace._interacts._eggs:GetChildren()) do
+                -- Check if this is the egg we selected in the UI
+                if tonumber(eggModel.Name) == Config.SelectedEgg then
+                    -- Magnitude check (Distance <= 10)
+                    local dist = (eggModel.M.Position - charPos.Position).Magnitude
+                    if dist <= 10 then
+                        -- Send exact remote: "System", "_egg", "_open"
+                        SendConnection("System", "_egg", "_open", Config.SelectedEgg)
+                        task.wait(3)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- [[ WEAPON SHOP CATEGORY ]] --
+
+-- Simpan toggle ke variabel lokal agar bisa diakses fungsi update
+local WeaponInfoToggle = FM_Add("Weapon Shop", FarmTab:Toggle({
+    Title = "Auto Buy Next Weapon",
+    Desc = "Checking progress...",
+    Default = false,
+    Flag = "AutoWeapon_Toggle",
+    Callback = function(val)
+        Config.AutoWeaponShop = val
+    end
+}))
+
+FM_Add("Weapon Shop", FarmTab:Button({
+    Title = "Buy All Affordable Weapons",
+    Icon = "shopping-cart",
+    Callback = function()
+        SendConnection("System", "_main", "_weapon", "", "_all")
+        Notify("Merchant", "Attempted to buy all weapons!", "shopping-cart")
+    end
+}))
+
+-- Fungsi Update yang dipanggil hanya saat diperlukan
+local function SafeUpdateWeaponUI()
+    -- Pastikan Window masih ada dan Toggle tidak nil
+    if not IsWindowAlive() or not WeaponInfoToggle then return end
+
+    local success, err = pcall(function()
+        local currentWeaponShop = LocalPlayer:GetAttribute("WeaponShop") or 0
+        local nextId = currentWeaponShop + 1
+        local weaponData = WeaponsIndex[nextId]
+        
+        if weaponData then
+            local discount = (MultsIndex and MultsIndex._discount) and MultsIndex._discount(LocalPlayer) or 1
+            local finalPrice = (weaponData[4] or 0) / discount
+            local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
+            
+            -- Penyiapan Data Visual
+            local weaponName = tostring(weaponData[1])
+            local powerMult = tostring(AbbreviateService:Comma(weaponData[3]))
+            local weaponImage = weaponData._image or weaponData.Image or "rbxassetid://0" -- Mengambil ID Gambar
+            
+            local displayTitle = "Next: " .. weaponName .. " (+" .. powerMult .. "x)"
+            local displayDesc = string.format("Price: %s\nCoins: %s", tostring(AbbreviateService:Comma(finalPrice)), tostring(AbbreviateService:Comma(currentCoins)))
+            
+            -- Eksekusi aman di dalam thread UI
+            task.defer(function()
+                pcall(function()
+                    WeaponInfoToggle:SetTitle(displayTitle)
+                    WeaponInfoToggle:SetDesc(displayDesc)
+                    
+                    -- Menambahkan Gambar Senjata
+                    WeaponInfoToggle:SetMainImage({
+                        Image = weaponImage,
+                        Title = weaponName,
+                        Quantity = "Rank " .. nextId
+                    }, 60)
+                end)
+            end)
+
+            -- Logika Auto Buy
+            if Config.AutoWeaponShop and currentCoins >= finalPrice then
+                SendConnection("System", "_main", "_weapon", "", "_all")
+            end
+        else
+            -- Jika sudah mencapai level maksimal
+            task.defer(function()
+                WeaponInfoToggle:SetTitle("Weapon Shop: MAX")
+                WeaponInfoToggle:SetDesc("All weapons unlocked.")
+                WeaponInfoToggle:SetMainImage({
+                    Image = "rbxassetid://0", -- Kosongkan gambar saat max
+                    Title = "Completed",
+                    Quantity = "MAX"
+                })
+            end)
+        end
+    end)
+end
+
+-- Hubungkan ke Event: Update hanya jika Coin atau Rank Toko berubah
+LocalPlayer.AttributeChanged:Connect(function(attr)
+    if attr == "Coins" or attr == "WeaponShop" then
+        SafeUpdateWeaponUI()
+    end
+end)
+
+-- Panggil sekali saat awal untuk inisialisasi teks dan gambar
+task.delay(2, SafeUpdateWeaponUI)
+-- PERBAIKAN JARAK: Mengatur posisi Category Frame dan Container
+if FM_CategorySelector.ElementFrame then 
+    FM_CategorySelector.ElementFrame.Parent = FarmTab.UIElements.ContainerFrameCanvas 
+    FM_CategorySelector.ElementFrame.Position = UDim2.new(0, 0, 0, FarmTab.UIElements.ContainerFrame.Position.Y.Offset)
+    
+    local catSize = FM_CategorySelector.ElementFrame.Size.Y.Offset
+    FarmTab.UIElements.ContainerFrame.Position = UDim2.new(0, 0, 0, FarmTab.UIElements.ContainerFrame.Position.Y.Offset + catSize)
+    FarmTab.UIElements.ContainerFrame.Size = UDim2.new(1, 0, 1, FarmTab.UIElements.ContainerFrame.Size.Y.Offset - catSize)
+    
+    local pad = FarmTab.UIElements.ContainerFrame:FindFirstChildOfClass("UIPadding")
+    if pad then pad.PaddingTop = UDim.new(0, 5) end
+end
+
+-- [[ Settings Tab ]] --
+SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings-2" });
+SettingsTab:Section({ Title = "Config Manager", Icon = "save", Opened = true });
+SettingsTab:Input({
+    Title = "Config Name",
+    Placeholder = "ANHub",
+    Flag = "ConfigName_Input",
+    Callback = function(txt)
+        ConfigName = (txt and txt ~= "" and txt) or "ANHub"
+    end
+})
+SettingsTab:Button({
+    Title = "Save Config",
+    Icon = "save",
+    Callback = function()
+        if Window.ConfigManager then
+            pcall(function()
+                local cfg = Window.ConfigManager:GetConfig(ConfigName) or Window.ConfigManager:CreateConfig(ConfigName)
+                cfg:Save()
+            end)
+        end
+        if Config.SelectedEnemy then
+            SaveMapConfig(GetCurrentMapName(), Config.SelectedEnemy)
+        end
+        Notify("Success", "Saved!", "check")
+    end
+})
+SettingsTab:Button({
+    Title = "Load Config",
+    Icon = "upload",
+    Callback = function()
+        if Window.ConfigManager then
+            local ok = pcall(function()
+                local cfg = Window.ConfigManager:GetConfig(ConfigName) or Window.ConfigManager:CreateConfig(ConfigName)
+                IsLoadingConfig = true
+                cfg:Load()
+            end)
+            IsLoadingConfig = false
+        end
+        LoadMapDB()
+        ApplySavedEnemyForMap(GetCurrentMapName(), CurrentMapEnemiesCache)
+        Notify("Success", "Loaded!", "check")
+    end
+})
+SettingsTab:Button({
+    Title = "Delete Config",
+    Icon = "trash",
+    Callback = function()
+        if Window.ConfigManager then
+            pcall(function()
+                Window.ConfigManager:DeleteConfig(ConfigName)
+            end)
+        end
+        Notify("Success", "Deleted!", "trash")
+    end
+})
+SettingsTab:Button({
+    Title = "Rejoin Server",
+    Icon = "rotate-cw",
+    Callback = function()
+        local TeleportService = game:GetService("TeleportService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
+
+        -- Melakukan teleportasi ulang ke PlaceId yang sama
+        if #Players:GetPlayers() <= 1 then
+            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+        else
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+        end
+    end
+})
+-- [[ PERFORMANCE / FPS BOOST SECTION ]] --
+SettingsTab:Section({ Title = "Performance & FPS Boost", Icon = "zap", Opened = false });
+
+local function ApplyFPSBoost()
+    local Lighting = game:GetService("Lighting")
+    local Terrain = workspace:FindFirstChildOfClass("Terrain")
+    
+    -- Lighting & Effects
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 1
+    
+    for _, v in pairs(Lighting:GetDescendants()) do
+        if v:IsA("PostEffect") or v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") then
+            v.Enabled = false
+        end
+    end
+
+    -- Terrain
+    if Terrain then
+        Terrain.WaterSpikeize = 0
+        Terrain.WaterSpikepeed = 0
+        Terrain.WaterReflectance = 0
+        Terrain.WaterTransparency = 0
+    end
+
+    -- Workspace Objects
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("Part") or v:IsA("MeshPart") or v:IsA("UnionOperation") then
+            v.Material = Enum.Material.SmoothPlastic
+            v.Reflectance = 0
+        elseif v:IsA("Decal") or v:IsA("Texture") then
+            v.Transparency = 1
+        elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
+            v.Enabled = false
+        elseif v:IsA("Explosion") then
+            v.Visible = false
+        end
+    end
+    
+    Notify("FPS Boost", "Performance settings applied!", "zap")
+end
+
+SettingsTab:Toggle({
+    Title = "High Performance Mode",
+    Desc = "Menghapus tekstur, bayangan, dan efek untuk menaikkan FPS.",
+    Default = false,
+    Callback = function(val)
+        if val then
+            ApplyFPSBoost()
+        else
+            Notify("Info", "Rejoin server untuk mengembalikan grafik normal.", "info")
+        end
+    end
+})
+
+SettingsTab:Button({
+    Title = "Clean Workspace (Lag Fix)",
+    Icon = "trash-2",
+    Desc = "Menghapus sampah visual di workspace.",
+    Callback = function()
+        for _, v in pairs(workspace:GetChildren()) do
+            if v:IsA("BasePart") and v.Transparency == 1 and not v:IsA("Terrain") then
+                -- v:Destroy() -- Hati-hati dengan ini, bisa menghapus part penting
+            end
+        end
+        Notify("Cleaned", "Workspace items optimized.", "check")
+    end
+})
+-- [[ ADVANCED SMOOTHNESS FUNCTIONS ]] --
+local function Toggle3DRendering(state)
+    -- Benar-benar mematikan render dunia (layar jadi abu-abu/putih)
+    -- Ini adalah cara paling efektif untuk menghemat baterai/listrik saat AFK
+    game:GetService("RunService"):Set3dRenderingEnabled(not state)
+end
+
+local function MuteAllSounds()
+    for _, v in pairs(game:GetDescendants()) do
+        if v:IsA("Sound") then
+            v.Volume = 0
+        end
+    end
+end
+
+local function BoostCPU()
+    -- Mengatur kualitas render internal Roblox ke level terendah
+    settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+    settings().Rendering.MeshPartDetailLevel = Enum.MeshPartDetailLevel.Low
+end
+-- Toggle untuk mematikan Rendering 3D
+SettingsTab:Toggle({
+    Title = "CPU Mode (White Screen)",
+    Desc = "Mematikan render 3D. Sangat cocok untuk AFK semalaman (Hemat GPU).",
+    Default = false,
+    Callback = function(val)
+        Toggle3DRendering(val)
+        if val then
+            Notify("CPU Mode", "3D Rendering Disabled for performance.", "monitor-off")
+        else
+            Notify("CPU Mode", "3D Rendering Enabled.", "monitor")
+        end
+    end
+})
+
+-- Toggle untuk Mute Suara (Mengurangi beban CPU audio)
+SettingsTab:Toggle({
+    Title = "Mute All Sounds",
+    Desc = "Mematikan semua suara di dalam game.",
+    Default = false,
+    Callback = function(val)
+        if val then MuteAllSounds() end
+    end
+})
+
+-- Tombol untuk Force Low Quality (Engine Level)
+SettingsTab:Button({
+    Title = "Force Ultra Low Quality",
+    Icon = "mouse-pointer-2",
+    Desc = "Memaksa engine Roblox menggunakan settingan terendah.",
+    Callback = function()
+        BoostCPU()
+        Notify("Success", "Engine optimized for low-end PC.", "check")
+    end
+})
+-- [[ OPTIMIZED ENEMY DROPDOWN REFRESH ]] --
+local LastAreaID = nil
+
+task.spawn(function()
+    while task.wait(1) do -- Diubah ke 3 detik agar sangat ringan
+        if not Window or Window.Destroyed then break end
+        if IsInMinigame() then continue end 
+
+        local enemiesFolder = workspace:FindFirstChild("_enemies")
+        if enemiesFolder then
+            local firstEnemy = enemiesFolder:FindFirstChildOfClass("Model")
+            local currentEnemyArea = firstEnemy and firstEnemy:GetAttribute("_area")
+            
+            if currentEnemyArea and currentEnemyArea ~= LastAreaID then
+                LastAreaID = currentEnemyArea
+                
+                if EnemyDropdown and EnemyDropdown.Refresh then
+                    EnemyDropdown:Refresh(GetEnemiesList())
+                end
+            end
+        end
+    end
+end)
+-- Loop Refresh Dropdown Otomatis
+FM_OnChange("Farm")
+
+Window:SelectTab(FarmTab.Index);
+
+task.spawn(function()
+    task.wait(1.5)
+    local CM = Window.ConfigManager
+    if not CM then return end
+    
+    pcall(function()
+        -- Tambahkan 'true' pada CreateConfig agar library tahu ini adalah sistem autoload
+        local cfg = CM:GetConfig(ConfigName) or CM:CreateConfig(ConfigName, true)
+        
+        -- Mulai proses loading
+        IsLoadingConfig = true 
+        cfg:Load()
+        
+        -- PENTING: Set kembali ke false agar loop Auto Save bisa berjalan
+        IsLoadingConfig = false 
+    end)
+
+    -- Loop Auto Save 10 Detik
+    while not Window.Destroyed do
+        task.wait(10)
+        -- Sekarang Save akan berfungsi karena IsLoadingConfig sudah false
+        if not IsLoadingConfig then
+            pcall(function()
+                local cfg = CM:GetConfig(ConfigName)
+                if cfg then 
+                    cfg:Save() 
+                end
+            end)
+        end
+    end
+end)
