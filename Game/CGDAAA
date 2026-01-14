@@ -17,7 +17,6 @@ local FolderPath = "ANUI/AnimeSpike"
 local ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 local IsPremium = false
 local ValidKeys = {"ANHUB-2025"}
-local MapDBFile = "Map_Database.json"
 local Config = {
     SelectedEnemies = {}, -- Berubah menjadi tabel untuk mendukung Multi-Select
     AutoFarm = false
@@ -28,20 +27,12 @@ local currentTarget = nil
 local ConfigName = "ANHub"
 local CurrentMapEnemiesCache = {}
 local IsLoadingConfig = false
-local IsLoadingMapSelection = false
 
 local UI
 local Window
 
 -- Jalur Library yang benar sesuai decompile
 -- Tambahkan di bawah variabel Config (Sekitar baris 30)
-local LastEnemiesState = ""
-local DifficultyOrder = {["Easy"] = 1, ["Normal"] = 2, ["Hard"] = 3, ["Boss"] = 4}
-local ItemRarityColors = {
-    Common = Color3.fromRGB(200, 200, 200),
-    Rare = Color3.fromRGB(0, 150, 255),
-    Legendary = Color3.fromRGB(255, 200, 0)
-}
 
 -- ==========================================
 -- MANUAL SERVICE LOCATOR (FIX ERROR)
@@ -138,9 +129,7 @@ local function GetEnemiesList()
                     local displayName = stats[1]
                     local mapId = stats[3] -- Ini adalah ID Area (misal: 1, 2, 3)
                     
-                    local liveHP = enemy:GetAttribute("_h") or 0
                     local maxHP = enemy:GetAttribute("_m_h") or stats[2]
-                    local hpDisplay = AbbreviateService and AbbreviateService:Comma(liveHP) or tostring(liveHP)
                     local maxDisplay = AbbreviateService and AbbreviateService:Comma(maxHP) or tostring(maxHP)
                     
                     local dropCards = {}
@@ -434,6 +423,7 @@ local function IsWindowOpen()
 end
 
 local _UIStateByObject = setmetatable({}, { __mode = "k" })
+local _UIOpenEpoch = 0
 
 local function _GetUIState(ui)
     if not ui then
@@ -457,17 +447,19 @@ local function _ApplyUIState(ui)
         return
     end
 
-    if state.desiredTitle ~= nil and state.appliedTitle ~= state.desiredTitle and ui.SetTitle then
+    if state.desiredTitle ~= nil and ui.SetTitle and (state.appliedTitle ~= state.desiredTitle or state.appliedTitleEpoch ~= _UIOpenEpoch) then
         pcall(function()
             ui:SetTitle(state.desiredTitle)
             state.appliedTitle = state.desiredTitle
+            state.appliedTitleEpoch = _UIOpenEpoch
         end)
     end
 
-    if state.desiredDesc ~= nil and state.appliedDesc ~= state.desiredDesc and ui.SetDesc then
+    if state.desiredDesc ~= nil and ui.SetDesc and (state.appliedDesc ~= state.desiredDesc or state.appliedDescEpoch ~= _UIOpenEpoch) then
         pcall(function()
             ui:SetDesc(state.desiredDesc)
             state.appliedDesc = state.desiredDesc
+            state.appliedDescEpoch = _UIOpenEpoch
         end)
     end
 
@@ -478,7 +470,7 @@ local function _ApplyUIState(ui)
         desiredImageKey = state.desiredMainImageVersion
     end
 
-    if desiredImageKey ~= nil and state.appliedMainImageKey ~= desiredImageKey and ui.SetMainImage then
+    if desiredImageKey ~= nil and ui.SetMainImage and (state.appliedMainImageKey ~= desiredImageKey or state.appliedMainImageEpoch ~= _UIOpenEpoch) then
         pcall(function()
             if state.desiredMainImageSize ~= nil then
                 ui:SetMainImage(state.desiredMainImage, state.desiredMainImageSize)
@@ -486,6 +478,7 @@ local function _ApplyUIState(ui)
                 ui:SetMainImage(state.desiredMainImage)
             end
             state.appliedMainImageKey = desiredImageKey
+            state.appliedMainImageEpoch = _UIOpenEpoch
         end)
     end
 end
@@ -501,6 +494,7 @@ end
 
 do
     local function onOpen()
+        _UIOpenEpoch = _UIOpenEpoch + 1
         task.defer(_FlushAllUIStates)
     end
 
@@ -515,7 +509,7 @@ do
                     onOpen()
                 end
                 wasClosed = isClosed
-                task.wait(0.5)
+                task.wait(0.1)
             end
         end)
     end
@@ -539,10 +533,10 @@ do
 end
 
 OriginalDebounceCheck = Debounce.Check
--- Cara 1: Menimpa fungsi Check agar selalu mengembalikan false (No Debounce)
+-- Cara 1: Menimpa fungsi Check agar selalu mengembalikan false (No Debounce) action == "_combat" or
 if IsPremium then
     Debounce.Check = function(player, action, duration)
-        if action == "_combat" or action == "_click_client" then
+        if  action == "_click_client" then
             return false
         elseif action == "AntiAfkCounter" then
             return true
@@ -823,8 +817,6 @@ end)
 -- [[ ELEMEN UNTUK KATEGORI VAULT GACHAS ]] --
 
 local ActiveGachaToggles = {}
--- Tambahkan tabel cache untuk menyimpan state terakhir agar tidak terjadi double update
-local GachaStateCache = {}
 -- [[ ELEMEN UNTUK KATEGORI VAULT GACHAS (GROUP VERSION) ]] --
 
 -- 1. Kumpulkan data agar bisa diurutkan (Pairs acak, jadi perlu tabel biasa)
@@ -1077,8 +1069,6 @@ Connection:receive("_update_minigame", function(arg1)
 end)
 
 -- [[ UPDATED EGGS CATEGORY ]] --
-
-local EggsIndex = NightXLibrary.get_index("_eggs")
 
 -- 1. Egg Selection Dropdown
 local EggList = {
