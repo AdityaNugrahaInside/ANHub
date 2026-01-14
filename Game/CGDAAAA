@@ -424,6 +424,14 @@ end
 
 local _UIStateByObject = setmetatable({}, { __mode = "k" })
 local _UIOpenEpoch = 0
+local _UIOnOpenCallbacks = {}
+
+local function _RegisterUIOnOpen(fn)
+    if type(fn) ~= "function" then
+        return
+    end
+    table.insert(_UIOnOpenCallbacks, fn)
+end
 
 local function _GetUIState(ui)
     if not ui then
@@ -495,6 +503,9 @@ end
 do
     local function onOpen()
         _UIOpenEpoch = _UIOpenEpoch + 1
+        for _, fn in ipairs(_UIOnOpenCallbacks) do
+            pcall(fn)
+        end
         task.defer(_FlushAllUIStates)
     end
 
@@ -532,18 +543,18 @@ do
     end
 end
 
-OriginalDebounceCheck = Debounce.Check
--- Cara 1: Menimpa fungsi Check agar selalu mengembalikan false (No Debounce) action == "_combat" or
-if IsPremium then
-    Debounce.Check = function(player, action, duration)
-        if  action == "_click_client" then
-            return false
-        elseif action == "AntiAfkCounter" then
-            return true
-        end
-        return OriginalDebounceCheck(player, action, duration)
-    end
-end
+-- OriginalDebounceCheck = Debounce.Check
+-- -- Cara 1: Menimpa fungsi Check agar selalu mengembalikan false (No Debounce) action == "_combat" or
+-- if IsPremium then
+--     Debounce.Check = function(player, action, duration)
+--         if action == "_combat" or action == "_click_client" then
+--             return false
+--         elseif action == "AntiAfkCounter" then
+--             return true
+--         end
+--         return OriginalDebounceCheck(player, action, duration)
+--     end
+-- end
 -- local oldCheck
 -- oldCheck = hookfunction(Debounce.Check, function(player, action, duration)
 --     if action == "_combat" or action == "_click_client" then
@@ -1230,6 +1241,10 @@ end)
 
 -- Panggil sekali saat awal untuk inisialisasi teks dan gambar
 task.delay(2, SafeUpdateWeaponUI)
+
+_RegisterUIOnOpen(function()
+    SafeUpdateWeaponUI()
+end)
 -- PERBAIKAN JARAK: Mengatur posisi Category Frame dan Container
 if FM_CategorySelector.ElementFrame then 
     FM_CategorySelector.ElementFrame.Parent = FarmTab.UIElements.ContainerFrameCanvas 
