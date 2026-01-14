@@ -738,7 +738,7 @@ FM_Add("Farm", FarmTab:Toggle({
     end
 }))
 -- [[ PERBAIKAN LOGIKA AUTO ATTACK ]] --
-FM_Add("FastClick", FarmTab:Toggle({
+FM_Add("Farm", FarmTab:Toggle({
     Title = "Auto Fast Attack",
     Default = false,
     Flag = "AutoFastAttack_Toggle",
