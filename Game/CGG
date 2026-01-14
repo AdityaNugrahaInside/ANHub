@@ -576,18 +576,18 @@ do
     end
 end
 
--- OriginalDebounceCheck = Debounce.Check
--- -- Cara 1: Menimpa fungsi Check agar selalu mengembalikan false (No Debounce) action == "_combat" or
--- if IsPremium then
---     Debounce.Check = function(player, action, duration)
---         if action == "_combat" or action == "_click_client" then
---             return false
---         elseif action == "AntiAfkCounter" then
---             return true
---         end
---         return OriginalDebounceCheck(player, action, duration)
---     end
--- end
+OriginalDebounceCheck = Debounce.Check
+-- Cara 1: Menimpa fungsi Check agar selalu mengembalikan false (No Debounce) action == "_combat" or
+if IsPremium then
+    Debounce.Check = function(player, action, duration)
+        -- if action == "_combat" or action == "_click_client" then
+        --     return false
+        if action == "AntiAfkCounter" then
+            return true
+        end
+        return OriginalDebounceCheck(player, action, duration)
+    end
+end
 pcall(function()
     if writefile and isfile and (not isfile(ExpiryFile)) then
         writefile(ExpiryFile, tostring(os.time() + 86400))
