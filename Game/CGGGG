@@ -702,7 +702,7 @@ FM_Add("Farm", FarmTab:Toggle({
         if val then
             task.spawn(function()
                 while Config.AutoFarm do
-                    task.wait() -- Kecepatan respon loop
+                    task.wait(1) -- Kecepatan respon loop
                     if not Window or Window.Destroyed then break end
                     
                    -- Ganti bagian ini di dalam loop task.spawn AutoFarm:
