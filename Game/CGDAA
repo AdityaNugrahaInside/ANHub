@@ -278,7 +278,7 @@ local function JSONPretty(val, indent)
     end;
 end;
 
-setclipboard(JSONPretty(DropsIndex, 1))
+-- setclipboard(JSONPretty(DropsIndex, 1))
 local function Notify(title, content, icon)
     task.spawn(function()
         pcall(function()
@@ -431,6 +431,94 @@ end
 
 local function IsWindowOpen()
     return IsWindowAlive() and not Window.Closed
+end
+
+local _UIStateByObject = setmetatable({}, { __mode = "k" })
+
+local function _GetUIState(ui)
+    if not ui then
+        return nil
+    end
+    local state = _UIStateByObject[ui]
+    if not state then
+        state = {}
+        _UIStateByObject[ui] = state
+    end
+    return state
+end
+
+local function _ApplyUIState(ui)
+    if not ui or not IsWindowOpen() then
+        return
+    end
+
+    local state = _UIStateByObject[ui]
+    if not state then
+        return
+    end
+
+    if state.desiredTitle ~= nil and state.appliedTitle ~= state.desiredTitle and ui.SetTitle then
+        pcall(function()
+            ui:SetTitle(state.desiredTitle)
+            state.appliedTitle = state.desiredTitle
+        end)
+    end
+
+    if state.desiredDesc ~= nil and state.appliedDesc ~= state.desiredDesc and ui.SetDesc then
+        pcall(function()
+            ui:SetDesc(state.desiredDesc)
+            state.appliedDesc = state.desiredDesc
+        end)
+    end
+
+    local desiredImageKey = nil
+    if state.desiredMainImageKey ~= nil then
+        desiredImageKey = tostring(state.desiredMainImageKey) .. "|" .. tostring(state.desiredMainImageSize)
+    elseif state.desiredMainImageVersion ~= nil then
+        desiredImageKey = state.desiredMainImageVersion
+    end
+
+    if desiredImageKey ~= nil and state.appliedMainImageKey ~= desiredImageKey and ui.SetMainImage then
+        pcall(function()
+            if state.desiredMainImageSize ~= nil then
+                ui:SetMainImage(state.desiredMainImage, state.desiredMainImageSize)
+            else
+                ui:SetMainImage(state.desiredMainImage)
+            end
+            state.appliedMainImageKey = desiredImageKey
+        end)
+    end
+end
+
+local function _FlushAllUIStates()
+    if not IsWindowOpen() then
+        return
+    end
+    for ui, _ in pairs(_UIStateByObject) do
+        _ApplyUIState(ui)
+    end
+end
+
+do
+    local function onOpen()
+        task.defer(_FlushAllUIStates)
+    end
+
+    if type(Window) == "table" and Window.OnOpen and Window.OnClose then
+        Window:OnOpen(onOpen)
+    else
+        task.spawn(function()
+            local wasClosed = Window and Window.Closed == true
+            while Window and not Window.Destroyed do
+                local isClosed = Window.Closed == true
+                if wasClosed and not isClosed then
+                    onOpen()
+                end
+                wasClosed = isClosed
+                task.wait(0.5)
+            end
+        end)
+    end
 end
 
 do
@@ -675,6 +763,8 @@ local RankUpToggle = FM_Add("Rank Up", FarmTab:Toggle({
     end
 }))
 
+local _RankUpUIState = _GetUIState(RankUpToggle)
+
 -- Task untuk Update UI & Logika Direct Remote Ascension
 task.spawn(function()
     while task.wait() do
@@ -692,20 +782,24 @@ task.spawn(function()
             local cost = nextRankData[1]
             local progress = math.clamp(currentCoins / cost, 0, 1)
             
-            -- Update Visual pada Toggle (UI)
-            RankUpToggle:SetTitle(string.format("Rank: %s | Bonus: +%s%%", currentRank, (currentRankData[2] - 1) * 100))
-            
             local barLen = 15
             local filled = math.floor(progress * barLen)
             local bar = "[" .. string.rep("█", filled) .. string.rep("░", barLen - filled) .. "]"
-            
-            RankUpToggle:SetDesc(string.format(
-                "%s %s%%\nCoins: %s / %s", 
-                bar, 
-                math.floor(progress * 100), 
-                AbbreviateService:Comma(currentCoins), 
+
+            local titleTxt = string.format("Rank: %s | Bonus: +%s%%", currentRank, (currentRankData[2] - 1) * 100)
+            local descTxt = string.format(
+                "%s %s%%\nCoins: %s / %s",
+                bar,
+                math.floor(progress * 100),
+                AbbreviateService:Comma(currentCoins),
                 AbbreviateService:Comma(cost)
-            ))
+            )
+
+            if _RankUpUIState then
+                _RankUpUIState.desiredTitle = titleTxt
+                _RankUpUIState.desiredDesc = descTxt
+            end
+            _ApplyUIState(RankUpToggle)
             
             -- LOGIKA BYPASS REMOTE (Direct Ascension)
             if Config.AutoRankUp and currentCoins >= cost then
@@ -717,8 +811,11 @@ task.spawn(function()
                 task.wait(1) -- Delay agar tidak spam berlebihan
             end
         else
-            RankUpToggle:SetTitle("Rank: MAX")
-            RankUpToggle:SetDesc("Kamu telah mencapai Rank tertinggi!")
+            if _RankUpUIState then
+                _RankUpUIState.desiredTitle = "Rank: MAX"
+                _RankUpUIState.desiredDesc = "Kamu telah mencapai Rank tertinggi!"
+            end
+            _ApplyUIState(RankUpToggle)
         end
     end
 end)
@@ -776,6 +873,11 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
         end
     })
 
+    local _GachaUIState = _GetUIState(GachaToggle)
+    if _GachaUIState then
+        _GachaUIState.desiredTitle = cleanName
+    end
+
     -- Logic Update UI & Auto Lock (Versi Fix)
     task.spawn(function()
         while task.wait(0.5) do
@@ -827,8 +929,10 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
             end
 
             if currentDesc ~= LastDesc then
-                GachaToggle:SetDesc(currentDesc)
                 LastDesc = currentDesc
+                if _GachaUIState then
+                    _GachaUIState.desiredDesc = currentDesc
+                end
             end
 
             if equippedId ~= LastEquippedId then
@@ -836,14 +940,20 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
                 if equippedData and equippedId ~= "" then
                     local rarityName = equippedData[2]
                     local gradientObj = GradientFolder:FindFirstChild(rarityName)
-                    GachaToggle:SetMainImage({
-                        Image = equippedData.Image or "rbxassetid://0",
-                        Gradient = gradientObj and gradientObj.Color or nil,
-                        Quantity = equippedData[1] .. "%",
-                        Title = rarityName
-                    }, 50) -- Ukuran gambar sedikit dikecilkan agar pas di Group
+                    if _GachaUIState then
+                        local mainImageKey = tostring(equippedId)
+                        _GachaUIState.desiredMainImage = {
+                            Image = equippedData.Image or "rbxassetid://0",
+                            Gradient = gradientObj and gradientObj.Color or nil,
+                            Quantity = equippedData[1] .. "%",
+                            Title = rarityName
+                        }
+                        _GachaUIState.desiredMainImageSize = 50
+                        _GachaUIState.desiredMainImageKey = mainImageKey
+                    end
                 end
             end
+            _ApplyUIState(GachaToggle)
         end
     end)
 
@@ -1050,6 +1160,8 @@ local WeaponInfoToggle = FM_Add("Weapon Shop", FarmTab:Toggle({
     end
 }))
 
+local _WeaponInfoUIState = _GetUIState(WeaponInfoToggle)
+
 FM_Add("Weapon Shop", FarmTab:Button({
     Title = "Buy All Affordable Weapons",
     Icon = "shopping-cart",
@@ -1081,21 +1193,20 @@ local function SafeUpdateWeaponUI()
             
             local displayTitle = "Next: " .. weaponName .. " (+" .. powerMult .. "x)"
             local displayDesc = string.format("Price: %s\nCoins: %s", tostring(AbbreviateService:Comma(finalPrice)), tostring(AbbreviateService:Comma(currentCoins)))
-            
-            -- Eksekusi aman di dalam thread UI
-            task.defer(function()
-                pcall(function()
-                    WeaponInfoToggle:SetTitle(displayTitle)
-                    WeaponInfoToggle:SetDesc(displayDesc)
-                    
-                    -- Menambahkan Gambar Senjata
-                    WeaponInfoToggle:SetMainImage({
-                        Image = weaponImage,
-                        Title = weaponName,
-                        Quantity = "Rank " .. nextId
-                    }, 60)
-                end)
-            end)
+
+            if _WeaponInfoUIState then
+                local mainImageKey = "next|" .. tostring(nextId) .. "|" .. tostring(weaponImage) .. "|" .. tostring(weaponName)
+                _WeaponInfoUIState.desiredTitle = displayTitle
+                _WeaponInfoUIState.desiredDesc = displayDesc
+                _WeaponInfoUIState.desiredMainImage = {
+                    Image = weaponImage,
+                    Title = weaponName,
+                    Quantity = "Rank " .. nextId
+                }
+                _WeaponInfoUIState.desiredMainImageSize = 60
+                _WeaponInfoUIState.desiredMainImageKey = mainImageKey
+            end
+            _ApplyUIState(WeaponInfoToggle)
 
             -- Logika Auto Buy
             if Config.AutoWeaponShop and currentCoins >= finalPrice then
@@ -1103,15 +1214,19 @@ local function SafeUpdateWeaponUI()
             end
         else
             -- Jika sudah mencapai level maksimal
-            task.defer(function()
-                WeaponInfoToggle:SetTitle("Weapon Shop: MAX")
-                WeaponInfoToggle:SetDesc("All weapons unlocked.")
-                WeaponInfoToggle:SetMainImage({
-                    Image = "rbxassetid://0", -- Kosongkan gambar saat max
+            if _WeaponInfoUIState then
+                local mainImageKey = "max"
+                _WeaponInfoUIState.desiredTitle = "Weapon Shop: MAX"
+                _WeaponInfoUIState.desiredDesc = "All weapons unlocked."
+                _WeaponInfoUIState.desiredMainImage = {
+                    Image = "rbxassetid://0",
                     Title = "Completed",
                     Quantity = "MAX"
-                })
-            end)
+                }
+                _WeaponInfoUIState.desiredMainImageSize = nil
+                _WeaponInfoUIState.desiredMainImageKey = mainImageKey
+            end
+            _ApplyUIState(WeaponInfoToggle)
         end
     end)
 end
