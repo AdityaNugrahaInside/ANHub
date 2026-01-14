@@ -446,9 +446,13 @@ function Optimizer.MarkUIStale()
     c.RankUp.LastRank = nil
     c.RankUp.LastCoins = nil
     c.RankUp.LastAscend = nil
+    c.RankUp.NextCost = nil
 
     c.WeaponShop.LastWeaponShop = nil
     c.WeaponShop.LastCoins = nil
+    c.WeaponShop.LastDiscount = nil
+    c.WeaponShop.LastMainImageKey = nil
+    c.WeaponShop.NextPrice = nil
 
     c.VaultGachas.Cursor = 1
     for _, e in ipairs(c.VaultGachas.Entries) do
@@ -824,8 +828,19 @@ local function UpdateRankUpUI()
     local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
 
     local cache = Optimizer and Optimizer.Cache and Optimizer.Cache.RankUp
-    if cache and cache.LastRank == currentRank and cache.LastCoins == currentCoins and IsWindowOpen() then
-        _ApplyUIState(RankUpToggle)
+    if cache and cache.LastRank == currentRank and cache.LastCoins == currentCoins then
+        if Config.AutoRankUp and cache.NextCost and currentCoins >= cache.NextCost then
+            local now = os.clock()
+            local lastAscend = cache.LastAscend or 0
+            if (now - lastAscend) >= 1 then
+                cache.LastAscend = now
+                SendConnection("System", "_main", "_ascension")
+                Notify("Rank Up!", "Berhasil naik ke Rank " .. (currentRank + 1), "arrow-up")
+            end
+        end
+        if IsWindowOpen() then
+            _ApplyUIState(RankUpToggle)
+        end
         return
     end
     if cache then
@@ -838,6 +853,9 @@ local function UpdateRankUpUI()
 
     if nextRankData then
         local cost = nextRankData[1]
+        if cache then
+            cache.NextCost = cost
+        end
         local progress = math.clamp(currentCoins / cost, 0, 1)
 
         local barLen = 15
@@ -857,7 +875,9 @@ local function UpdateRankUpUI()
             _RankUpUIState.desiredTitle = titleTxt
             _RankUpUIState.desiredDesc = descTxt
         end
-        _ApplyUIState(RankUpToggle)
+        if IsWindowOpen() then
+            _ApplyUIState(RankUpToggle)
+        end
 
         if Config.AutoRankUp and currentCoins >= cost then
             local now = os.clock()
@@ -871,11 +891,16 @@ local function UpdateRankUpUI()
             end
         end
     else
+        if cache then
+            cache.NextCost = nil
+        end
         if _RankUpUIState then
             _RankUpUIState.desiredTitle = "Rank: MAX"
             _RankUpUIState.desiredDesc = "Kamu telah mencapai Rank tertinggi!"
         end
-        _ApplyUIState(RankUpToggle)
+        if IsWindowOpen() then
+            _ApplyUIState(RankUpToggle)
+        end
     end
 end
 
@@ -887,6 +912,17 @@ end)
 
 _RegisterUIOnOpen(UpdateRankUpUI)
 task.delay(1, UpdateRankUpUI)
+
+task.spawn(function()
+    while Window and not Window.Destroyed do
+        if Config.AutoRankUp then
+            UpdateRankUpUI()
+            task.wait(0.25)
+        else
+            task.wait(0.6)
+        end
+    end
+end)
 
 -- [[ ELEMEN UNTUK KATEGORI VAULT GACHAS ]] --
 
@@ -911,6 +947,33 @@ local function UpdateVaultGachaEntry(entry, isOpen)
         isOpen = IsWindowOpen()
     end
 
+    local function applyVisuals()
+        if not isOpen then
+            return
+        end
+
+        if entry.appliedLockEpoch ~= _UIOpenEpoch or entry.appliedLockReason ~= entry.desiredLockReason then
+            entry.appliedLockEpoch = _UIOpenEpoch
+            entry.appliedLockReason = entry.desiredLockReason
+            pcall(function()
+                if entry.desiredLockReason then
+                    entry.toggle:Lock(entry.desiredLockReason)
+                else
+                    entry.toggle:Unlock()
+                end
+            end)
+        end
+
+        if entry.pendingOff then
+            pcall(function()
+                entry.toggle:Set(false)
+            end)
+            entry.pendingOff = false
+        end
+
+        _ApplyUIState(entry.toggle)
+    end
+
     if not entry.vaultFolder then
         local mainFolder = LocalPlayer:FindFirstChild("VaultGachas")
         if mainFolder then
@@ -923,11 +986,10 @@ local function UpdateVaultGachaEntry(entry, isOpen)
     local equippedId = entry.vaultFolder and entry.vaultFolder:GetAttribute("Name") or ""
     local equippedNum = tonumber(equippedId) or -1
     local lockReason = (equippedNum == 1) and "Secret Equipped!" or nil
+    entry.desiredLockReason = lockReason
 
     if owned == entry.lastOwned and equippedId == entry.lastEquippedId and lockReason == entry.lastLockReason then
-        if isOpen then
-            _ApplyUIState(entry.toggle)
-        end
+        applyVisuals()
         return
     end
 
@@ -938,67 +1000,50 @@ local function UpdateVaultGachaEntry(entry, isOpen)
     if lockReason then
         if Config["AutoGacha_" .. entry.gachaId] then
             Config["AutoGacha_" .. entry.gachaId] = false
-            if isOpen then
-                pcall(function()
-                    entry.toggle:Set(false)
-                end)
-            end
+            entry.pendingOff = true
         end
-        if isOpen and not entry.toggle.Locked then
-            pcall(function()
-                entry.toggle:Lock(lockReason)
-            end)
+    end
+
+    local equippedData = entry.gachaData[equippedNum]
+    local price = 1
+
+    local colorCode = (owned >= price) and "#00FF00" or "#FF0000"
+    local materialStatus = string.format("<font color=\"%s\">%s: %s/%s</font>", colorCode, entry.costName, AbbreviateService:Comma(owned), price)
+
+    local currentDesc = ""
+    if equippedData and equippedId ~= "" then
+        currentDesc = string.format("Equipped: %s (%s%%)\n%s\nStats:", equippedData[2], equippedData[1], materialStatus)
+        for stat, val in pairs(equippedData.Mults or {}) do
+            currentDesc = currentDesc .. string.format("\n• %s: +%s%%", stat, val * 100)
         end
     else
-        if isOpen and entry.toggle.Locked then
-            pcall(function()
-                entry.toggle:Unlock()
-            end)
+        currentDesc = "Empty\n" .. materialStatus
+    end
+
+    if currentDesc ~= entry.lastDesc then
+        entry.lastDesc = currentDesc
+        if entry.uiState then
+            entry.uiState.desiredDesc = currentDesc
         end
     end
 
-    if isOpen then
-        local equippedData = entry.gachaData[equippedNum]
-        local price = 1
-
-        local colorCode = (owned >= price) and "#00FF00" or "#FF0000"
-        local materialStatus = string.format("<font color=\"%s\">%s: %s/%s</font>", colorCode, entry.costName, AbbreviateService:Comma(owned), price)
-
-        local currentDesc = ""
-        if equippedData and equippedId ~= "" then
-            currentDesc = string.format("Equipped: %s (%s%%)\n%s\nStats:", equippedData[2], equippedData[1], materialStatus)
-            for stat, val in pairs(equippedData.Mults or {}) do
-                currentDesc = currentDesc .. string.format("\n• %s: +%s%%", stat, val * 100)
-            end
-        else
-            currentDesc = "Empty\n" .. materialStatus
+    if equippedId ~= entry.lastEquippedIdForImage then
+        entry.lastEquippedIdForImage = equippedId
+        if equippedData and equippedId ~= "" and entry.uiState then
+            local rarityName = equippedData[2]
+            local gradientObj = GradientFolder:FindFirstChild(rarityName)
+            entry.uiState.desiredMainImage = {
+                Image = equippedData.Image or "rbxassetid://0",
+                Gradient = gradientObj and gradientObj.Color or nil,
+                Quantity = equippedData[1] .. "%",
+                Title = rarityName
+            }
+            entry.uiState.desiredMainImageSize = 50
+            entry.uiState.desiredMainImageKey = tostring(equippedId)
         end
-
-        if currentDesc ~= entry.lastDesc then
-            entry.lastDesc = currentDesc
-            if entry.uiState then
-                entry.uiState.desiredDesc = currentDesc
-            end
-        end
-
-        if equippedId ~= entry.lastEquippedIdForImage then
-            entry.lastEquippedIdForImage = equippedId
-            if equippedData and equippedId ~= "" and entry.uiState then
-                local rarityName = equippedData[2]
-                local gradientObj = GradientFolder:FindFirstChild(rarityName)
-                entry.uiState.desiredMainImage = {
-                    Image = equippedData.Image or "rbxassetid://0",
-                    Gradient = gradientObj and gradientObj.Color or nil,
-                    Quantity = equippedData[1] .. "%",
-                    Title = rarityName
-                }
-                entry.uiState.desiredMainImageSize = 50
-                entry.uiState.desiredMainImageKey = tostring(equippedId)
-            end
-        end
-
-        _ApplyUIState(entry.toggle)
     end
+
+    applyVisuals()
 end
 
 task.spawn(function()
@@ -1016,7 +1061,7 @@ task.spawn(function()
             cursor = 1
         end
 
-        local perTick = isOpen and math.clamp(math.floor(n / 10) + 1, 1, 6) or 1
+        local perTick = isOpen and math.clamp(math.floor(n / 10) + 1, 1, 6) or math.clamp(math.floor(n / 20) + 1, 1, 3)
         for _ = 1, perTick do
             local entry = entries[cursor]
             cursor = cursor + 1
@@ -1029,11 +1074,7 @@ task.spawn(function()
         end
         Optimizer.Cache.VaultGachas.Cursor = cursor
 
-        if isOpen then
-            task.wait(0.15)
-        else
-            task.wait(0.6)
-        end
+        task.wait(isOpen and 0.15 or 0.25)
     end
 end)
 
@@ -1326,14 +1367,35 @@ local function SafeUpdateWeaponUI()
     if not IsWindowAlive() or not WeaponInfoToggle then return end
 
     local success, err = pcall(function()
+        local cache = Optimizer and Optimizer.Cache and Optimizer.Cache.WeaponShop
         local currentWeaponShop = LocalPlayer:GetAttribute("WeaponShop") or 0
+        local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
+        local discount = (MultsIndex and MultsIndex._discount) and MultsIndex._discount(LocalPlayer) or 1
+
+        if cache and cache.LastWeaponShop == currentWeaponShop and cache.LastCoins == currentCoins and cache.LastDiscount == discount then
+            if Config.AutoWeaponShop and cache.NextPrice and currentCoins >= cache.NextPrice then
+                SendConnection("System", "_main", "_weapon", "", "_all")
+            end
+            if IsWindowOpen() then
+                _ApplyUIState(WeaponInfoToggle)
+            end
+            return
+        end
+
+        if cache then
+            cache.LastWeaponShop = currentWeaponShop
+            cache.LastCoins = currentCoins
+            cache.LastDiscount = discount
+        end
+
         local nextId = currentWeaponShop + 1
         local weaponData = WeaponsIndex[nextId]
         
         if weaponData then
-            local discount = (MultsIndex and MultsIndex._discount) and MultsIndex._discount(LocalPlayer) or 1
             local finalPrice = (weaponData[4] or 0) / discount
-            local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
+            if cache then
+                cache.NextPrice = finalPrice
+            end
             
             -- Penyiapan Data Visual
             local weaponName = tostring(weaponData[1])
@@ -1345,17 +1407,28 @@ local function SafeUpdateWeaponUI()
 
             if _WeaponInfoUIState then
                 local mainImageKey = "next|" .. tostring(nextId) .. "|" .. tostring(weaponImage) .. "|" .. tostring(weaponName)
-                _WeaponInfoUIState.desiredTitle = displayTitle
-                _WeaponInfoUIState.desiredDesc = displayDesc
-                _WeaponInfoUIState.desiredMainImage = {
-                    Image = weaponImage,
-                    Title = weaponName,
-                    Quantity = "Rank " .. nextId
-                }
-                _WeaponInfoUIState.desiredMainImageSize = 60
-                _WeaponInfoUIState.desiredMainImageKey = mainImageKey
+                if _WeaponInfoUIState.desiredTitle ~= displayTitle then
+                    _WeaponInfoUIState.desiredTitle = displayTitle
+                end
+                if _WeaponInfoUIState.desiredDesc ~= displayDesc then
+                    _WeaponInfoUIState.desiredDesc = displayDesc
+                end
+                if not cache or cache.LastMainImageKey ~= mainImageKey then
+                    if cache then
+                        cache.LastMainImageKey = mainImageKey
+                    end
+                    _WeaponInfoUIState.desiredMainImage = {
+                        Image = weaponImage,
+                        Title = weaponName,
+                        Quantity = "Rank " .. nextId
+                    }
+                    _WeaponInfoUIState.desiredMainImageSize = 60
+                    _WeaponInfoUIState.desiredMainImageKey = mainImageKey
+                end
             end
-            _ApplyUIState(WeaponInfoToggle)
+            if IsWindowOpen() then
+                _ApplyUIState(WeaponInfoToggle)
+            end
 
             -- Logika Auto Buy
             if Config.AutoWeaponShop and currentCoins >= finalPrice then
@@ -1363,19 +1436,33 @@ local function SafeUpdateWeaponUI()
             end
         else
             -- Jika sudah mencapai level maksimal
+            if cache then
+                cache.NextPrice = nil
+            end
             if _WeaponInfoUIState then
                 local mainImageKey = "max"
-                _WeaponInfoUIState.desiredTitle = "Weapon Shop: MAX"
-                _WeaponInfoUIState.desiredDesc = "All weapons unlocked."
-                _WeaponInfoUIState.desiredMainImage = {
-                    Image = "rbxassetid://0",
-                    Title = "Completed",
-                    Quantity = "MAX"
-                }
-                _WeaponInfoUIState.desiredMainImageSize = nil
-                _WeaponInfoUIState.desiredMainImageKey = mainImageKey
+                if _WeaponInfoUIState.desiredTitle ~= "Weapon Shop: MAX" then
+                    _WeaponInfoUIState.desiredTitle = "Weapon Shop: MAX"
+                end
+                if _WeaponInfoUIState.desiredDesc ~= "All weapons unlocked." then
+                    _WeaponInfoUIState.desiredDesc = "All weapons unlocked."
+                end
+                if not cache or cache.LastMainImageKey ~= mainImageKey then
+                    if cache then
+                        cache.LastMainImageKey = mainImageKey
+                    end
+                    _WeaponInfoUIState.desiredMainImage = {
+                        Image = "rbxassetid://0",
+                        Title = "Completed",
+                        Quantity = "MAX"
+                    }
+                    _WeaponInfoUIState.desiredMainImageSize = nil
+                    _WeaponInfoUIState.desiredMainImageKey = mainImageKey
+                end
             end
-            _ApplyUIState(WeaponInfoToggle)
+            if IsWindowOpen() then
+                _ApplyUIState(WeaponInfoToggle)
+            end
         end
     end)
 end
