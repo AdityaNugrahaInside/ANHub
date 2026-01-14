@@ -219,8 +219,8 @@ end
 
 local function SendConnection(...)
     -- Simpan kode biner panjang di dalam variabel agar rapi
-    local binaryData = "01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101111 01101110 01101110 01100101 01100011 01110100 01101001 01101111 01101110 00101110 01110100 01101000 01110010 01100101 01100001 01100100 01011111 01110011 01100101 01100011 01110101 01110010 01101001 01110100 01111001 00111010 00110001 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101111 01101110 01101110 01100101 01100011 01110100 01101001 01101111 01101110 00111010 00110001 00110101 00110110 00100000 01100110 01110101 01101110 01100011 01110100 01101001 01101111 01101110 00100000 01110011 01100101 01101110 01100100 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101100 01101001 01100101 01101110 01110100 00101110 01000101 01100111 01100111 01010011 01100101 01110100 01110101 01110000 00111010 00110001 00110010 00110101 00100000 01100110 01110101 01101110 01100011 01110100 01101001 01101111 01101110 00100000 01001111 01110000 01100101 01101110 01000101 01100111 01100111 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101100 01101001 01100101 01101110 01110100 00101110 01000101 01100111 01100111 01010011 01100101 01110100 01110101 01110000 00111010 00110011 00110101 00111000 00001010"
-    
+    -- local binaryData = "01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101111 01101110 01101110 01100101 01100011 01110100 01101001 01101111 01101110 00101110 01110100 01101000 01110010 01100101 01100001 01100100 01011111 01110011 01100101 01100011 01110101 01110010 01101001 01110100 01111001 00111010 00110001 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101111 01101110 01101110 01100101 01100011 01110100 01101001 01101111 01101110 00111010 00110001 00110101 00110110 00100000 01100110 01110101 01101110 01100011 01110100 01101001 01101111 01101110 00100000 01110011 01100101 01101110 01100100 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101100 01101001 01100101 01101110 01110100 00101110 01000101 01100111 01100111 01010011 01100101 01110100 01110101 01110000 00111010 00110001 00110010 00110101 00100000 01100110 01110101 01101110 01100011 01110100 01101001 01101111 01101110 00100000 01001111 01110000 01100101 01101110 01000101 01100111 01100111 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01001110 01101001 01100111 01101000 01110100 01011000 00101110 01001100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01000011 01101100 01101001 01100101 01101110 01110100 00101110 01000101 01100111 01100111 01010011 01100101 01110100 01110101 01110000 00111010 00110011 00110101 00111000 00001010"
+    local binaryData = "01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01100110 01110010 01100001 01101101 01100101 01011111 01110111 01101111 01110010 01101011 00101110 01101100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01100011 01101111 01101110 01101110 01100101 01100011 01110100 01101001 01101111 01101110 00101110 01110100 01101000 01110010 01100101 01100001 01100100 01011111 01110011 01100101 01100011 01110101 01110010 01101001 01110100 01111001 00111010 00110001 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01100110 01110010 01100001 01101101 01100101 01011111 01110111 01101111 01110010 01101011 00101110 01101100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01100011 01101111 01101110 01101110 01100101 01100011 01110100 01101001 01101111 01101110 00111010 00110001 00110101 00111001 00100000 01100110 01110101 01101110 01100011 01110100 01101001 01101111 01101110 00100000 01110011 01100101 01101110 01100100 00001010 01010010 01100101 01110000 01101100 01101001 01100011 01100001 01110100 01100101 01100100 01010011 01110100 01101111 01110010 01100001 01100111 01100101 00101110 01100110 01110010 01100001 01101101 01100101 01011111 01110111 01101111 01110010 01101011 00101110 01101100 01101001 01100010 01110010 01100001 01110010 01111001 00101110 01011111 01110011 01100101 01110100 01110101 01110000 01110011 00101110 01000011 01001111 01010010 01000101 00101110 01011111 01110011 01100101 01110100 01110100 01110101 01110000 01110011 00101110 00110001 00100000 11100010 10000000 10100010 00100000 01101101 01101111 01110110 01100101 00100000 01110011 01100101 01110100 00101110 00110010 00100000 11100010 10000000 10100010 00100000 01101101 01101111 01110101 01110011 01100101 00111010 00110101 00111000 00001010"
     -- Menggabungkan biner dengan argumen tambahan yang kamu masukkan
     local args = {binaryData}
     local extra = {...}
@@ -433,6 +433,34 @@ local function _RegisterUIOnOpen(fn)
     table.insert(_UIOnOpenCallbacks, fn)
 end
 
+Optimizer = Optimizer or {
+    Cache = {
+        RankUp = {},
+        VaultGachas = { Entries = {}, Cursor = 1 },
+        WeaponShop = {}
+    }
+}
+
+function Optimizer.MarkUIStale()
+    local c = Optimizer.Cache
+    c.RankUp.LastRank = nil
+    c.RankUp.LastCoins = nil
+    c.RankUp.LastAscend = nil
+
+    c.WeaponShop.LastWeaponShop = nil
+    c.WeaponShop.LastCoins = nil
+
+    c.VaultGachas.Cursor = 1
+    for _, e in ipairs(c.VaultGachas.Entries) do
+        if type(e) == "table" then
+            e.lastOwned = nil
+            e.lastEquippedId = nil
+            e.lastLockReason = nil
+            e.lastDesc = nil
+        end
+    end
+end
+
 local function _GetUIState(ui)
     if not ui then
         return nil
@@ -503,6 +531,11 @@ end
 do
     local function onOpen()
         _UIOpenEpoch = _UIOpenEpoch + 1
+        pcall(function()
+            if Optimizer and Optimizer.MarkUIStale then
+                Optimizer.MarkUIStale()
+            end
+        end)
         for _, fn in ipairs(_UIOnOpenCallbacks) do
             pcall(fn)
         end
@@ -555,13 +588,6 @@ end
 --         return OriginalDebounceCheck(player, action, duration)
 --     end
 -- end
--- local oldCheck
--- oldCheck = hookfunction(Debounce.Check, function(player, action, duration)
---     if action == "_combat" or action == "_click_client" then
---         return false
---     end
---     return oldCheck(player, action, duration)
--- end)
 pcall(function()
     if writefile and isfile and (not isfile(ExpiryFile)) then
         writefile(ExpiryFile, tostring(os.time() + 86400))
@@ -676,7 +702,7 @@ FM_Add("Farm", FarmTab:Toggle({
         if val then
             task.spawn(function()
                 while Config.AutoFarm do
-                    task.wait(1) -- Kecepatan respon loop
+                    task.wait() -- Kecepatan respon loop
                     if not Window or Window.Destroyed then break end
                     
                    -- Ganti bagian ini di dalam loop task.spawn AutoFarm:
@@ -705,6 +731,7 @@ FM_Add("Farm", FarmTab:Toggle({
                         -- Jika tidak ada musuh yang dipilih di dropdown, hapus target aktif
                         currentTarget = nil
                     end
+                    SendConnection("System", "_main", "_click")
                 end
             end)
         end
@@ -770,60 +797,78 @@ local RankUpToggle = FM_Add("Rank Up", FarmTab:Toggle({
 
 local _RankUpUIState = _GetUIState(RankUpToggle)
 
--- Task untuk Update UI & Logika Direct Remote Ascension
-task.spawn(function()
-    while task.wait() do
-        if not Window or Window.Destroyed then break end
-        
-        -- Ambil data langsung dari atribut sesuai decompile 'ascension'
-        local currentRank = LocalPlayer:GetAttribute("Rank") or 0
-        local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
-        
-        -- Ambil data index rank berikutnya
-        local nextRankData = AscensionData[currentRank + 1]
-        local currentRankData = AscensionData[currentRank]
-        
-        if nextRankData then
-            local cost = nextRankData[1]
-            local progress = math.clamp(currentCoins / cost, 0, 1)
-            
-            local barLen = 15
-            local filled = math.floor(progress * barLen)
-            local bar = "[" .. string.rep("█", filled) .. string.rep("░", barLen - filled) .. "]"
+local function UpdateRankUpUI()
+    if not IsWindowAlive() or not RankUpToggle then
+        return
+    end
 
-            local titleTxt = string.format("Rank: %s | Bonus: +%s%%", currentRank, (currentRankData[2] - 1) * 100)
-            local descTxt = string.format(
-                "%s %s%%\nCoins: %s / %s",
-                bar,
-                math.floor(progress * 100),
-                AbbreviateService:Comma(currentCoins),
-                AbbreviateService:Comma(cost)
-            )
+    local currentRank = LocalPlayer:GetAttribute("Rank") or 0
+    local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
 
-            if _RankUpUIState then
-                _RankUpUIState.desiredTitle = titleTxt
-                _RankUpUIState.desiredDesc = descTxt
-            end
-            _ApplyUIState(RankUpToggle)
-            
-            -- LOGIKA BYPASS REMOTE (Direct Ascension)
-            if Config.AutoRankUp and currentCoins >= cost then
-                -- Langsung kirim sinyal ke server tanpa klik tombol UI
-                SendConnection("System", "_main", "_ascension")
-                
-                -- Opsional: Tambahkan notifikasi saat berhasil naik rank
-                Notify("Rank Up!", "Berhasil naik ke Rank " .. (currentRank + 1), "arrow-up")
-                task.wait(1) -- Delay agar tidak spam berlebihan
-            end
-        else
-            if _RankUpUIState then
-                _RankUpUIState.desiredTitle = "Rank: MAX"
-                _RankUpUIState.desiredDesc = "Kamu telah mencapai Rank tertinggi!"
-            end
-            _ApplyUIState(RankUpToggle)
+    local cache = Optimizer and Optimizer.Cache and Optimizer.Cache.RankUp
+    if cache and cache.LastRank == currentRank and cache.LastCoins == currentCoins and IsWindowOpen() then
+        _ApplyUIState(RankUpToggle)
+        return
+    end
+    if cache then
+        cache.LastRank = currentRank
+        cache.LastCoins = currentCoins
+    end
+
+    local nextRankData = AscensionData[currentRank + 1]
+    local currentRankData = AscensionData[currentRank]
+
+    if nextRankData then
+        local cost = nextRankData[1]
+        local progress = math.clamp(currentCoins / cost, 0, 1)
+
+        local barLen = 15
+        local filled = math.floor(progress * barLen)
+        local bar = "[" .. string.rep("█", filled) .. string.rep("░", barLen - filled) .. "]"
+
+        local titleTxt = string.format("Rank: %s | Bonus: +%s%%", currentRank, (currentRankData[2] - 1) * 100)
+        local descTxt = string.format(
+            "%s %s%%\nCoins: %s / %s",
+            bar,
+            math.floor(progress * 100),
+            AbbreviateService:Comma(currentCoins),
+            AbbreviateService:Comma(cost)
+        )
+
+        if _RankUpUIState then
+            _RankUpUIState.desiredTitle = titleTxt
+            _RankUpUIState.desiredDesc = descTxt
         end
+        _ApplyUIState(RankUpToggle)
+
+        if Config.AutoRankUp and currentCoins >= cost then
+            local now = os.clock()
+            local lastAscend = cache and cache.LastAscend or 0
+            if (now - lastAscend) >= 1 then
+                if cache then
+                    cache.LastAscend = now
+                end
+                SendConnection("System", "_main", "_ascension")
+                Notify("Rank Up!", "Berhasil naik ke Rank " .. (currentRank + 1), "arrow-up")
+            end
+        end
+    else
+        if _RankUpUIState then
+            _RankUpUIState.desiredTitle = "Rank: MAX"
+            _RankUpUIState.desiredDesc = "Kamu telah mencapai Rank tertinggi!"
+        end
+        _ApplyUIState(RankUpToggle)
+    end
+end
+
+LocalPlayer.AttributeChanged:Connect(function(attr)
+    if attr == "Rank" or attr == "Coins" then
+        UpdateRankUpUI()
     end
 end)
+
+_RegisterUIOnOpen(UpdateRankUpUI)
+task.delay(1, UpdateRankUpUI)
 
 -- [[ ELEMEN UNTUK KATEGORI VAULT GACHAS ]] --
 
@@ -839,6 +884,158 @@ end
 -- 2. Urutkan berdasarkan ID (Nama) agar posisi item stabil
 table.sort(SortedGachas, function(a, b) return a.ID < b.ID end)
 
+local function UpdateVaultGachaEntry(entry, isOpen)
+    if not entry or not entry.toggle then
+        return
+    end
+
+    if isOpen == nil then
+        isOpen = IsWindowOpen()
+    end
+
+    if not entry.vaultFolder then
+        local mainFolder = LocalPlayer:FindFirstChild("VaultGachas")
+        if mainFolder then
+            entry.vaultFolder = mainFolder:FindFirstChild(entry.gachaId)
+        end
+    end
+
+    local invItem = LocalPlayer.Inventory.Items:FindFirstChild(entry.costId)
+    local owned = invItem and invItem:GetAttribute("Amount") or 0
+    local equippedId = entry.vaultFolder and entry.vaultFolder:GetAttribute("Name") or ""
+    local equippedNum = tonumber(equippedId) or -1
+    local lockReason = (equippedNum == 1) and "Secret Equipped!" or nil
+
+    if owned == entry.lastOwned and equippedId == entry.lastEquippedId and lockReason == entry.lastLockReason then
+        if isOpen then
+            _ApplyUIState(entry.toggle)
+        end
+        return
+    end
+
+    entry.lastOwned = owned
+    entry.lastEquippedId = equippedId
+    entry.lastLockReason = lockReason
+
+    if lockReason then
+        if Config["AutoGacha_" .. entry.gachaId] then
+            Config["AutoGacha_" .. entry.gachaId] = false
+            if isOpen then
+                pcall(function()
+                    entry.toggle:Set(false)
+                end)
+            end
+        end
+        if isOpen and not entry.toggle.Locked then
+            pcall(function()
+                entry.toggle:Lock(lockReason)
+            end)
+        end
+    else
+        if isOpen and entry.toggle.Locked then
+            pcall(function()
+                entry.toggle:Unlock()
+            end)
+        end
+    end
+
+    if isOpen then
+        local equippedData = entry.gachaData[equippedNum]
+        local price = 1
+
+        local colorCode = (owned >= price) and "#00FF00" or "#FF0000"
+        local materialStatus = string.format("<font color=\"%s\">%s: %s/%s</font>", colorCode, entry.costName, AbbreviateService:Comma(owned), price)
+
+        local currentDesc = ""
+        if equippedData and equippedId ~= "" then
+            currentDesc = string.format("Equipped: %s (%s%%)\n%s\nStats:", equippedData[2], equippedData[1], materialStatus)
+            for stat, val in pairs(equippedData.Mults or {}) do
+                currentDesc = currentDesc .. string.format("\n• %s: +%s%%", stat, val * 100)
+            end
+        else
+            currentDesc = "Empty\n" .. materialStatus
+        end
+
+        if currentDesc ~= entry.lastDesc then
+            entry.lastDesc = currentDesc
+            if entry.uiState then
+                entry.uiState.desiredDesc = currentDesc
+            end
+        end
+
+        if equippedId ~= entry.lastEquippedIdForImage then
+            entry.lastEquippedIdForImage = equippedId
+            if equippedData and equippedId ~= "" and entry.uiState then
+                local rarityName = equippedData[2]
+                local gradientObj = GradientFolder:FindFirstChild(rarityName)
+                entry.uiState.desiredMainImage = {
+                    Image = equippedData.Image or "rbxassetid://0",
+                    Gradient = gradientObj and gradientObj.Color or nil,
+                    Quantity = equippedData[1] .. "%",
+                    Title = rarityName
+                }
+                entry.uiState.desiredMainImageSize = 50
+                entry.uiState.desiredMainImageKey = tostring(equippedId)
+            end
+        end
+
+        _ApplyUIState(entry.toggle)
+    end
+end
+
+task.spawn(function()
+    while Window and not Window.Destroyed do
+        local isOpen = IsWindowOpen()
+        local entries = Optimizer and Optimizer.Cache and Optimizer.Cache.VaultGachas and Optimizer.Cache.VaultGachas.Entries
+        if not entries or #entries == 0 then
+            task.wait(0.5)
+            continue
+        end
+
+        local n = #entries
+        local cursor = Optimizer.Cache.VaultGachas.Cursor or 1
+        if cursor < 1 or cursor > n then
+            cursor = 1
+        end
+
+        local perTick = isOpen and math.clamp(math.floor(n / 10) + 1, 1, 6) or 1
+        for _ = 1, perTick do
+            local entry = entries[cursor]
+            cursor = cursor + 1
+            if cursor > n then
+                cursor = 1
+            end
+            pcall(function()
+                UpdateVaultGachaEntry(entry, isOpen)
+            end)
+        end
+        Optimizer.Cache.VaultGachas.Cursor = cursor
+
+        if isOpen then
+            task.wait(0.15)
+        else
+            task.wait(0.6)
+        end
+    end
+end)
+
+_RegisterUIOnOpen(function()
+    local entries = Optimizer and Optimizer.Cache and Optimizer.Cache.VaultGachas and Optimizer.Cache.VaultGachas.Entries
+    if not entries or #entries == 0 then
+        return
+    end
+    Optimizer.Cache.VaultGachas.Cursor = 1
+    task.defer(function()
+        local isOpen = IsWindowOpen()
+        for i, e in ipairs(entries) do
+            UpdateVaultGachaEntry(e, isOpen)
+            if i % 4 == 0 then
+                task.wait()
+            end
+        end
+    end)
+end)
+
 -- 3. Fungsi Pembuat Toggle (Agar codingan lebih bersih & bisa dipanggil di loop)
 local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
     local cleanName = gachaId:gsub("^_", ""):gsub("_", " ")
@@ -847,10 +1044,6 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
     local costId = gachaData.Cost
     local costItem = ItemsIndex[costId]
     local costName = costItem and costItem[1][1] or "Unknown"
-    
-    local LastEquippedId = "init" 
-    local LastDesc = ""
-    local vaultFolder = LocalPlayer:WaitForChild("VaultGachas", 5):FindFirstChild(gachaId)
 
     -- Buat Toggle DI DALAM Group
     local GachaToggle = ParentGroup:Toggle({
@@ -881,84 +1074,21 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
         _GachaUIState.desiredTitle = cleanName
     end
 
-    -- Logic Update UI & Auto Lock (Versi Fix)
-    task.spawn(function()
-        while task.wait(0.5) do
-            if not Window or Window.Destroyed then break end
-            if not GachaToggle then break end
-            
-            -- [FIX: Cari Folder Vault Real-Time]
-            if not vaultFolder then
-                local mainFolder = LocalPlayer:FindFirstChild("VaultGachas")
-                if mainFolder then
-                    vaultFolder = mainFolder:FindFirstChild(gachaId)
-                end
-            end
-
-            local invItem = LocalPlayer.Inventory.Items:FindFirstChild(costId)
-            local owned = invItem and invItem:GetAttribute("Amount") or 0
-            local price = 1 
-            local equippedId = vaultFolder and vaultFolder:GetAttribute("Name") or ""
-            local equippedNum = tonumber(equippedId) or -1 
-            local equippedData = gachaData[equippedNum]
-
-            -- [FIX: Auto Lock Secret (ID 1)]
-            if equippedNum == 1 then
-                if not GachaToggle.Locked then
-                    GachaToggle:Lock("Secret Equipped!")
-                    if Config["AutoGacha_" .. gachaId] then
-                        Config["AutoGacha_" .. gachaId] = false
-                        GachaToggle:Set(false) 
-                    end
-                end
-            else
-                if GachaToggle.Locked then
-                    GachaToggle:Unlock()
-                end
-            end
-
-            -- Update Deskripsi UI
-            local colorCode = (owned >= price) and "#00FF00" or "#FF0000"
-            local materialStatus = string.format("<font color=\"%s\">%s: %s/%s</font>", colorCode, costName, AbbreviateService:Comma(owned), price)
-            
-            local currentDesc = ""
-            if equippedData and equippedId ~= "" then
-                currentDesc = string.format("Equipped: %s (%s%%)\n%s\nStats:", equippedData[2], equippedData[1], materialStatus)
-                for stat, val in pairs(equippedData.Mults or {}) do
-                    currentDesc = currentDesc .. string.format("\n• %s: +%s%%", stat, val * 100)
-                end
-            else
-                currentDesc = "Empty\n" .. materialStatus
-            end
-
-            if currentDesc ~= LastDesc then
-                LastDesc = currentDesc
-                if _GachaUIState then
-                    _GachaUIState.desiredDesc = currentDesc
-                end
-            end
-
-            if equippedId ~= LastEquippedId then
-                LastEquippedId = equippedId
-                if equippedData and equippedId ~= "" then
-                    local rarityName = equippedData[2]
-                    local gradientObj = GradientFolder:FindFirstChild(rarityName)
-                    if _GachaUIState then
-                        local mainImageKey = tostring(equippedId)
-                        _GachaUIState.desiredMainImage = {
-                            Image = equippedData.Image or "rbxassetid://0",
-                            Gradient = gradientObj and gradientObj.Color or nil,
-                            Quantity = equippedData[1] .. "%",
-                            Title = rarityName
-                        }
-                        _GachaUIState.desiredMainImageSize = 50
-                        _GachaUIState.desiredMainImageKey = mainImageKey
-                    end
-                end
-            end
-            _ApplyUIState(GachaToggle)
-        end
-    end)
+    local entry = {
+        gachaId = gachaId,
+        gachaData = gachaData,
+        costId = costId,
+        costName = costName,
+        toggle = GachaToggle,
+        uiState = _GachaUIState,
+        vaultFolder = LocalPlayer:WaitForChild("VaultGachas", 5):FindFirstChild(gachaId),
+        lastOwned = nil,
+        lastEquippedId = nil,
+        lastEquippedIdForImage = nil,
+        lastLockReason = nil,
+        lastDesc = nil
+    }
+    table.insert(Optimizer.Cache.VaultGachas.Entries, entry)
 
     ActiveGachaToggles[gachaId] = GachaToggle
 end
