@@ -1,6 +1,6 @@
 if game.PlaceId ~= 104470677863797 then return end
 repeat task.wait() until game:IsLoaded()
-
+getgenv().SLoading = getgenv().SLoading or {}
 getgenv().SLoading.SubTitle = "Anime Frontiers"
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
