@@ -1,5 +1,6 @@
 if game.PlaceId ~= 95760142548121 then return end
 repeat task.wait() until game:IsLoaded()
+getgenv().SLoading = getgenv().SLoading or {}
 getgenv().SLoading.SubTitle = "Anime Spike"
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
