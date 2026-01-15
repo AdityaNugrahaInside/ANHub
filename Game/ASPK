@@ -1017,30 +1017,24 @@ local function UpdateVaultGachaEntry(entry, isOpen)
         isOpen = IsWindowOpen()
     end
 
+    -- Fungsi untuk menerapkan perubahan visual secara instan
     local function applyVisuals()
-        if not isOpen then
-            return
-        end
+        if not isOpen then return end
 
-        if entry.appliedLockEpoch ~= _UIOpenEpoch or entry.appliedLockReason ~= entry.desiredLockReason then
+        if entry.appliedLockReason ~= entry.desiredLockReason or entry.appliedLockEpoch ~= _UIOpenEpoch then
             entry.appliedLockEpoch = _UIOpenEpoch
             entry.appliedLockReason = entry.desiredLockReason
+            
             pcall(function()
                 if entry.desiredLockReason then
+                    -- URUTAN PENTING: Buka dulu -> Matikan -> Baru Kunci
+                    entry.toggle:Unlock() 
+                    entry.toggle:Set(false, true) -- false = off, true = skip callback agar tidak spam remote
                     entry.toggle:Lock(entry.desiredLockReason)
-                    entry.toggle:Set(false)
-                    entry.pendingOff = false
                 else
                     entry.toggle:Unlock()
                 end
             end)
-        end
-
-        if entry.pendingOff then
-            pcall(function()
-                entry.toggle:Set(false)
-            end)
-            entry.pendingOff = false
         end
 
         _ApplyUIState(entry.toggle)
@@ -1057,8 +1051,21 @@ local function UpdateVaultGachaEntry(entry, isOpen)
     local owned = invItem and invItem:GetAttribute("Amount") or 0
     local equippedId = entry.vaultFolder and entry.vaultFolder:GetAttribute("Name") or ""
     local equippedNum = tonumber(equippedId) or -1
-    local lockReason = (not IsPremium) and "Premium Only" or ((equippedNum == 1) and "Secret Equipped!" or nil)
+    
+    -- Tentukan alasan Lock
+    local lockReason = nil
+    if not IsPremium then
+        lockReason = "Premium Only"
+    elseif equippedNum == 1 then
+        lockReason = "Secret Equipped!"
+    end
+    
     entry.desiredLockReason = lockReason
+
+    -- Jika terkunci, pastikan config di script juga mati
+    if lockReason then
+        Config["AutoGacha_" .. entry.gachaId] = false
+    end
 
     if owned == entry.lastOwned and equippedId == entry.lastEquippedId and lockReason == entry.lastLockReason then
         applyVisuals()
@@ -1069,16 +1076,8 @@ local function UpdateVaultGachaEntry(entry, isOpen)
     entry.lastEquippedId = equippedId
     entry.lastLockReason = lockReason
 
-    if lockReason then
-        if Config["AutoGacha_" .. entry.gachaId] then
-            Config["AutoGacha_" .. entry.gachaId] = false
-            entry.pendingOff = true
-        end
-    end
-
     local equippedData = entry.gachaData[equippedNum]
     local price = 1
-
     local colorCode = (owned >= price) and "#00FF00" or "#FF0000"
     local materialStatus = string.format("<font color=\"%s\">%s: %s/%s</font>", colorCode, entry.costName, AbbreviateService:Comma(owned), price)
 
@@ -1094,9 +1093,7 @@ local function UpdateVaultGachaEntry(entry, isOpen)
 
     if currentDesc ~= entry.lastDesc then
         entry.lastDesc = currentDesc
-        if entry.uiState then
-            entry.uiState.desiredDesc = currentDesc
-        end
+        if entry.uiState then entry.uiState.desiredDesc = currentDesc end
     end
 
     if equippedId ~= entry.lastEquippedIdForImage then
@@ -1167,7 +1164,6 @@ _RegisterUIOnOpen(function()
     end)
 end)
 
--- 3. Fungsi Pembuat Toggle (Agar codingan lebih bersih & bisa dipanggil di loop)
 local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
     local cleanName = gachaId:gsub("^_", ""):gsub("_", " ")
     cleanName = cleanName:sub(1,1):upper() .. cleanName:sub(2)
@@ -1176,22 +1172,29 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
     local costItem = ItemsIndex[costId]
     local costName = costItem and costItem[1][1] or "Unknown"
 
-    -- Buat Toggle DI DALAM Group
     local GachaToggle = ParentGroup:Toggle({
-        Title = cleanName, -- Judul dipendekkan agar muat di grid
+        Title = cleanName,
         Default = false,
         Image = gachaData[1] and gachaData[1].Image or "rbxassetid://0", 
         Flag = "AutoGacha_" .. gachaId,
         Callback = function(val)
-            if val and not IsPremium then
-                Config["AutoGacha_" .. gachaId] = false
-                pcall(function()
-                    GachaToggle:Unlock()
-                    GachaToggle:Set(false, false, true)
-                    GachaToggle:Lock("Premium Only")
-                end)
-                return
+            if val then
+                -- Cek kondisi sebelum mengaktifkan
+                local folder = LocalPlayer:FindFirstChild("VaultGachas")
+                local targetFolder = folder and folder:FindFirstChild(gachaId)
+                local equippedId = targetFolder and targetFolder:GetAttribute("Name") or ""
+                
+                if not IsPremium or equippedId == "1" then
+                    Config["AutoGacha_" .. gachaId] = false
+                    task.spawn(function()
+                        GachaToggle:Unlock()
+                        GachaToggle:Set(false, true) -- Matikan visual tanpa trigger callback lagi
+                        GachaToggle:Lock(not IsPremium and "Premium Only" or "Secret Equipped!")
+                    end)
+                    return
+                end
             end
+            
             Config["AutoGacha_" .. gachaId] = val
             if val then
                 task.spawn(function()
@@ -1208,19 +1211,9 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
             end
         end
     })
-    if not IsPremium then
-        Config["AutoGacha_" .. gachaId] = false
-        pcall(function()
-            GachaToggle:Set(false, false, true)
-            GachaToggle:Lock("Premium Only")
-        end)
-    end
 
+    -- Inisialisasi awal jika sudah terkunci
     local _GachaUIState = _GetUIState(GachaToggle)
-    if _GachaUIState then
-        _GachaUIState.desiredTitle = cleanName
-    end
-
     local entry = {
         gachaId = gachaId,
         gachaData = gachaData,
@@ -1236,8 +1229,6 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
         lastDesc = nil
     }
     table.insert(Optimizer.Cache.VaultGachas.Entries, entry)
-
-    ActiveGachaToggles[gachaId] = GachaToggle
 end
 
 -- 4. Loop Utama: Pasang Group setiap 2 Item
