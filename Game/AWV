@@ -1,7 +1,7 @@
 if game.PlaceId ~= 136894901443170 then return end
 repeat task.wait() until game:IsLoaded()
--- Pastikan script tidak duplikat untuk mencegah hook overflow
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading4.lua"))()
+getgenv().SLoading.SubTitle = "Anime Waves"
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -110,7 +110,7 @@ local BaseProfile = {
     Badges = {
         {
             Icon = "geist:logo-discord", Title = "Discord", Desc = "Join ANHUB Discord",
-            Callback = function() setclipboard("https://discord.gg/cy6uMRmeZ") Notify("Discord", "Invite link copied!", "geist:logo-discord") end
+            Callback = function() setclipboard("https://discord.gg/bUkCZvmrpH") Notify("Discord", "Invite link copied!", "geist:logo-discord") end
         },
         {
             Icon = "youtube", Desc = "Subscribe to YouTube",
@@ -234,7 +234,7 @@ Window = UI:CreateWindow({
         Title = "ANHub Access",
         Description = "Free Key: ANHUB-2025",
         Key = ValidKeys,
-        URL = "https://discord.gg/cy6uMRmeZ",
+        URL = "https://discord.gg/bUkCZvmrpH",
         Note = "Premium Users are auto-verified!",
         SaveKey = true
     }
