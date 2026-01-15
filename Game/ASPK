@@ -1298,7 +1298,44 @@ end
 
 FM_Add("Mini Game", FarmTab:Input({ Title = "Target Wave to Leave", Placeholder = "10", Flag = "TargetWave_Input", Callback = function(val) Config.TargetWave = tonumber(val) or 10 end }))
 
--- [[ SCHEDULER & LOCATION RECORDING LOGIC ]] --
+-- Definisikan ini di luar task.spawn (di bagian atas script utama)
+local lastTrialMinute = -1 
+
+-- [[ MANUAL EXIT AUTO-RETURN LOGIC ]] --
+task.spawn(function()
+    local currentIslandObj = LocalPlayer:WaitForChild("CurrentIsland", 10)
+    if currentIslandObj then
+        currentIslandObj:GetAttributeChangedSignal("Name"):Connect(function()
+            local currentLoc = currentIslandObj:GetAttribute("Name")
+            
+            -- Validasi: Pastikan atribut tidak kosong dan kita tidak sedang di dalam area minigame
+            if not currentLoc or currentLoc == "" or currentLoc == "_trial_easy" or currentLoc == "_dbz_defense" then
+                return
+            end
+
+            -- Cek apakah ada data lokasi terakhir yang harus kita tuju
+            if Config.LastIsland and Config.LastIsland ~= "" then
+                
+                if currentLoc == Config.LastIsland then
+                    -- SKENARIO A: Jika teleport tepat ke map tujuan (misal: _tokyo_city ke _tokyo_city)
+                    Config.LastIsland = nil -- Cukup hapus saja datanya
+                else
+                    -- SKENARIO B: Jika teleport ke map yang salah (misal: ninja_village padahal harusnya tokyo_city)
+                    task.wait(2) -- Jeda loading map
+                    
+                    pcall(function()
+                        local destination = Config.LastIsland
+                        Config.LastIsland = nil -- Hapus agar tidak terjadi loop teleportasi
+                        
+                        SendConnection("System", "_main", "_teleport", destination, "Lobby")
+                    end)
+                end
+            end
+        end)
+    end
+end)
+
+-- [[ TRIAL SCHEDULER ]] --
 task.spawn(function()
     while task.wait(1) do
         if not Window or Window.Destroyed then break end
@@ -1307,61 +1344,67 @@ task.spawn(function()
             local currentTime = os.date("*t")
             local minute = currentTime.min
             
-            -- Check for minute 00 or 30
             if (minute == 0 or minute == 30) and minute ~= lastTrialMinute then
-                lastTrialMinute = minute
+                lastTrialMinute = minute -- Update menit agar tidak spam
                 
-                -- RECORD CURRENT LOCATION BEFORE TELEPORT
-                local currentAreaId = LocalPlayer:GetAttribute("Island")
-                for id, info in pairs(IslandsIndex) do
-                    -- Match Area ID with Island Index
-                    if info[3] == currentAreaId and id ~= "_trial_easy" and id ~= "_hub" then
-                        Config.LastIsland = id
-                        break
+                local currentIslandObj = LocalPlayer:FindFirstChild("CurrentIsland")
+                if currentIslandObj then
+                    local currentLoc = currentIslandObj:GetAttribute("Name")
+                    
+                    -- Simpan lokasi hanya jika bukan di area trial/defense
+                    if currentLoc and currentLoc ~= "_trial_easy" and currentLoc ~= "_dbz_defense" and currentLoc ~= "" then
+                        Config.LastIsland = currentLoc
                     end
                 end
 
                 pcall(function()
-                    -- Teleport to Trial Easy Area
                     SendConnection("System", "_main", "_teleport", "_trial_easy")
-                    Notify("Mini Game", "Entering Trial Easy. Return location saved: " .. Config.LastIsland, "info")
+                    Notify("Mini Game", "Entering Trial. Return point: " .. tostring(Config.LastIsland or "_hub"), "info")
                 end)
                 
-                task.wait(60) -- Prevent multiple teleports in the same minute
+                task.wait(60) -- Keamanan tambahan agar tidak double check dalam 1 menit
             end
         end
     end
 end)
 
--- [[ UPDATED AUTO LEAVE LOGIC (STRING BASED) ]] --
+-- [[ UPDATED AUTO LEAVE LOGIC ]] --
 Connection:receive("_update_minigame", function(data)
     if not Window or Window.Destroyed then return end
-    
-    -- Ambil data sesuai info debug kamu
-    local mainInfo = data[1]       -- Nama Musuh
-    local modeString = data[2]     -- Format: "Wave 3 / 20"
-    local waveInfo = data[3] and data[3][1]
-    local progressRatio = data[3] and data[3][2] or 0
+    if not data or typeof(data) ~= "table" then return end
 
-    -- LOGIKA EXTRAKSI WAVE DARI STRING "Wave X / Y"
-    -- Kita mencari angka setelah kata "Wave"
-    local currentWave = tonumber(string.match(modeString, "Wave%s+(%d+)"))
+    local modeString = data[2] 
     
-    if currentWave then
+    if typeof(modeString) == "string" then
+        local waveMatch = string.match(modeString, "Wave%s+(%d+)")
+        local currentWave = waveMatch and tonumber(waveMatch)
         
-        -- [[ LOGIKA AUTO LEAVE ]] --
-        if Config.AutoLeaveWave and currentWave >= tonumber(Config.TargetWave or 10) then
-            local IslandService = NightXLibrary.get_service("island_service")
-            
-            pcall(function()
-                -- TELEPORT BALIK KE PULAU TERAKHIR (LOBBY)
-                SendConnection("System", "_main", "_teleport", Config.LastIsland or "_hub", "Lobby")                
-                -- Kirim Notifikasi
-                Notify("Auto Leave", "Reached Wave " .. currentWave .. "! Returning to " .. (Config.LastIsland or "Hub"), "log-out")
-                
-                -- Matikan toggle agar tidak spam teleport saat loading
-                Config.AutoLeaveWave = false 
-            end)
+        if currentWave then
+            -- LOGIKA AUTO LEAVE
+            if Config.AutoLeaveWave and currentWave >= tonumber(Config.TargetWave or 10) then
+                pcall(function()
+                    -- 1. Tentukan tujuan balik
+                    local destination = Config.LastIsland or "_hub"
+                    
+                    -- 2. PENTING: Hapus data LastIsland agar tidak memicu listener Manual Exit
+                    Config.LastIsland = nil 
+                    
+                    -- 3. Matikan toggle agar tidak spam selama proses teleport
+                    Config.AutoLeaveWave = false 
+                    
+                    -- 4. Jalankan teleportasi
+                    SendConnection("System", "_main", "_teleport", destination, "Lobby")                
+                    
+                    Notify("Auto Leave", "Target Wave reached! Returning to: " .. destination, "log-out")
+                    
+                    -- 5. Nyalakan kembali toggle setelah 10 detik agar siap untuk Trial berikutnya
+                    task.delay(10, function()
+                        if Window and not Window.Destroyed then
+                            Config.AutoLeaveWave = true
+                        end
+                    end)
+                end)
+            end
         end
     end
 end)
@@ -1897,23 +1940,30 @@ SettingsTab:Button({
     end
 })
 -- [[ OPTIMIZED ENEMY DROPDOWN REFRESH ]] --
-local LastAreaID = nil
+local LastIslandID = nil
 
 task.spawn(function()
-    while task.wait(1) do -- Diubah ke 3 detik agar sangat ringan
+    while task.wait(1) do -- Interval 1 detik (sudah cukup ringan)
         if not Window or Window.Destroyed then break end
+        
+        -- Jangan refresh jika sedang di dalam Minigame/Trial
         if IsInMinigame() then continue end 
 
-        local enemiesFolder = workspace:FindFirstChild("_enemies")
-        if enemiesFolder then
-            local firstEnemy = enemiesFolder:FindFirstChildOfClass("Model")
-            local currentEnemyArea = firstEnemy and firstEnemy:GetAttribute("_area")
+        -- MENGAMBIL LOKASI DARI OBJECT CurrentIsland (SESUAI REQUEST)
+        local currentIslandObj = LocalPlayer:FindFirstChild("CurrentIsland")
+        if currentIslandObj then
+            local currentLoc = currentIslandObj:GetAttribute("Name")
             
-            if currentEnemyArea and currentEnemyArea ~= LastAreaID then
-                LastAreaID = currentEnemyArea
+            -- Jika ID Pulau berubah dan tidak kosong
+            if currentLoc and currentLoc ~= "" and currentLoc ~= LastIslandID then
+                LastIslandID = currentLoc
                 
+                -- Trigger refresh dropdown musuh berdasarkan pulau baru
                 if EnemyDropdown and EnemyDropdown.Refresh then
-                    EnemyDropdown:Refresh(GetEnemiesList())
+                    -- Pastikan GetEnemiesList() mengambil data musuh yang sesuai dengan pulau saat ini
+                    pcall(function()
+                        EnemyDropdown:Refresh(GetEnemiesList())
+                    end)
                 end
             end
         end
