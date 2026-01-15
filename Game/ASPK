@@ -1,7 +1,7 @@
--- if game.PlaceId ~= 81897457567012 then return end
+if game.PlaceId ~= 95760142548121 then return end
 repeat task.wait() until game:IsLoaded()
-
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading3.lua"))()
+getgenv().SLoading.SubTitle = "Anime Spike"
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -77,19 +77,25 @@ local function IsInMinigame()
     local enemiesFolder = workspace:FindFirstChild("_enemies")
     if enemiesFolder then
         local firstEnemy = enemiesFolder:FindFirstChildOfClass("Model")
-        -- Mengecek atribut Minigame sesuai logika decompile sebelumnya
-        if firstEnemy and firstEnemy:GetAttribute("Minigame") then
-            return true
+        if firstEnemy then
+            -- Menambahkan pengecekan atribut _area -200
+            if firstEnemy:GetAttribute("Minigame") or firstEnemy:GetAttribute("_area") == -200 then
+                return true
+            end
         end
     end
     return false
 end
+
+-- ==========================================
+-- PERBAIKAN FUNGSI GETBESTTARGET
+-- ==========================================
 local function GetBestTarget()
     local enemiesFolder = workspace:FindFirstChild("_enemies")
     if not enemiesFolder then return nil end
     
     local inMinigame = IsInMinigame()
-    -- Jika tidak di minigame dan tidak ada yang dipilih, maka return nil
+    -- Jika tidak di minigame dan tidak ada musuh yang dipilih di dropdown, batalkan target
     if not inMinigame and #Config.SelectedEnemies == 0 then return nil end
     
     local target = nil
@@ -98,8 +104,19 @@ local function GetBestTarget()
     if not myRoot then return nil end
 
     for _, v in pairs(enemiesFolder:GetChildren()) do
-        -- LOGIKA BARU: Jika di minigame, abaikan table.find (pilih semua musuh)
-        local isSelected = inMinigame or table.find(Config.SelectedEnemies, v.Name)
+        local enemyArea = v:GetAttribute("_area")
+        local isMinigameEnemy = v:GetAttribute("Minigame") or enemyArea == -200
+        
+        -- LOGIKA FILTER:
+        -- 1. Jika di Minigame: Hanya boleh target musuh yang punya atribut Minigame/Area -200
+        -- 2. Jika Farm Biasa: Hanya target musuh yang ada di daftar SelectedEnemies (Dropdown)
+        local isSelected = false
+        if inMinigame then
+            isSelected = isMinigameEnemy 
+        else
+            -- Pastikan musuh bukan musuh minigame saat sedang farm biasa
+            isSelected = not isMinigameEnemy and table.find(Config.SelectedEnemies, v.Name)
+        end
         
         if isSelected and v:FindFirstChild("HumanoidRootPart") and v:GetAttribute("_id") then
             local currentHP = v:GetAttribute("_h")
@@ -114,6 +131,7 @@ local function GetBestTarget()
     end
     return target
 end
+
 local function GetEnemiesList()
     local list = {}
     local processed = {}
@@ -127,19 +145,16 @@ local function GetEnemiesList()
                 local stats = EnemiesIndex[enemy.Name]
                 if stats then
                     local displayName = stats[1]
-                    local mapId = stats[3] -- Ini adalah ID Area (misal: 1, 2, 3)
+                    local mapId = stats[3]
                     
                     local maxHP = enemy:GetAttribute("_m_h") or stats[2]
                     local maxDisplay = AbbreviateService and AbbreviateService:Comma(maxHP) or tostring(maxHP)
                     
                     local dropCards = {}
-                    -- Mencoba ambil drop spesifik musuh (misal: _kakashi)
                     local targetDropData = DropsIndex[enemy.Name]
 
-                    -- LOGIKA FALLBACK BARU: Ambil dari Island yang sesuai mapId
                     if not targetDropData then
                         for islandKey, islandInfo in pairs(IslandsIndex) do
-                            -- islandInfo[3] adalah ID Area di index _islands
                             if islandInfo[3] == mapId then
                                 targetDropData = DropsIndex[islandKey]
                                 if targetDropData then break end
@@ -147,7 +162,6 @@ local function GetEnemiesList()
                         end
                     end
                     
-                    -- PROSES DATA DROP
                     if targetDropData then
                         for groupIndex, groupItems in pairs(targetDropData) do
                             if typeof(groupIndex) == "number" and typeof(groupItems) == "table" then
@@ -155,13 +169,12 @@ local function GetEnemiesList()
                                     if typeof(rate) == "number" and typeof(details) == "table" then
                                         local itemId = details[1]
                                         local rawAmount = details[2]
-                                        local dropType = details[3] -- "Item" atau "Accessory"
+                                        local dropType = details[3]
                                         
                                         local itemInfo = nil
                                         local itemName = "Unknown"
                                         local itemImage = "rbxassetid://0"
                                         
-                                        -- Cek di AccessoriesIndex terlebih dahulu jika tipenya Accessory
                                         if dropType == "Accessory" or AccessoriesIndex[itemId] then
                                             itemInfo = AccessoriesIndex[itemId]
                                             if itemInfo then
@@ -170,7 +183,6 @@ local function GetEnemiesList()
                                             end
                                         end
                                         
-                                        -- Jika tidak ada di accessory, cari di Items
                                         if not itemInfo then
                                             itemInfo = ItemsIndex[itemId]
                                             if itemInfo then
@@ -181,8 +193,6 @@ local function GetEnemiesList()
                                         
                                         if itemInfo then
                                             local amountStr = (typeof(rawAmount) == "table") and (rawAmount[1] .. "-" .. rawAmount[2] .. "x") or (tostring(rawAmount or 1) .. "x")
-                                            
-                                            -- Ambil gradien dari folder _gradients berdasarkan nama Rarity
                                             local rarityName = (dropType == "Accessory") and "Legendary" or (itemInfo.Rarity or "Common")
                                             local gradObj = GradientFolder:FindFirstChild(rarityName)
 
@@ -205,14 +215,12 @@ local function GetEnemiesList()
                         Desc = string.format("HP: %s", maxDisplay),
                         Images = dropCards, 
                         RawName = enemy.Name,
-                        Rarity = maxHP -- Digunakan untuk sorting
+                        Rarity = maxHP
                     })
                 end
             end
         end
     end
-
-    -- Sorting musuh berdasarkan urutan Map/Island
     table.sort(list, function(a, b) return (a.Rarity or 0) < (b.Rarity or 0) end)
     return list
 end
@@ -298,7 +306,7 @@ local BaseProfile = {
     Badges = {
         {
             Icon = "geist:logo-discord", Title = "Discord", Desc = "Join ANHUB Discord",
-            Callback = function() setclipboard("https://discord.gg/cy6uMRmeZ") Notify("Discord", "Invite link copied!", "geist:logo-discord") end
+            Callback = function() setclipboard("https://discord.gg/bUkCZvmrpH") Notify("Discord", "Invite link copied!", "geist:logo-discord") end
         },
         {
             Icon = "youtube", Desc = "Subscribe to YouTube",
@@ -401,7 +409,7 @@ Window = UI:CreateWindow({
         Title = "ANHub Access",
         Description = "Free Key: ANHUB-2025",
         Key = ValidKeys,
-        URL = "https://discord.gg/cy6uMRmeZ",
+        URL = "https://discord.gg/bUkCZvmrpH",
         Note = "Premium Users are auto-verified!",
         SaveKey = true
     }
@@ -580,18 +588,6 @@ do
     end
 end
 
-OriginalDebounceCheck = Debounce.Check
--- Cara 1: Menimpa fungsi Check agar selalu mengembalikan false (No Debounce) action == "_combat" or
-if IsPremium then
-    Debounce.Check = function(player, action, duration)
-        -- if action == "_combat" or action == "_click_client" then
-        --     return false
-        if action == "AntiAfkCounter" then
-            return true
-        end
-        return OriginalDebounceCheck(player, action, duration)
-    end
-end
 pcall(function()
     if writefile and isfile and (not isfile(ExpiryFile)) then
         writefile(ExpiryFile, tostring(os.time() + 86400))
@@ -672,31 +668,33 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Rank Up", Icon = "rbxassetid://74044855367151"},
         {Title = "Vault Gachas", Icon = "rbxassetid://89761068698333"},
         {Title = "Mini Game", Icon = "rbxassetid://109634928579023"},
+        {Title = "Trial/Power Upgrade", Icon = "rbxassetid://79672544012982"},
         {Title = "Eggs", Icon = "rbxassetid://92349810618564"},
         {Title = "Weapon Shop", Icon = "rbxassetid://107655675881805"}
     },
     Callback = FM_OnChange
 })
 
--- [[ ELEMEN UNTUK KATEGORI FARM ]] --
 
+-- [[ FARM ELEMENTS ]] --
 local EnemyDropdown = FM_Add("Farm", FarmTab:Dropdown({
     Title = "Select Enemy",
-    Desc = "Daftar musuh update otomatis.",
     Values = GetEnemiesList(),
     Multi = true,
     AllowNone = true,
     Flag = "EnemySelector_Config",
     Callback = function(val)
         Config.SelectedEnemies = {}
-        if typeof(val) == "table" then
-            for _, item in ipairs(val) do table.insert(Config.SelectedEnemies, item.RawName) end
-        end
+        if typeof(val) == "table" then for _, item in ipairs(val) do table.insert(Config.SelectedEnemies, item.RawName) end end
         currentTarget = nil
     end
 }))
 
--- [[ PERBAIKAN LOGIKA AUTO ATTACK ]] --
+-- ==========================================
+-- PERBAIKAN LOGIKA AUTO ATTACK ENEMIES
+-- ==========================================
+local lastMiniState = false -- Variabel pembantu untuk deteksi perpindahan mode
+
 FM_Add("Farm", FarmTab:Toggle({
     Title = "Auto Attack Enemies",
     Default = false,
@@ -706,17 +704,42 @@ FM_Add("Farm", FarmTab:Toggle({
         if val then
             task.spawn(function()
                 while Config.AutoFarm do
-                    task.wait(1) -- Kecepatan respon loop
-                    if not Window or Window.Destroyed then break end
+                    task.wait(0.3) -- Jeda sedikit dipercepat agar lebih responsif
+                    if not IsWindowAlive() then break end
                     
-                   -- Ganti bagian ini di dalam loop task.spawn AutoFarm:
-                    if IsInMinigame() or #Config.SelectedEnemies > 0 then
-                        -- Cek apakah target masih valid (Ada, Hidup)
-                        local isValid = currentTarget and 
-                                        currentTarget.Parent and 
-                                        (IsInMinigame() or table.find(Config.SelectedEnemies, currentTarget.Name)) and 
-                                        (currentTarget:GetAttribute("_h") and currentTarget:GetAttribute("_h") > 0)
+                    local enemiesFolder = workspace:FindFirstChild("_enemies")
+                    local firstEnemy = enemiesFolder and enemiesFolder:FindFirstChildOfClass("Model")
+                    local isPowerArea = firstEnemy and firstEnemy:GetAttribute("_area") == -200
+                    local inMini = IsInMinigame()
+                    
+                    -- RESET TARGET JIKA MODE BERUBAH (Dari Normal ke Mini atau sebaliknya)
+                    if lastMiniState ~= inMini then
+                        lastMiniState = inMini
+                        currentTarget = nil -- Paksa cari target baru sesuai mode
+                    end
+
+                    if Config.AutoPowerArea and isPowerArea then
+                        local char = LocalPlayer.Character
+                        local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+                        local powerPos = Vector3.new(52255.9921875, 3.5937516689300537, 15767.1015625)
+
+                        if myRoot then
+                            local distToPower = (myRoot.Position - powerPos).Magnitude
+                            if distToPower > 10 then
+                                myRoot.CFrame = CFrame.new(powerPos)
+                            end
+                        end
+                    elseif inMini or #Config.SelectedEnemies > 0 then
+                        -- Cek apakah target saat ini masih valid sesuai mode (Mini/Normal)
+                        local enemyArea = currentTarget and currentTarget:GetAttribute("_area")
+                        local currentTargetIsMini = currentTarget and (currentTarget:GetAttribute("Minigame") or enemyArea == -200)
                         
+                        local isValid = currentTarget 
+                            and currentTarget.Parent 
+                            and (currentTarget:GetAttribute("_h") and currentTarget:GetAttribute("_h") > 0)
+                            -- Validasi tambahan: Target harus sesuai dengan mode minigame yang sedang aktif
+                            and (inMini == currentTargetIsMini) 
+
                         if not isValid then
                             currentTarget = GetBestTarget()
                         end
@@ -726,58 +749,99 @@ FM_Add("Farm", FarmTab:Toggle({
                             local myRoot = char and char:FindFirstChild("HumanoidRootPart")
                             if myRoot then
                                 local distance = (myRoot.Position - currentTarget.HumanoidRootPart.Position).Magnitude
+                                local offsetZ = inMini and 5 or 9
                                 if distance > 10 then 
-                                    myRoot.CFrame = currentTarget.HumanoidRootPart.CFrame * CFrame.new(0, 0, 5)
+                                    myRoot.CFrame = currentTarget.HumanoidRootPart.CFrame * CFrame.new(0, 0, offsetZ)
                                 end
                             end
                         end
                     else
-                        -- Jika tidak ada musuh yang dipilih di dropdown, hapus target aktif
                         currentTarget = nil
                     end
-                    SendConnection("System", "_main", "_click")
                 end
             end)
         end
     end
 }))
 -- [[ PERBAIKAN LOGIKA AUTO ATTACK ]] --
-FM_Add("Farm", FarmTab:Toggle({
+local AutoFastAttackToggle
+AutoFastAttackToggle = FM_Add("Farm", FarmTab:Toggle({
     Title = "Auto Fast Attack",
     Default = false,
     Flag = "AutoFastAttack_Toggle",
     Callback = function(val)
-        Config.FastClick = val
-        if val then
-            task.spawn(function()
-                while Config.FastClick do
-                    task.wait(0.05) -- Kecepatan respon loop
-                    if not Window or Window.Destroyed then break end
-                    SendConnection("System", "_main", "_click")
-                end
+        if val and not IsPremium then
+            Config.FastClick = false
+            pcall(function()
+                AutoFastAttackToggle:Unlock()
+                AutoFastAttackToggle:Set(false, false, true)
+                AutoFastAttackToggle:Lock("Premium Only")
             end)
+            return
         end
+        Config.FastClick = val
     end
 }))
+if not IsPremium then
+    Config.FastClick = false
+    pcall(function()
+        AutoFastAttackToggle:Set(false, false, true)
+        AutoFastAttackToggle:Lock("Premium Only")
+    end)
+end
+OriginalDebounceCheck = Debounce.Check
 -- [[ AUTO COLLECT TIME REWARDS ]] --
 Config.AutoTimeRewards = false
-
-FM_Add("Farm", FarmTab:Toggle({
+task.spawn(function()
+    while task.wait(1) do
+        if not Window or Window.Destroyed then 
+            OriginalDebounceCheck(player, action, duration)
+            break
+        end
+        Debounce.Check = function(player, action, duration)
+        if (action == "_combat" or action == "_click_client") and Config.FastClick then
+            return false
+        end
+        if action == "AntiAfkCounter" then
+            return true
+        end
+        return OriginalDebounceCheck(player, action, duration)
+    end
+end
+end)
+local AutoTimeRewardsToggle
+AutoTimeRewardsToggle = FM_Add("Farm", FarmTab:Toggle({
     Title = "Auto Collect Time Rewards",
     Desc = "Automatically claims playtime rewards when ready.",
     Default = false,
     Flag = "AutoTimeRewards_Toggle",
     Callback = function(val)
+        if val and not IsPremium then
+            Config.AutoTimeRewards = false
+            pcall(function()
+                AutoTimeRewardsToggle:Unlock()
+                AutoTimeRewardsToggle:Set(false, false, true)
+                AutoTimeRewardsToggle:Lock("Premium Only")
+            end)
+            return
+        end
         Config.AutoTimeRewards = val
     end
 }))
+if not IsPremium then
+    Config.AutoTimeRewards = false
+    pcall(function()
+        AutoTimeRewardsToggle:Set(false, false, true)
+        AutoTimeRewardsToggle:Lock("Premium Only")
+    end)
+end
 
 -- [[ TIME REWARDS AUTO-COLLECT LOGIC ]] --
 task.spawn(function()
     local TimeRewardsIndex = NightXLibrary.get_index("_time_rewards")
     local TimeRewardsFolder = LocalPlayer:WaitForChild("TimeRewards")
 
-    while task.wait(5) do -- Check every 5 seconds to save CPU
+    while task.wait(3) do -- Check every 5 seconds to save CPU
         if not Window or Window.Destroyed then break end
         
         if Config.AutoTimeRewards then
@@ -958,6 +1022,7 @@ local function UpdateVaultGachaEntry(entry, isOpen)
             pcall(function()
                 if entry.desiredLockReason then
                     entry.toggle:Lock(entry.desiredLockReason)
+                    entry.toggle:Set(false)
                 else
                     entry.toggle:Unlock()
                 end
@@ -985,7 +1050,7 @@ local function UpdateVaultGachaEntry(entry, isOpen)
     local owned = invItem and invItem:GetAttribute("Amount") or 0
     local equippedId = entry.vaultFolder and entry.vaultFolder:GetAttribute("Name") or ""
     local equippedNum = tonumber(equippedId) or -1
-    local lockReason = (equippedNum == 1) and "Secret Equipped!" or nil
+    local lockReason = (not IsPremium) and "Premium Only" or ((equippedNum == 1) and "Secret Equipped!" or nil)
     entry.desiredLockReason = lockReason
 
     if owned == entry.lastOwned and equippedId == entry.lastEquippedId and lockReason == entry.lastLockReason then
@@ -1111,6 +1176,15 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
         Image = gachaData[1] and gachaData[1].Image or "rbxassetid://0", 
         Flag = "AutoGacha_" .. gachaId,
         Callback = function(val)
+            if val and not IsPremium then
+                Config["AutoGacha_" .. gachaId] = false
+                pcall(function()
+                    GachaToggle:Unlock()
+                    GachaToggle:Set(false, false, true)
+                    GachaToggle:Lock("Premium Only")
+                end)
+                return
+            end
             Config["AutoGacha_" .. gachaId] = val
             if val then
                 task.spawn(function()
@@ -1127,6 +1201,13 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
             end
         end
     })
+    if not IsPremium then
+        Config["AutoGacha_" .. gachaId] = false
+        pcall(function()
+            GachaToggle:Set(false, false, true)
+            GachaToggle:Lock("Premium Only")
+        end)
+    end
 
     local _GachaUIState = _GetUIState(GachaToggle)
     if _GachaUIState then
@@ -1170,48 +1251,43 @@ for i = 1, #SortedGachas, 2 do
 end
 -- [[ MINI GAME CATEGORY ELEMENTS ]] --
 
+-- [[ MINI GAME CATEGORY - UPDATED WITH DECOMPILE LOGIC ]] --
+
 -- Control variables
-Config.AutoTrialEasy = false
-Config.AutoLeaveWave = false
-Config.TargetWave = 10 
-Config.LastIsland = "_hub" -- Default return location
-local lastTrialMinute = -1
+-- [[ MINI GAME & AUTO LEAVE ]] --
+Config.TargetWave = 10; Config.LastIsland = "_hub"
+FM_Add("Mini Game", FarmTab:Toggle({ Title = "Auto Enter Trial Easy", Default = false, Flag = "AutoTrialEasy_Toggle", Callback = function(val) Config.AutoTrialEasy = val end }))
+FM_Add("Mini Game", FarmTab:Toggle({ Title = "Auto Leave Trial", Default = false, Flag = "AutoLeaveWave_Toggle", Callback = function(val) Config.AutoLeaveWave = val end }))
 
--- 1. Auto Enter Toggle
-FM_Add("Mini Game", FarmTab:Toggle({
-    Title = "Auto Enter Trial Easy",
-    Desc = "Enters Trial Easy automatically at minute 00 and 30.",
-    Default = false,
-    Flag = "AutoTrialEasy_Toggle", --
-    Callback = function(val)
-        Config.AutoTrialEasy = val
-    end
-}))
-
--- 2. Auto Leave Toggle
-FM_Add("Mini Game", FarmTab:Toggle({
-    Title = "Auto Leave Trial",
-    Desc = "Returns to the previous map after reaching target wave.",
-    Default = false,
-    Flag = "AutoLeaveWave_Toggle", --
-    Callback = function(val)
-        Config.AutoLeaveWave = val
-    end
-}))
-
--- 3. Target Wave Input
-FM_Add("Mini Game", FarmTab:Input({
-    Title = "Target Wave to Leave",
-    Placeholder = "e.g., 10",
-    Default = "10",
-    Flag = "TargetWave_Input", --
-    Callback = function(val)
-        local num = tonumber(val)
-        if num then
-            Config.TargetWave = num
+-- TOGGLE BARU: Auto 2x Power Area
+local AutoPowerAreaToggle
+AutoPowerAreaToggle = FM_Add("Mini Game", FarmTab:Toggle({ 
+    Title = "Auto 2x Power Area", 
+    Desc = "Teleports to Training Area when area is Dbz Defense.",
+    Default = false, 
+    Flag = "AutoPowerArea_Toggle",
+    Callback = function(val) 
+        if val and not IsPremium then
+            Config.AutoPowerArea = false
+            pcall(function()
+                AutoPowerAreaToggle:Unlock()
+                AutoPowerAreaToggle:Set(false, false, true)
+                AutoPowerAreaToggle:Lock("Premium Only")
+            end)
+            return
         end
-    end
+        Config.AutoPowerArea = val 
+    end 
 }))
+if not IsPremium then
+    Config.AutoPowerArea = false
+    pcall(function()
+        AutoPowerAreaToggle:Set(false, false, true)
+        AutoPowerAreaToggle:Lock("Premium Only")
+    end)
+end
+
+FM_Add("Mini Game", FarmTab:Input({ Title = "Target Wave to Leave", Placeholder = "10", Flag = "TargetWave_Input", Callback = function(val) Config.TargetWave = tonumber(val) or 10 end }))
 
 -- [[ SCHEDULER & LOCATION RECORDING LOGIC ]] --
 task.spawn(function()
@@ -1227,7 +1303,7 @@ task.spawn(function()
                 lastTrialMinute = minute
                 
                 -- RECORD CURRENT LOCATION BEFORE TELEPORT
-                local currentAreaId = LocalPlayer:GetAttribute("CurrentArea")
+                local currentAreaId = LocalPlayer:GetAttribute("Island")
                 for id, info in pairs(IslandsIndex) do
                     -- Match Area ID with Island Index
                     if info[3] == currentAreaId and id ~= "_trial_easy" and id ~= "_hub" then
@@ -1236,10 +1312,9 @@ task.spawn(function()
                     end
                 end
 
-                local IslandService = NightXLibrary.get_service("island_service")
                 pcall(function()
                     -- Teleport to Trial Easy Area
-                    IslandService._teleport("_trial_easy")
+                    SendConnection("System", "_main", "_teleport", "_trial_easy")
                     Notify("Mini Game", "Entering Trial Easy. Return location saved: " .. Config.LastIsland, "info")
                 end)
                 
@@ -1249,20 +1324,34 @@ task.spawn(function()
     end
 end)
 
--- [[ AUTO LEAVE & RETURN LOGIC ]] --
--- Listens to wave updates from the server
-Connection:receive("_update_minigame", function(arg1)
-    -- arg1[2] contains the current wave number
-    if Config.AutoLeaveWave and arg1 and arg1[2] then
-        local currentWave = tonumber(arg1[2])
+-- [[ UPDATED AUTO LEAVE LOGIC (STRING BASED) ]] --
+Connection:receive("_update_minigame", function(data)
+    if not Window or Window.Destroyed then return end
+    
+    -- Ambil data sesuai info debug kamu
+    local mainInfo = data[1]       -- Nama Musuh
+    local modeString = data[2]     -- Format: "Wave 3 / 20"
+    local waveInfo = data[3] and data[3][1]
+    local progressRatio = data[3] and data[3][2] or 0
+
+    -- LOGIKA EXTRAKSI WAVE DARI STRING "Wave X / Y"
+    -- Kita mencari angka setelah kata "Wave"
+    local currentWave = tonumber(string.match(modeString, "Wave%s+(%d+)"))
+    
+    if currentWave then
         
-        if currentWave and currentWave >= Config.TargetWave then
+        -- [[ LOGIKA AUTO LEAVE ]] --
+        if Config.AutoLeaveWave and currentWave >= tonumber(Config.TargetWave or 10) then
             local IslandService = NightXLibrary.get_service("island_service")
             
             pcall(function()
-                -- TELEPORT BACK TO RECORDED ISLAND
-                IslandService._teleport(Config.LastIsland, "Lobby")
-                Notify("Mini Game", "Wave " .. currentWave .. " reached. Returning to " .. Config.LastIsland, "log-out")
+                -- TELEPORT BALIK KE PULAU TERAKHIR (LOBBY)
+                SendConnection("System", "_main", "_teleport", Config.LastIsland or "_hub", "Lobby")                
+                -- Kirim Notifikasi
+                Notify("Auto Leave", "Reached Wave " .. currentWave .. "! Returning to " .. (Config.LastIsland or "Hub"), "log-out")
+                
+                -- Matikan toggle agar tidak spam teleport saat loading
+                Config.AutoLeaveWave = false 
             end)
         end
     end
@@ -1350,52 +1439,20 @@ local WeaponInfoToggle = FM_Add("Weapon Shop", FarmTab:Toggle({
     end
 }))
 
-local _WeaponInfoUIState = _GetUIState(WeaponInfoToggle)
-
-FM_Add("Weapon Shop", FarmTab:Button({
-    Title = "Buy All Affordable Weapons",
-    Icon = "shopping-cart",
-    Callback = function()
-        SendConnection("System", "_main", "_weapon", "", "_all")
-        Notify("Merchant", "Attempted to buy all weapons!", "shopping-cart")
-    end
-}))
-
 -- Fungsi Update yang dipanggil hanya saat diperlukan
 local function SafeUpdateWeaponUI()
     -- Pastikan Window masih ada dan Toggle tidak nil
     if not IsWindowAlive() or not WeaponInfoToggle then return end
 
     local success, err = pcall(function()
-        local cache = Optimizer and Optimizer.Cache and Optimizer.Cache.WeaponShop
         local currentWeaponShop = LocalPlayer:GetAttribute("WeaponShop") or 0
-        local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
-        local discount = (MultsIndex and MultsIndex._discount) and MultsIndex._discount(LocalPlayer) or 1
-
-        if cache and cache.LastWeaponShop == currentWeaponShop and cache.LastCoins == currentCoins and cache.LastDiscount == discount then
-            if Config.AutoWeaponShop and cache.NextPrice and currentCoins >= cache.NextPrice then
-                SendConnection("System", "_main", "_weapon", "", "_all")
-            end
-            if IsWindowOpen() then
-                _ApplyUIState(WeaponInfoToggle)
-            end
-            return
-        end
-
-        if cache then
-            cache.LastWeaponShop = currentWeaponShop
-            cache.LastCoins = currentCoins
-            cache.LastDiscount = discount
-        end
-
         local nextId = currentWeaponShop + 1
         local weaponData = WeaponsIndex[nextId]
         
         if weaponData then
+            local discount = (MultsIndex and MultsIndex._discount) and MultsIndex._discount(LocalPlayer) or 1
             local finalPrice = (weaponData[4] or 0) / discount
-            if cache then
-                cache.NextPrice = finalPrice
-            end
+            local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
             
             -- Penyiapan Data Visual
             local weaponName = tostring(weaponData[1])
@@ -1404,31 +1461,15 @@ local function SafeUpdateWeaponUI()
             
             local displayTitle = "Next: " .. weaponName .. " (+" .. powerMult .. "x)"
             local displayDesc = string.format("Price: %s\nCoins: %s", tostring(AbbreviateService:Comma(finalPrice)), tostring(AbbreviateService:Comma(currentCoins)))
-
-            if _WeaponInfoUIState then
-                local mainImageKey = "next|" .. tostring(nextId) .. "|" .. tostring(weaponImage) .. "|" .. tostring(weaponName)
-                if _WeaponInfoUIState.desiredTitle ~= displayTitle then
-                    _WeaponInfoUIState.desiredTitle = displayTitle
-                end
-                if _WeaponInfoUIState.desiredDesc ~= displayDesc then
-                    _WeaponInfoUIState.desiredDesc = displayDesc
-                end
-                if not cache or cache.LastMainImageKey ~= mainImageKey then
-                    if cache then
-                        cache.LastMainImageKey = mainImageKey
-                    end
-                    _WeaponInfoUIState.desiredMainImage = {
-                        Image = weaponImage,
-                        Title = weaponName,
-                        Quantity = "Rank " .. nextId
-                    }
-                    _WeaponInfoUIState.desiredMainImageSize = 60
-                    _WeaponInfoUIState.desiredMainImageKey = mainImageKey
-                end
-            end
-            if IsWindowOpen() then
-                _ApplyUIState(WeaponInfoToggle)
-            end
+            
+            -- Eksekusi aman di dalam thread UI
+            task.defer(function()
+                pcall(function()
+                    WeaponInfoToggle:SetTitle(displayTitle)
+                    WeaponInfoToggle:SetDesc(displayDesc)
+                    WeaponInfoToggle:Unlock()
+                end)
+            end)
 
             -- Logika Auto Buy
             if Config.AutoWeaponShop and currentCoins >= finalPrice then
@@ -1436,33 +1477,12 @@ local function SafeUpdateWeaponUI()
             end
         else
             -- Jika sudah mencapai level maksimal
-            if cache then
-                cache.NextPrice = nil
-            end
-            if _WeaponInfoUIState then
-                local mainImageKey = "max"
-                if _WeaponInfoUIState.desiredTitle ~= "Weapon Shop: MAX" then
-                    _WeaponInfoUIState.desiredTitle = "Weapon Shop: MAX"
-                end
-                if _WeaponInfoUIState.desiredDesc ~= "All weapons unlocked." then
-                    _WeaponInfoUIState.desiredDesc = "All weapons unlocked."
-                end
-                if not cache or cache.LastMainImageKey ~= mainImageKey then
-                    if cache then
-                        cache.LastMainImageKey = mainImageKey
-                    end
-                    _WeaponInfoUIState.desiredMainImage = {
-                        Image = "rbxassetid://0",
-                        Title = "Completed",
-                        Quantity = "MAX"
-                    }
-                    _WeaponInfoUIState.desiredMainImageSize = nil
-                    _WeaponInfoUIState.desiredMainImageKey = mainImageKey
-                end
-            end
-            if IsWindowOpen() then
-                _ApplyUIState(WeaponInfoToggle)
-            end
+            task.defer(function()
+                WeaponInfoToggle:SetTitle("Weapon Shop: MAX")
+                WeaponInfoToggle:SetDesc("All weapons unlocked.")
+                WeaponInfoToggle:Lock("All weapons unlocked.")
+                WeaponInfoToggle:Set(false)
+            end)
         end
     end)
 end
@@ -1476,9 +1496,187 @@ end)
 
 -- Panggil sekali saat awal untuk inisialisasi teks dan gambar
 task.delay(2, SafeUpdateWeaponUI)
+-- [[ TRIAL & POWER UPGRADE CATEGORY - INTEGRATED LOGIC ]] --
+local TrialUpgradeEntries = {}
+local PowerUpgradeToggle = nil
+local _PowerUpgradeUIState = nil
+local PowerUpgradeIndex = NightXLibrary.get_index("_power_upgrades")
 
-_RegisterUIOnOpen(function()
-    SafeUpdateWeaponUI()
+-- 1. Helper: Mendapatkan jumlah Dragon Shard
+local function GetDragonShards()
+    local inv = LocalPlayer:FindFirstChild("Inventory")
+    local items = inv and inv:FindFirstChild("Items")
+    local shard = items and items:FindFirstChild("_dbz_shard")
+    return shard and shard:GetAttribute("Amount") or 0
+end
+
+-- 2. Helper: Mendapatkan jumlah Trial Upgrader
+local function GetTrialCurrency()
+    local inv = LocalPlayer:FindFirstChild("Inventory")
+    local items = inv and inv:FindFirstChild("Items")
+    local token = items and items:FindFirstChild("_trial_upgrader")
+    return token and token:GetAttribute("Amount") or 0
+end
+
+-- 3. Fungsi Update untuk Power Upgrade (Dragon Shard)
+local function UpdatePowerUpgradeUI()
+    if not IsWindowAlive() or not PowerUpgradeToggle then return end
+    
+    local currentLevel = LocalPlayer:GetAttribute("PowerUpgrade") or 0
+    local shardsOwned = GetDragonShards()
+    local maxLevel = #PowerUpgradeIndex
+    
+    local nextData = PowerUpgradeIndex[currentLevel + 1]
+    local currentData = PowerUpgradeIndex[currentLevel]
+    
+    local bonusTxt = "0%"
+    if currentData then
+        bonusTxt = ((currentData[2] - 1) * 100) .. "%"
+    end
+    
+    local cost = nextData and nextData[1] or 0
+    local isMax = currentLevel >= maxLevel
+    
+    -- Logika Warna Rich Text
+    local colorCode = (shardsOwned >= cost) and "#00FF00" or "#FF0000"
+    local costDisplay = isMax and "MAX" or AbbreviateService:Comma(cost)
+    local statusDesc = string.format("Level: %d/%d | Bonus: +%s\n<font color=\"%s\">Dragon Shards: %s/%s</font>", 
+        currentLevel, maxLevel, bonusTxt, colorCode, AbbreviateService:Comma(shardsOwned), costDisplay)
+
+    pcall(function()
+        PowerUpgradeToggle:SetTitle(isMax and "Power Upgrade [MAX]" or "Power Upgrade")
+        PowerUpgradeToggle:SetDesc(statusDesc)
+        if not IsPremium then
+            PowerUpgradeToggle:Lock("Premium Only")
+            PowerUpgradeToggle:Set(false)
+        else
+            PowerUpgradeToggle:Unlock()
+        end
+    end)
+
+    -- Logika Auto Upgrade Power
+    if IsPremium and Config.AutoPowerUpgrade and not isMax and shardsOwned >= cost then
+        SendConnection("System", "_main", "_power_upgrades")
+    end
+end
+
+-- 4. Fungsi Update untuk Trial Upgrades (Trial Token)
+local function UpdateTrialUpgradeUI()
+    if not IsWindowAlive() then return end
+    local folder = LocalPlayer:FindFirstChild("TrialUpgrades")
+    local currency = GetTrialCurrency()
+
+    for _, entry in ipairs(TrialUpgradeEntries) do
+        local level = (folder and folder:GetAttribute(entry.Name)) or 1
+        local bonusBase = (entry.Name == "Luck" and 1) or (table.find({"Power","CritChance","CritDmg"}, entry.Name) and 10) or (entry.Name == "Coins" and 2.5) or 5
+        
+        local cost = 5 * level 
+        local bonusTotal = bonusBase * (level - 1)
+        local isMax = level >= 11
+
+        local colorCode = (currency >= cost) and "#00FF00" or "#FF0000"
+        local materialStatus = string.format("<font color=\"%s\">Trial Upgrader: %s/%s</font>", 
+            colorCode, AbbreviateService:Comma(currency), isMax and "MAX" or AbbreviateService:Comma(cost))
+
+        pcall(function()
+            entry.toggle:SetTitle(isMax and entry.Name .. " [MAX]" or entry.Name)
+            entry.toggle:SetDesc(string.format("Level: %d/11 | Bonus: +%.1f%%\n%s", level, bonusTotal, materialStatus))
+            if not IsPremium then
+                entry.toggle:Lock("Premium Only")
+                entry.toggle:Set(false)
+            else
+                entry.toggle:Unlock()
+            end
+        end)
+
+        if IsPremium and Config["AutoTrial_" .. entry.Name] and not isMax and currency >= cost then
+            SendConnection("System", "_main", "_trial_upgrades", entry.Name)
+        end
+    end
+end
+
+-- 5. Pembuatan UI
+-- Group 1: Power Upgrade Utama (Dragon Shard)
+local MainPowerGroup = FM_Add("Trial/Power Upgrade", FarmTab:Group({ Title = "Dragon Shard Upgrades" }))
+PowerUpgradeToggle = MainPowerGroup:Toggle({
+    Title = "Power Upgrade",
+    Desc = "Loading data...",
+    Default = false,
+    Flag = "AutoPowerUpgrade_Toggle",
+    Callback = function(val)
+        if val and not IsPremium then
+            Config.AutoPowerUpgrade = false
+            pcall(function()
+                PowerUpgradeToggle:Unlock()
+                PowerUpgradeToggle:Set(false, false, true)
+                PowerUpgradeToggle:Lock("Premium Only")
+            end)
+            return
+        end
+        Config.AutoPowerUpgrade = val
+    end
+})
+if not IsPremium then
+    Config.AutoPowerUpgrade = false
+    pcall(function()
+        PowerUpgradeToggle:Set(false, false, true)
+        PowerUpgradeToggle:Lock("Premium Only")
+    end)
+end
+
+-- Group 2+: Trial Upgrades (Grup isi 2)
+local TrialStats = {"Power", "Luck", "CritChance", "CritDmg", "Coins"}
+for i = 1, #TrialStats, 2 do
+    local Group = FM_Add("Trial/Power Upgrade", FarmTab:Group({ Title = "Trial Upgrades " .. math.ceil(i/2) }))
+    for j = i, math.min(i + 1, #TrialStats) do
+        local stat = TrialStats[j]
+        local toggle = Group:Toggle({
+            Title = stat,
+            Desc = "Waiting...",
+            Default = false,
+            Flag = "AutoTrial_" .. stat,
+            Callback = function(val)
+                if val and not IsPremium then
+                    Config["AutoTrial_" .. stat] = false
+                    pcall(function()
+                        toggle:Unlock()
+                        toggle:Set(false, false, true)
+                        toggle:Lock("Premium Only")
+                    end)
+                    return
+                end
+                Config["AutoTrial_" .. stat] = val
+            end
+        })
+        if not IsPremium then
+            Config["AutoTrial_" .. stat] = false
+            pcall(function()
+                toggle:Set(false, false, true)
+                toggle:Lock("Premium Only")
+            end)
+        end
+        table.insert(TrialUpgradeEntries, { Name = stat, toggle = toggle })
+    end
+end
+
+-- 6. Loop Update & Listener
+task.spawn(function()
+    -- Listener untuk Power Upgrade
+    LocalPlayer:GetAttributeChangedSignal("PowerUpgrade"):Connect(UpdatePowerUpgradeUI)
+    
+    -- Listener untuk Trial Upgrades
+    local trialFolder = LocalPlayer:WaitForChild("TrialUpgrades", 10)
+    if trialFolder then
+        for _, stat in ipairs(TrialStats) do
+            trialFolder:GetAttributeChangedSignal(stat):Connect(UpdateTrialUpgradeUI)
+        end
+    end
+
+    while task.wait(1) do
+        if not IsWindowAlive() then break end
+        UpdatePowerUpgradeUI()
+        UpdateTrialUpgradeUI()
+    end
 end)
 -- PERBAIKAN JARAK: Mengatur posisi Category Frame dan Container
 if FM_CategorySelector.ElementFrame then 
