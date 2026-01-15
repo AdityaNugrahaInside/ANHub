@@ -696,6 +696,9 @@ local EnemyDropdown = FM_Add("Farm", FarmTab:Dropdown({
 -- ==========================================
 local lastMiniState = false -- Variabel pembantu untuk deteksi perpindahan mode
 
+-- ==========================================
+-- AUTO ATTACK DENGAN LOGIKA PAUSE TRIAL
+-- ==========================================
 FM_Add("Farm", FarmTab:Toggle({
     Title = "Auto Attack Enemies",
     Default = false,
@@ -705,18 +708,31 @@ FM_Add("Farm", FarmTab:Toggle({
         if val then
             task.spawn(function()
                 while Config.AutoFarm do
-                    task.wait(0.3) -- Jeda sedikit dipercepat agar lebih responsif
+                    task.wait(0.3)
                     if not IsWindowAlive() then break end
-                    
+
+                    -- 1. CEK WAKTU UNTUK PAUSE (Menit 00-01 & 30-31)
+                    local currentTime = os.date("*t")
+                    local min = currentTime.min
+                    local isTrialTime = (min == 0 or min == 1 or min == 30 or min == 31)
+                    local inMini = IsInMinigame()
+
+                    -- JIKA Auto Trial ON, sedang di menit krusial, DAN belum masuk minigame: PAUSE
+                    if Config.AutoTrialEasy and isTrialTime and not inMini then
+                        currentTarget = nil -- Reset target agar tidak menyerang
+                        -- Opsional: Kirim notifikasi sekali saja jika perlu
+                        task.wait(1) 
+                        continue -- Lewati sisa kode di bawah (Pause)
+                    end
+
+                    -- 2. LOGIKA STANDAR (Akan berjalan jika tidak dalam kondisi pause)
                     local enemiesFolder = workspace:FindFirstChild("_enemies")
                     local firstEnemy = enemiesFolder and enemiesFolder:FindFirstChildOfClass("Model")
                     local isPowerArea = firstEnemy and firstEnemy:GetAttribute("_area") == -200
-                    local inMini = IsInMinigame()
                     
-                    -- RESET TARGET JIKA MODE BERUBAH (Dari Normal ke Mini atau sebaliknya)
                     if lastMiniState ~= inMini then
                         lastMiniState = inMini
-                        currentTarget = nil -- Paksa cari target baru sesuai mode
+                        currentTarget = nil
                     end
 
                     if Config.AutoPowerArea and isPowerArea then
@@ -724,21 +740,16 @@ FM_Add("Farm", FarmTab:Toggle({
                         local myRoot = char and char:FindFirstChild("HumanoidRootPart")
                         local powerPos = Vector3.new(52255.9921875, 3.5937516689300537, 15767.1015625)
 
-                        if myRoot then
-                            local distToPower = (myRoot.Position - powerPos).Magnitude
-                            if distToPower > 10 then
-                                myRoot.CFrame = CFrame.new(powerPos)
-                            end
+                        if myRoot and (myRoot.Position - powerPos).Magnitude > 10 then
+                            myRoot.CFrame = CFrame.new(powerPos)
                         end
                     elseif inMini or #Config.SelectedEnemies > 0 then
-                        -- Cek apakah target saat ini masih valid sesuai mode (Mini/Normal)
                         local enemyArea = currentTarget and currentTarget:GetAttribute("_area")
                         local currentTargetIsMini = currentTarget and (currentTarget:GetAttribute("Minigame") or enemyArea == -200)
                         
                         local isValid = currentTarget 
                             and currentTarget.Parent 
                             and (currentTarget:GetAttribute("_h") and currentTarget:GetAttribute("_h") > 0)
-                            -- Validasi tambahan: Target harus sesuai dengan mode minigame yang sedang aktif
                             and (inMini == currentTargetIsMini) 
 
                         if not isValid then
