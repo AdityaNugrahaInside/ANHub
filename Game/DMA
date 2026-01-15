@@ -82,7 +82,7 @@ local BaseProfile = {
     Badges = {
         {
             Icon = "geist:logo-discord", Title = "Discord", Desc = "Join ANHUB Discord",
-            Callback = function() setclipboard("https://discord.gg/cy6uMRmeZ") Notify("Discord", "Invite link copied!", "geist:logo-discord") end
+            Callback = function() setclipboard("https://discord.gg/bUkCZvmrpH") Notify("Discord", "Invite link copied!", "geist:logo-discord") end
         },
         {
             Icon = "youtube", Desc = "Subscribe to YouTube",
@@ -184,7 +184,7 @@ Window = UI:CreateWindow({
         Title = "ANHub Access",
         Description = "Free Key: ANHUB-2025",
         Key = ValidKeys,
-        URL = "https://discord.gg/cy6uMRmeZ",
+        URL = "https://discord.gg/bUkCZvmrpH",
         Note = "Premium Users are auto-verified!",
         SaveKey = true
     }
@@ -357,6 +357,7 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Hatch Pets", Icon = "rbxassetid://92349810618564"}, -- Icon Egg/Pet
         {Title = "Zeringan", Icon = "rbxassetid://117530189851156"}, -- Icon Sharingan
         {Title = "Range Upgrade", Icon = "rbxassetid://86884305951467"}, -- Icon Range
+        {Title = "Fruit Merchant", Icon = "rbxassetid://129783597097054"}, -- Icon Buah/Merchant
     },
     Callback = FM_OnChange
 })
@@ -689,7 +690,8 @@ FM_Add("Game Mode", FarmTab:Dropdown({
     Title = "Select Raid Type",
     Values = {
         {Title = "Hunter Town Raid", RawName = "HunterTownRaid"},
-        {Title = "Tokyo War", RawName = "TokyoWar"}
+        {Title = "Tokyo War", RawName = "TokyoWar"},
+        {Title = "Treasure Hunt", RawName = "TreasureHunt"} -- Tambahkan ini
     },
     AllowNone = true,
     Flag = "GameMode_Dropdown",
@@ -719,6 +721,11 @@ FM_Add("Game Mode", FarmTab:Input({
 
 -- 4. Task Utama Game Mode: Auto Start & Auto Leave (REFINED)
 task.spawn(function()
+    local raidKeyMapping = {
+        ["HunterTownRaid"] = "HunterTown",
+        ["TokyoWar"] = "TokyoWar",
+        ["TreasureHunt"] = "TesureHunt" -- Perbaikan typo sesuai decompile
+    }
     while task.wait(1.5) do
         if not Window or Window.Destroyed then break end
         
@@ -751,25 +758,22 @@ task.spawn(function()
             end
 
             pcall(function()
-                -- [[ B. CEK STATUS RAID DI SERVER ]]
-                -- HunterTownRaid -> HunterTown | TokyoWar -> TokyoWar
-                local raidKey = SelectedRaidType:gsub("Raid", "") 
+                local raidKey = raidKeyMapping[SelectedRaidType]
+                if not raidKey then return end
+
+                -- Invoke server menggunakan key yang benar (termasuk typo "TesureHunt")
                 local raidData = ReplicatedStorage.Remotes.Raids[raidKey].Get:InvokeServer()
 
                 if raidData then
-                    -- [[ C. LOGIKA START VS JOIN (Hanya pilih salah satu) ]]
                     if raidData.Owner == nil then
-                        -- 1. Jika Owner tidak ada, berarti room kosong: Fire Start
+                        -- Start jika kosong
                         MetaManager.Bridge:Fire("Gamemodes_"..SelectedRaidType, "Start", "Public")
                         inRaid = true
-                        IsTeleporting = true
                     elseif not raidData.Started then
-                        -- 2. Jika sudah ada Owner tapi game BELUM dimulai: Fire Join
+                        -- Join jika sudah ada owner tapi belum mulai
                         MetaManager.Bridge:Fire("Gamemodes_"..SelectedRaidType, "Join")
                         inRaid = true
-                        IsTeleporting = true
                     end
-                    -- Jika raidData.Started == true, skrip TIDAK akan melakukan :Fire apapun (Berhenti)
                 end
             end)
         end
@@ -1168,39 +1172,44 @@ task.spawn(function()
             end
         end
     end
-end)
--- [[ ELEMEN UNTUK KATEGORI PASSIVE (MULTI-MAP LOCKING) ]] --
+end)-- [[ ELEMEN UNTUK KATEGORI PASSIVE (MULTI-MAP LOCKING) ]] --
 
 local FamilyElements = {}
 local NenElements = {}
 local PassiveAbilityElements = {}
--- [[ HELPER: AUTO EQUIP BEST ENERGY (LOGIKA VAULT) ]] --
+local HakiElements = {}
+
+-- [[ HELPER: AUTO EQUIP BEST (ENERGY/DAMAGE) ]] --
 local function EquipBestEnergy(category)
     local pData = getgenv().PlayerData
     if not pData or not pData.Vault then return end
     
-    -- Mapping key: Remote menggunakan "Passives" sedangkan data Vault menggunakan "Passive"
+    -- Mapping key untuk Vault
     local vaultKeys = {
         ["Family"] = "Family",
         ["Nen"] = "Nen",
-        ["Passives"] = "Passive"
+        ["Passives"] = "Passive",
+        ["Haki"] = "Haki"
     }
     
     local vaultKey = vaultKeys[category]
     if not vaultKey or not pData.Vault[vaultKey] then return end
     
-    local myVault = pData.Vault[vaultKey] -- Data item tersimpan di Vault
+    local myVault = pData.Vault[vaultKey] 
     local sharedData = MetaManager.Shared[category]
+    
+    -- [[ MODIFIKASI: HAKI MENCARI DAMAGE, LAINNYA ENERGY ]] --
+    local targetStat = (category == "Haki") and "Damage" or "Energy"
     
     local bestItem = nil
     local bestValue = -1
 
-    -- Loop melalui item di Vault pemain untuk mencari multiplier Energy tertinggi
     for id, owned in pairs(myVault) do
         if owned then
             local info = sharedData[id]
-            if info and info.Multipliers and info.Multipliers.Energy then
-                local val = tonumber(info.Multipliers.Energy) or 0
+            -- Cek multiplier berdasarkan targetStat (Damage/Energy)
+            if info and info.Multipliers and info.Multipliers[targetStat] then
+                local val = tonumber(info.Multipliers[targetStat]) or 0
                 if val > bestValue then
                     bestValue = val
                     bestItem = id
@@ -1212,18 +1221,18 @@ local function EquipBestEnergy(category)
     -- Eksekusi pemasangan via Bridge jika ditemukan yang lebih baik
     if bestItem then
         local currentEquippedKey = (category == "Passives") and "Passive" or category
-        if pData[currentEquippedKey] ~= bestItem then
+        local currentData = pData[currentEquippedKey]
+        
+        -- Handling struktur data Haki yang berbentuk tabel {Name = "..."}
+        local currentName = (type(currentData) == "table") and currentData.Name or currentData
+
+        if currentName ~= bestItem then
             pcall(function()
                 MetaManager.Bridge:Fire("Vault", "Equip", category, bestItem)
             end)
         end
     end
 end
-local KeepLists = {
-    Family = {},
-    Nen = {},
-    Passives = {}
-}
 
 -- 1. Helper: Format Multiplier (Universal)
 local function GetMultipliersText(category, name)
@@ -1242,156 +1251,225 @@ local function GetMultipliersText(category, name)
     return table.concat(buffs, " | ")
 end
 
--- [[ TOGGLES PASSIVE DENGAN CALLBACK EQUIPBEST ]] --
+-- [[ PENGELOMPOKAN ELEMEN KATEGORI PASSIVE (2 ITEM PER GRUP) ]] --
 
-local AutoFamilyToggle = FM_Add("Passive", FarmTab:Toggle({
+-- Grup 1: Family & Nen
+local GachaGroup1 = FM_Add("Passive", FarmTab:Group({
+    Title = "Family & Nen Gacha",
+    Opened = true
+}))
+
+local AutoFamilyToggle = GachaGroup1:Toggle({
     Title = "Auto Reroll Family",
     Desc = "Checking map status...",
     Default = false,
     Flag = "AutoFamily_Toggle",
     Callback = function(val) 
         Config.AutoRerollFamily = val 
-        if not val then EquipBestEnergy("Family") end -- Pasang terbaik saat OFF
+        if not val then EquipBestEnergy("Family") end 
     end
-}))
+})
 table.insert(FamilyElements, AutoFamilyToggle)
 
-local AutoNenToggle = FM_Add("Passive", FarmTab:Toggle({
+local AutoNenToggle = GachaGroup1:Toggle({
     Title = "Auto Reroll Nen",
     Desc = "Checking map status...",
     Default = false,
     Flag = "AutoNen_Toggle",
     Callback = function(val) 
         Config.AutoRerollNen = val 
-        if not val then EquipBestEnergy("Nen") end -- Pasang terbaik saat OFF
+        if not val then EquipBestEnergy("Nen") end 
     end
-}))
+})
 table.insert(NenElements, AutoNenToggle)
 
-local AutoPassiveToggle = FM_Add("Passive", FarmTab:Toggle({
+
+-- Grup 2: Passives & Haki
+local GachaGroup2 = FM_Add("Passive", FarmTab:Group({
+    Title = "Passives & Haki Gacha",
+    Opened = true
+}))
+
+local AutoPassiveToggle = GachaGroup2:Toggle({
     Title = "Auto Reroll Passives",
     Desc = "Checking map status...",
     Default = false,
     Flag = "AutoPassive_Toggle",
     Callback = function(val) 
         Config.AutoRerollPassives = val 
-        if not val then EquipBestEnergy("Passives") end -- Pasang terbaik saat OFF
+        if not val then EquipBestEnergy("Passives") end 
     end
-}))
+})
 table.insert(PassiveAbilityElements, AutoPassiveToggle)
+
+local AutoHakiToggle = GachaGroup2:Toggle({
+    Title = "Auto Reroll Haki",
+    Desc = "Checking map status...",
+    Default = false,
+    Flag = "AutoHaki_Toggle",
+    Callback = function(val) 
+        Config.AutoRerollHaki = val 
+        if not val then EquipBestEnergy("Haki") end 
+    end
+})
+table.insert(HakiElements, AutoHakiToggle)
 
 -- ==========================================
 -- MAIN TASK: SYNC, AUTO REROLL & 10s TIMER
 -- ==========================================
+-- [[ 1. PINDAHKAN FUNGSI KELUAR DARI LOOP UNTUK STABILITAS ]] --
+local function ProcessCategory(typeKey, dataKey, toggleObj, bridgeKey, coinKey)
+    local pData = getgenv().PlayerData
+    if not pData then return end
+    
+    local rawVal = pData[dataKey]
+    local currentVal = "None"
+    
+    -- [[ FIX ERROR 'INSTANCE': VALIDASI TIPE DATA SECARA KETAT ]] --
+    if type(rawVal) == "table" then
+        -- Jika tabel, ambil field Name (Sesuai decompile Family/Nen/Haki)
+        currentVal = tostring(rawVal.Name or "None")
+    elseif typeof(rawVal) == "Instance" then
+        -- Jika ternyata rawVal adalah Object Roblox, ambil .Name agar tidak error 'Instance'
+        currentVal = rawVal.Name
+    elseif rawVal ~= nil then
+        currentVal = tostring(rawVal)
+    end
+
+    if currentVal == "None" or currentVal == "" then return end
+    
+    local infoDB = MetaManager.Shared[typeKey]
+    local currentInfo = infoDB and infoDB[currentVal]
+    
+    -- Visual Sync (Card Image)
+    if currentVal ~= lastData[typeKey] then
+        lastData[typeKey] = currentVal
+        if currentInfo then
+            pcall(function()
+                toggleObj:SetMainImage({
+                    Image = (currentInfo.Icon and currentInfo.Icon ~= "") and currentInfo.Icon or "rbxassetid://135703908712176",
+                    Gradient = MetaManager.Utils.Colors:GetRarity(currentInfo.Rarity),
+                    Title = currentVal,
+                    Quantity = currentInfo.Rarity,
+                }, 60)
+            end)
+        end
+    end
+
+    -- [[ LOGIKA PITY SESUAI DECOMPILE ]] --
+    local pityData = pData.Pity or {}
+    local pityCount = pityData[typeKey] or 0
+    local pityPhase = (pData.PityPhase and pData.PityPhase[typeKey]) or "Mythical"
+    
+    -- Penentuan Max Pity
+    local maxPity = 1200 
+    if pityPhase ~= "Mythical" then
+        if typeKey == "Nen" then
+            maxPity = (pityPhase == "Secret") and 8000 or (pityPhase == "Divine" and 20000 or 1200)
+        else
+            maxPity = 8000
+        end
+    end
+    
+    local inventory = pData.Inventory and pData.Inventory.Items or {}
+    local coins = inventory[coinKey] or 0
+    local multipliers = GetMultipliersText(typeKey, currentVal)
+
+    -- Gunakan pcall saat SetTitle untuk mencegah crash jika UI belum siap
+    pcall(function()
+        toggleObj:SetTitle("Fast Auto " .. typeKey .. ": " .. currentVal)
+        toggleObj:SetDesc(string.format(
+            "Coins: %d | Boost: [%s]\nPity [%s]: %d/%d\nStatus: %s",
+            coins, multipliers, pityPhase,
+            pityCount, maxPity,
+            (Config["AutoReroll"..typeKey] and (coins > 0 and "Rolling..." or "Out of Coins!") or "Idle")
+        ))
+    end)
+
+    -- Logika Auto Reroll & 10s Timer
+    if Config["AutoReroll"..typeKey] then
+        if coins > 0 then
+            pcall(function() MetaManager.Bridge:Fire(bridgeKey, "Reroll") end)
+        end
+        if tick() - (lastEquipTime[typeKey] or 0) >= 3 then
+            lastEquipTime[typeKey] = tick()
+            EquipBestEnergy(typeKey)
+        end
+    end
+end
+
+-- [[ 2. LOOP UTAMA YANG TELAH DIPERBAIKI ]] --
 task.spawn(function()
-    local lockStates = { Family = false, Nen = false, Passives = false }
-    local lastData = { Family = "", Nen = "", Passives = "" }
-    
-    -- Tracker waktu untuk interval 10 detik
-    local lastEquipTime = { Family = 0, Nen = 0, Passives = 0 }
-    
-    while task.wait() do
+    local lockStates = { Family = false, Nen = false, Passives = false, Haki = false }
+    -- Inisialisasi lastData & lastEquipTime di level atas loop
+    lastData = { Family = "", Nen = "", Passives = "", Haki = "" }
+    lastEquipTime = { Family = 0, Nen = 0, Passives = 0, Haki = 0 }
+
+    while task.wait() do -- Tambahkan jeda agar tidak spam CPU
         if not Window or Window.Destroyed then break end
 
         local pData = getgenv().PlayerData
         if pData then
-            local currentMap = pData.Map or ""
+            -- Pastikan Map adalah string (menggunakan tostring untuk keamanan)
+            local currentMap = tostring(pData.Map or "")
 
-            -- 1. LOGIKA LOCKING MAP
+            -- Logika Locking Map (Family)
             if currentMap ~= "Leaf Village" then
                 if not lockStates.Family then
                     lockStates.Family = true
                     for _, e in ipairs(FamilyElements) do e:Lock("Go to Leaf Village") end
                 end
             else
-                if lockStates.Family then
-                    lockStates.Family = false
-                    for _, e in ipairs(FamilyElements) do e:Unlock() end
-                end
+                if lockStates.Family then lockStates.Family = false; for _, e in ipairs(FamilyElements) do e:Unlock() end end
             end
 
-            local hunterTownCheck = (currentMap ~= "Hunter Town")
-            if hunterTownCheck then
+            -- Logika Locking Map (Nen & Passive)
+            if currentMap ~= "Hunter Town" then
                 if not lockStates.Nen then
                     lockStates.Nen = true
                     for _, e in ipairs(NenElements) do e:Lock("Go to Hunter Town") end
                     for _, e in ipairs(PassiveAbilityElements) do e:Lock("Go to Hunter Town") end
                 end
             else
-                if lockStates.Nen then
-                    lockStates.Nen = false
-                    for _, e in ipairs(NenElements) do e:Unlock() end
-                    for _, e in ipairs(PassiveAbilityElements) do e:Unlock() end
-                end
+                if lockStates.Nen then lockStates.Nen = false; for _, e in ipairs(NenElements) do e:Unlock() end; for _, e in ipairs(PassiveAbilityElements) do e:Unlock() end end
             end
 
-            -- 2. UPDATE & AUTO LOGIC PER KATEGORI
-            local function ProcessCategory(typeKey, dataKey, toggleObj, bridgeKey, coinKey)
-                local currentVal = pData[dataKey]
-                if not currentVal then return end
-                
-                local infoDB = MetaManager.Shared[typeKey]
-                local currentInfo = infoDB and infoDB[currentVal]
-                if currentInfo.Icon == "" then
-                    currentInfo.Icon = "rbxassetid://135703908712176"
+            -- Logika Locking Map (Haki)
+            if currentMap ~= "Pirate District" then
+                if not lockStates.Haki then
+                    lockStates.Haki = true
+                    for _, e in ipairs(HakiElements) do e:Lock("Go to Pirate District") end
                 end
-                
-                -- Visual Sync
-                if currentVal ~= lastData[typeKey] then
-                    lastData[typeKey] = currentVal
-                    if currentInfo then
-                        toggleObj:SetMainImage({
-                            Image = currentInfo.Icon or "rbxassetid://135703908712176",
-                            Gradient = MetaManager.Utils.Colors:GetRarity(currentInfo.Rarity),
-                            Title = currentVal,
-                            Quantity = currentInfo.Rarity,
-                        }, 60)
-                    end
-                end
-
-                -- Info Koin & Pity (Cek via Inventory)
-                local pityData = pData.Pity or {}
-                local pityCount = pityData[typeKey] or 0
-                local pityPhase = (pData.PityPhase and pData.PityPhase[typeKey]) or "Mythical"
-                local maxPity = (pityPhase == "Mythical") and 1200 or 30000
-                
-                local inventory = pData.Inventory and pData.Inventory.Items or {}
-                local coins = inventory[coinKey] or 0
-                local multipliers = GetMultipliersText(typeKey, currentVal)
-
-                toggleObj:SetTitle("Fast Auto " .. typeKey .. ": " .. currentVal)
-                toggleObj:SetDesc(string.format(
-                    "Coins: %d | Boost: [%s]\nPity [%s]: %d/%d\nStatus: %s",
-                    coins, multipliers, (pityPhase == "Mythical" and "Mythical" or "Secret"),
-                    pityCount, maxPity,
-                    (Config["AutoReroll"..typeKey] and (coins > 0 and "Rolling..." or "Out of Coins!") or "Idle")
-                ))
-
-                -- [[ LOGIKA AUTO REROLL & 10s EQUIP ]] --
-                if Config["AutoReroll"..typeKey] then
-                    -- A. Gacha Logic
-                    if coins > 0 then
-                        pcall(function()
-                            MetaManager.Bridge:Fire(bridgeKey, "Reroll")
-                        end)
-                    end
-
-                    -- B. Timer 10 Detik (Menjaga Energy tetap tertinggi saat reroll)
-                    if tick() - lastEquipTime[typeKey] >= 10 then
-                        lastEquipTime[typeKey] = tick()
-                        EquipBestEnergy(typeKey)
-                    end
-                end
+            else
+                if lockStates.Haki then lockStates.Haki = false; for _, e in ipairs(HakiElements) do e:Unlock() end end
             end
 
-            -- Eksekusi per Kategori
+            -- [[ EKSEKUSI PROSES DENGAN VALIDASI ]] --
             ProcessCategory("Family", "Family", AutoFamilyToggle, "Family", "Family Coin")
             ProcessCategory("Nen", "Nen", AutoNenToggle, "Nen", "Nen Token")
             ProcessCategory("Passives", "Passive", AutoPassiveToggle, "Passives", "Passive Token")
+            ProcessCategory("Haki", "Haki", AutoHakiToggle, "Haki", "Haki Orb")
         end
     end
 end)
+-- [[ BYPASS GACHA COOLDOWN GLOBAL ]] --
+task.spawn(function()
+    local GachaModules = {
+        MetaManager.Scripts.Family,
+        MetaManager.Scripts.Nen,
+        MetaManager.Scripts.Passives,
+        MetaManager.Scripts.Haki
+    }
 
+    while task.wait() do
+        for _, mod in ipairs(GachaModules) do
+            if mod and mod.ClearCooldown then
+                -- Memanggil fungsi asli game yang meriset cooldown v_u_6
+                pcall(mod.ClearCooldown)
+            end
+        end
+    end
+end)
 -- [[ ELEMEN UNTUK KATEGORI ZERINGAN ]] --
 
 local ZeringanElements = {}
@@ -1774,7 +1852,6 @@ local AutoHatchToggle = FM_Add("Hatch Pets", FarmTab:Toggle({
         end
     end
 }))
-
 -- 4. Task Utama: Instant Gacha Loop
 task.spawn(function()
     while task.wait(0.1) do -- Batas aman pengiriman Remote
@@ -1783,9 +1860,20 @@ task.spawn(function()
         if Config.AutoHatch then
             local starModel = GetNearestStarModel()
             
-            if starModel then
-                local starName = starModel.Parent.Parent.Name
-                local eggType = LocalPlayer.Character:GetAttribute("Egg") or "Normal"
+            -- [[ VALIDASI HIERARKI & INSTANCE ]] --
+            if starModel and starModel.Parent and starModel.Parent.Parent then
+                -- Gunakan tostring untuk memastikan tidak ada objek Instance mentah yang terkirim ke UI
+                local starName = tostring(starModel.Parent.Parent.Name or "Unknown")
+                
+                -- Ambil attribute dan pastikan itu string
+                local rawEggType = LocalPlayer.Character:GetAttribute("Egg")
+                local eggType = "Normal"
+                
+                if typeof(rawEggType) == "Instance" then
+                    eggType = rawEggType.Name
+                else
+                    eggType = tostring(rawEggType or "Normal")
+                end
                 
                 -- [[ INSTANT BYPASS ]]
                 -- Paksa attribute selalu false agar server mau menerima request baru secara instan
@@ -1796,16 +1884,26 @@ task.spawn(function()
                     MetaManager.Bridge:Fire("Stars", "Multi", starName, eggType)
                 end)
                 
-                -- Update Info di Hub secara Real-time
+                -- [[ UPDATE UI DENGAN VALIDASI PITY ]] --
                 local mapInfo = MetaManager.Shared.Maps[starName]
-                local pity = getgenv().PlayerData.Pity and getgenv().PlayerData.Pity[tostring(mapInfo and mapInfo.Index or "")] or 0
+                local pityData = getgenv().PlayerData.Pity
+                local pityIndex = tostring(mapInfo and mapInfo.Index or "")
+                local pity = tonumber(pityData and pityData[pityIndex]) or 0
                 
-                AutoHatchToggle:SetDesc(string.format(
-                    "Hatching: %s\nType: %s | Pity: %d/1200\nStatus: FULL HOOK (Silent)",
-                    starName, eggType, math.clamp(pity, 0, 1200)
-                ))
+                -- Gunakan pcall pada SetDesc agar jika terjadi error UI, loop tidak mati
+                pcall(function()
+                    AutoHatchToggle:SetDesc(string.format(
+                        "Hatching: %s\nType: %s | Pity: %d/1200\nStatus: FULL HOOK (Silent)",
+                        starName, 
+                        eggType, 
+                        math.clamp(pity, 0, 1200)
+                    ))
+                end)
             else
-                AutoHatchToggle:SetDesc("Status: Standby (Mendekatlah ke Star)")
+                -- Jika tidak ada star di dekatnya
+                pcall(function()
+                    AutoHatchToggle:SetDesc("Status: Standby (Mendekatlah ke Star)")
+                end)
             end
         end
     end
@@ -2004,6 +2102,160 @@ task.spawn(function()
 
                 if Config.AutoCraft and canCraft then
                     pcall(function() MetaManager.Bridge:Fire("Forge", "Craft", SelectedCraftItem) end)
+                end
+            end
+        end
+    end
+end)
+
+-- [[ ELEMEN UNTUK KATEGORI FRUIT MERCHANT ]] --
+local FruitElements = {}
+Config.AutoBuyFruits = {} 
+
+-- 1. Helper: Format Multiplier Khusus Buah (Berdasarkan Struktur Array Decompile)
+local function GetFruitStatsText(fruitInfo)
+    if not fruitInfo or not fruitInfo.Multipliers then return "No Stats" end
+    local buffs = {}
+    for _, v in ipairs(fruitInfo.Multipliers) do
+        -- v[1] = Nama Stat, v[2] = Nilai Multiplier
+        local statName = tostring(v[1])
+        local val = v[2]
+        if statName == "Energy" then
+            -- Penyesuaian visual +1 sesuai logika decompile game
+            val = tostring((MetaManager.Utils.Number:Unformat(v[2]) or 0) + 1) .. "x"
+        end
+        table.insert(buffs, string.format("%s: %s", statName, val))
+    end
+    return table.concat(buffs, " | ")
+end
+
+-- 2. Dropdown Pilih Buah dengan Title [Rarity] & Sort Berdasarkan Index
+local FruitSelectionDropdown = FM_Add("Fruit Merchant", FarmTab:Dropdown({
+    Title = "Auto Buy Selected Fruits",
+    Desc = "Displays Price & Multipliers in Emeralds.",
+    Flag = "FruitSelection_Dropdown",
+    Values = (function()
+        local list = {}
+        -- 1. Kumpulkan data dari Shared.Fruits
+        for id, info in pairs(MetaManager.Shared.Fruits) do
+            local stats = GetFruitStatsText(info)
+            table.insert(list, {
+                -- Menambahkan Rarity ke Title
+                Title = string.format("%s [%s]", tostring(info.Name), tostring(info.Rarity or "Common")), 
+                RawName = id, 
+                Desc = string.format("Price: %s Emeralds | %s", tostring(info.Price or "0"), stats),
+                -- Menyimpan Index untuk keperluan sorting
+                SortIndex = tonumber(info.Index) or 0 
+            })
+        end
+
+        -- 2. Urutkan daftar berdasarkan Index (Ascending)
+        table.sort(list, function(a, b)
+            return a.SortIndex < b.SortIndex
+        end)
+
+        return list
+    end)(),
+    Multi = true,
+    Flag = "AutoBuyFruits_Dropdown",
+    Callback = function(val)
+        Config.AutoBuyFruits = {}
+        if type(val) == "table" then
+            for _, item in ipairs(val) do table.insert(Config.AutoBuyFruits, item.RawName) end
+        end
+    end
+}))
+
+-- 3. Toggle Auto Buy & Auto Equip
+local AutoFruitToggle = FM_Add("Fruit Merchant", FarmTab:Toggle({
+    Title = "Enable Fruit Automation",
+    Desc = "Smart Buy (Check Owned & Emeralds)",
+    Default = false,
+    Flag = "AutoFruit_Toggle",
+    Callback = function(val) Config.AutoFruitActive = val end
+}))
+
+-- [[ TASK UTAMA: FRUIT MERCHANT LOGIC ]] --
+task.spawn(function()
+    while task.wait(1) do
+        if not Window or Window.Destroyed then break end
+        
+        local pData = getgenv().PlayerData
+        if pData and pData.Banner and pData.Banner.FruitMerchant then
+            local bannerData = pData.Banner.FruitMerchant
+            local inStockList = bannerData.List or {}
+            
+            -- AMBIL EMERALD DARI INVENTORI
+            local inventoryItems = pData.Inventory and pData.Inventory.Items or {}
+            local playerEmeralds = inventoryItems["Emerald"] or 0 
+            
+            -- A. UPDATE UI DESCRIPTION & TIMER
+            local timeLeft = 1800 - (os.time() - (bannerData.LastUpdate or 0))
+            local timerStr = MetaManager.Utils.Number:Time2(math.max(0, timeLeft))
+            
+            pcall(function()
+                AutoFruitToggle:SetDesc(string.format(
+                    "Emeralds: %s | Restock: %s\nStatus: %s",
+                    MetaManager.Utils.Number:Format(playerEmeralds),
+                    timerStr,
+                    Config.AutoFruitActive and "Monitoring Stock..." or "Idle"
+                ))
+            end)
+
+            -- B. LOGIKA AUTO BUY (DENGAN VALIDASI KETAT)
+            if Config.AutoFruitActive then
+                for _, targetID in ipairs(Config.AutoBuyFruits) do
+                    local fruitInfo = MetaManager.Shared.Fruits[targetID]
+                    local isOwned = pData.Inventory.Fruits and pData.Inventory.Fruits[targetID] -- Cek kepemilikan
+                    local isInStock = false
+                    
+                    -- Cek apakah buah ada di stok banner saat ini (Banner.List bisa berupa table/array)
+                    for _, stockID in pairs(inStockList) do
+                        if stockID == targetID then isInStock = true break end
+                    end
+                    
+                    -- Validasi Harga: Ubah string harga menjadi angka
+                    local priceNum = fruitInfo and MetaManager.Utils.Number:Unformat(fruitInfo.Price) or 0
+                    
+                    -- SYARAT BELI: 
+                    -- 1. Ada di stok
+                    -- 2. BELUM dimiliki (mencegah buang-buang koin)
+                    -- 3. Emerald mencukupi (playerEmeralds >= priceNum)
+                    if isInStock and not isOwned and playerEmeralds >= priceNum then
+                        pcall(function()
+                            MetaManager.Bridge:Fire("FruitMerchant", "Buy", targetID)
+                            Notify("Fruit Purchased", "Successfully bought: " .. targetID, "gem")
+                        end)
+                        task.wait(0.5)
+                    end
+                end
+
+                -- C. AUTO EQUIP BEST ENERGY FRUIT
+                local bestFruit = nil
+                local maxEnergy = -1
+                
+                if pData.Inventory.Fruits then
+                    for id, owned in pairs(pData.Inventory.Fruits) do
+                        if owned then
+                            local info = MetaManager.Shared.Fruits[id]
+                            if info and info.Multipliers then
+                                for _, mult in ipairs(info.Multipliers) do
+                                    if mult[1] == "Energy" then
+                                        local val = MetaManager.Utils.Number:Unformat(mult[2]) or 0
+                                        if val > maxEnergy then
+                                            maxEnergy = val
+                                            bestFruit = id
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- Pasang jika buah terbaik berbeda dengan yang dipakai saat ini
+                if bestFruit and pData.Fruit ~= bestFruit then
+                    pcall(function() MetaManager.Bridge:Fire("FruitMerchant", "Equip", bestFruit) end)
                 end
             end
         end
