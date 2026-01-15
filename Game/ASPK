@@ -796,19 +796,24 @@ Config.AutoTimeRewards = false
 task.spawn(function()
     while task.wait(1) do
         if not Window or Window.Destroyed then 
-            OriginalDebounceCheck(player, action, duration)
+            Debounce.Check = function(player, action, duration)
+                if action == "AntiAfkCounter" then
+                    return true
+                end
+                return OriginalDebounceCheck(player, action, duration)
+            end
             break
         end
         Debounce.Check = function(player, action, duration)
-        if (action == "_combat" or action == "_click_client") and Config.FastClick then
-            return false
+            if (action == "_combat" or action == "_click_client") and Config.FastClick then
+                return false
+            end
+            if action == "AntiAfkCounter" then
+                return true
+            end
+            return OriginalDebounceCheck(player, action, duration)
         end
-        if action == "AntiAfkCounter" then
-            return true
-        end
-        return OriginalDebounceCheck(player, action, duration)
     end
-end
 end)
 local AutoTimeRewardsToggle
 AutoTimeRewardsToggle = FM_Add("Farm", FarmTab:Toggle({
@@ -1024,6 +1029,7 @@ local function UpdateVaultGachaEntry(entry, isOpen)
                 if entry.desiredLockReason then
                     entry.toggle:Lock(entry.desiredLockReason)
                     entry.toggle:Set(false)
+                    entry.pendingOff = false
                 else
                     entry.toggle:Unlock()
                 end
