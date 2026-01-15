@@ -1,7 +1,7 @@
 if game.PlaceId ~= 113013172442707 then return end
 repeat task.wait() until game:IsLoaded()
--- Pastikan script tidak duplikat untuk mencegah hook overflow
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading5.lua"))()
+getgenv().SLoading.SubTitle = "Anime Dominion"
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
