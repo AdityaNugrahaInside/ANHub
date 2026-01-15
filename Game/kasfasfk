@@ -2,9 +2,8 @@ if game.PlaceId ~= 105716258039711 then
     return
 end
 repeat task.wait() until game:IsLoaded()
-
--- [LOADING SCREEN]
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading2.lua"))()
+getgenv().SLoading.SubTitle = "Anime Advanced"
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 -- ============================================================================
 -- [SERVICES]
 local Players = game:GetService("Players")
