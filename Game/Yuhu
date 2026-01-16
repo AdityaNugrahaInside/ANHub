@@ -42,10 +42,6 @@ RarityPowerUI = {} -- Tempat menyimpan toggle UI
 AvatarCursesPath = ReplicatedStorage.Scripts.Configs.Machines.AvatarCurses
 AvatarCursesConfig = require(AvatarCursesPath) -- Otomatis memuat TokenName, TokenCost, dan Table
 
---- Temporary Script
-ChristmasRankConfig = require(ReplicatedStorage.Scripts.Configs.Christmas.ChristmasRankUp)
-ChristmasShopConfig = require(game:GetService("ReplicatedStorage").Scripts.Configs.Christmas.ChristmasShop)
----
 hrp = nil
 humanoid = nil
 LastZone = nil
@@ -1461,7 +1457,6 @@ FM_Category = FarmTab:Category({
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
         {Title="Heroes Stats", Icon=GetIcon(127892390350003)},-- Tambahkan di dalam FM_Category Options
         {Title="Ascension", Icon=GetIcon(84524784941090)},
-        {Title="Christmas Stuff", Icon=GetIcon(83940950425492)}, -- Menggunakan icon bertema
         {Title="Enchantments", Icon=GetIcon(136460822046355)},
         {Title="Weapon Reforging", Icon=GetIcon(76533888574769)},
         {Title="Exchange", Icon=GetIcon(101595095661272)},
@@ -1662,7 +1657,7 @@ function LogicGamemodes()
 
         local EnemiesFolder = Workspace:FindFirstChild("Enemies")
         local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
-        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "ChristmasRaid" or currentMap == "SorcerersDefense"))
+        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "SorcerersDefense"))
         
         if currentMap == "Raid" then isFightingZone = true 
         elseif currentMap == "Defense" then isFightingZone = hasEnemies
@@ -1833,7 +1828,6 @@ function LogicGamemodes()
                 
                 -- Daftar prioritas pengecekan mode
                 local CheckList = {
-                    {ID="ChristmasRaid",    DB=nil,       Cfg=Config.TargetChristmas,   Key="ChristmasModeKey",         CanOpen=true,  SelName="Christmas Raid"},
                     {ID="PirateTower",      DB=nil,       Cfg=Config.TargetPirateTower, Key="PirateTowerModeKey",      CanOpen=true,  SelName="PirateTower"},
                     {ID="ShadowGate",       DB=nil,       Cfg=Config.TargetShadowGate,  Key="ShadowPortalModeKey",     CanOpen=true,  SelName="ShadowGate"},
                     {ID="SorcerersDefense", DB=nil,       Cfg=Config.TargetSorcerersDefense, Key="SorcerersDefenseModeKey", CanOpen=true, SelName="SorcerersDefense"},
@@ -2022,35 +2016,6 @@ function LoadDefenseData()
     end;
 end;
 LoadDefenseData();
-function LoadChristmasData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.ChristmasRaid)
-    end)
-    
-    if success and module then
-        christmasList, christmasDB = {}, {}
-        -- Gunakan "Christmas Raid" sebagai kunci tampilan, tapi pastikan ID internal sinkron
-        local rName = "Christmas Raid" 
-        
-        local hpCalc = (module.HealthBase or 0) // 50
-        local desc = "HP: " .. UtilsModule.ToText(hpCalc)
-        local rewardCards = GenerateCardRewards(module.ChanceReward)
-
-        table.insert(christmasList, {
-            Title = rName,
-            Desc = desc,
-            Value = rName, -- Value ini harus sama dengan kunci di christmasDB
-            Images = rewardCards
-        })
-        
-        christmasDB[rName] = {
-            ID = nil, -- Dikosongkan agar tidak menambah ":" pada string remote
-            Times = module.START_TIMES or {0, 30},
-            BaseDesc = desc
-        }
-    end
-end
-LoadChristmasData()
 function BuildGameModesDropdownValues()
     local out = {}
 
@@ -2084,9 +2049,6 @@ function BuildGameModesDropdownValues()
     AddList("Dungeon", dungeonList, true)
     AddList("Raid", raidList, true)
     AddList("Defense", defenseList, true)
-    if IsPremium then
-        AddList("Christmas", christmasList, true)
-    end
     AddList("", pirateTowerList, false) -- Pirate Tower tidak butuh prefix
     AddList("", shadowGateList, false)  -- Shadow Gate tidak butuh prefix
     AddList("", sorcerersDefenseList, false)
@@ -2103,7 +2065,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Callback = function(val)
-        local dungeonT, raidT, defenseT, christmasT, pirateT, shadowT, sorcerersT = {}, {}, {}, {}, {}, {}, {}
+        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT = {}, {}, {}, {}, {}, {}
 
         for _, v in pairs(val) do
             -- Ambil Value murni
@@ -2117,7 +2079,6 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                     if mode == "Dungeon" then table.insert(dungeonT, name)
                     elseif mode == "Raid" then table.insert(raidT, name)
                     elseif mode == "Defense" then table.insert(defenseT, name)
-                    elseif mode == "Christmas" then table.insert(christmasT, name)
                     end
                 else
                     -- Handle Single Mode (tanpa titik dua)
@@ -2128,7 +2089,6 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                 end
             end
         end
-        Config.TargetChristmas = christmasT
         Config.TargetDungeon = dungeonT
         Config.TargetRaid = raidT
         Config.TargetDefense = defenseT
@@ -2255,7 +2215,6 @@ local function IsSafeReturnZoneName(zoneName)
     if zoneName == "SorcerersDefense" then return false end
     if zoneName == "PirateTower" then return false end
     if zoneName == "ShadowGate" then return false end
-    if zoneName == "ChristmasRaid" then return false end
     return true
 end
 
@@ -2299,32 +2258,6 @@ task.spawn(function()
                         currentVal = tonumber(string.match(txt, "%d+")) or 0
                         targetLimit = Config.AutoLeave_Raid
                         modeActive = true
-                    end
-                end
-
-                -- B.2 Cek CHRISTMAS RAID (Support Auto Leave Raid)
-                if not modeActive then
-                    local cRaidUI = HudGamemode:FindFirstChild("ChristmasRaid")
-                    if cRaidUI and cRaidUI.Visible then
-                         local txt = ""
-                         -- Coba cari text amount baik di wave atau room (Flexible)
-                         local wave = cRaidUI:FindFirstChild("wave") or cRaidUI:FindFirstChild("Wave")
-                         local amount = wave and wave:FindFirstChild("amount")
-                         
-                         if amount and amount.Text then
-                            txt = amount.Text
-                         else
-                             -- Fallback barangkali strukturnya room
-                             local room = cRaidUI:FindFirstChild("room") or cRaidUI:FindFirstChild("Room")
-                             local amount2 = room and room:FindFirstChild("amount")
-                             if amount2 and amount2.Text then
-                                txt = amount2.Text
-                             end
-                         end
-
-                         currentVal = tonumber(string.match(tostring(txt), "%d+")) or 0
-                         targetLimit = Config.AutoLeave_Raid
-                         modeActive = true
                     end
                 end
 
@@ -3140,8 +3073,8 @@ end
 VaultModes = {"Mastery", "Damage", "Yen", "Luck"}
 
 FM_Add("Vault", FarmTab:Dropdown({
-    Title = "Auto Equip Best (GameMode or Xmas)",
-    Desc = "Auto equip best stat inside GameModes or Xmas Map",
+    Title = "Auto Equip Best (GameMode)",
+    Desc = "Auto equip best stat inside GameModes",
     Values = VaultModes,
     Multi = false,
     AllowNone = true,
@@ -3197,7 +3130,7 @@ task.spawn(function()
             
             local currentMap = GetCurrentMapStatus()
             -- Cari baris ini di sekitar baris 1452 dan ganti dengan ini:
-            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "Christmas") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "ChristmasRaid" or currentMap == "Christmas"))
+            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
 
             -- [PRIORITAS 1: MEGA BOSS]
             -- Jika Mega Boss Aktif (via Auto Mega Boss) DAN config equip Mega Boss dipilih
@@ -3220,7 +3153,7 @@ task.spawn(function()
                             pcall(function()
                                 Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultMode })
                             end)
-                            if Notify then Notify("Vault Auto", "Equip (GameMode or Xmas): " .. tostring(Config.AutoEquipVaultMode)) end
+                            if Notify then Notify("Vault Auto", "Equip (GameMode): " .. tostring(Config.AutoEquipVaultMode)) end
                         end
                         
                         LastVaultState = "GameMode"
@@ -4103,58 +4036,6 @@ if not IsPremium then
     pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
 end
 
--- [[ CATEGORY: CHRISTMAS STUFF ]] --
-
--- --- SECTION: RANK UP ---
-ChristmasRankProgressUI = FarmTab:Paragraph({ 
-    Title = "Christmas Rank Progress", 
-    Desc = "Scanning Christmas data...", 
-    Image = GetIcon(83038997753095), 
-    ImageSize = 40 
-})
-FM_Add("Christmas Stuff", ChristmasRankProgressUI)
-
-ChristmasRankToggle = FarmTab:Toggle({ 
-    Title = "Auto Christmas Rank Up", 
-    Desc = "Automatically rank up using candies from PlayerData.Christmas.",
-    Flag = "AutoChristmasRankUp_Cfg", 
-    Callback = function(val) Config.AutoChristmasRankUp = val end 
-})
-FM_Add("Christmas Stuff", ChristmasRankToggle)
-
--- --- SECTION: SHOP ---
-ChristmasShopDrop = FarmTab:Dropdown({
-    Title = "Select Christmas Shop Item",
-    Desc = "Select item to auto-buy with ChristmasCoin.",
-    Values = {}, 
-    Multi = false,
-    AllowNone = true,
-    Flag = "SelectedChristmasItem_Cfg",
-    Callback = function(val)
-        Config.SelectedChristmasItemIndex = type(val) == "table" and val.Value or val
-    end
-})
-FM_Add("Christmas Stuff", ChristmasShopDrop)
-
-ChristmasAutoBuyToggle = FarmTab:Toggle({
-    Title = "Auto Buy Christmas Item",
-    Desc = "Will buy selected item automatically when coins are sufficient.",
-    Flag = "AutoBuyChristmasItem_Cfg",
-    Image = GetIcon(98730091935293), 
-    ImageSize = 50,
-    Callback = function(val) Config.AutoBuyChristmasItem = val end
-})
-FM_Add("Christmas Stuff", ChristmasAutoBuyToggle)
-
-if not IsPremium then
-    Config.AutoChristmasRankUp = false
-    Config.AutoBuyChristmasItem = false
-    pcall(function() ChristmasRankToggle:Set(false) end)
-    pcall(function() ChristmasAutoBuyToggle:Set(false) end)
-    pcall(function() ChristmasRankToggle:Lock("Need Premium User") end)
-    pcall(function() ChristmasShopDrop:Lock("Need Premium User") end)
-    pcall(function() ChristmasAutoBuyToggle:Lock("Need Premium User") end)
-end
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -4657,7 +4538,6 @@ function Optimizer.Update_Gamemode_Dropdowns()
     AddSummary(Config.TargetDungeon, dungeonDB, "Dgn")
     AddSummary(Config.TargetRaid, raidDB, "Raid")
     AddSummary(Config.TargetDefense, defenseDB, "Def")
-    AddSummary(Config.TargetChristmas, christmasDB, "Xmas")
     
     if Config.TargetPirateTower and #Config.TargetPirateTower > 0 then
         table.insert(summaryItems, "• Pirate Tower")
@@ -6436,141 +6316,6 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
         end
     end
 end
-function Optimizer.Update_Christmas_Stuff_Logic(pData)
-    -- [A] LOGIKA RANK UP (Berdasarkan Decompile ChristmasRankUp)
-    local christmasData = pData.Christmas
-    if christmasData and ChristmasRankConfig then
-        local cRank = christmasData.Rank or 0
-        local cCandies = christmasData.Candies or 0
-        local maxRank = ChristmasRankConfig.MAX or 10
-        
-        local req = ChristmasRankConfig.GetRequirement(cRank)
-        local curBuff = ChristmasRankConfig.GetBuff(cRank)
-        local nxtBuff = ChristmasRankConfig.GetBuff(cRank + 1)
-        
-        local pct = (req and req > 0) and math.clamp(cCandies / req, 0, 1) or 0
-        local bar = string.rep("█", math.floor(pct * 10)) .. string.rep("▒", 10 - math.floor(pct * 10))
-        
-        local bTxt = (cRank >= maxRank) and string.format("Buff: %s%% (MAX)", UtilsModule.ToText(curBuff)) 
-                     or string.format("Buff: %s%% >> %s%%", UtilsModule.ToText(curBuff), UtilsModule.ToText(nxtBuff))
-        
-        local finalDesc = string.format("%s\n[%s] %d%%\nCandies: %s / %s", bTxt, bar, math.floor(pct * 100), UtilsModule.ToText(cCandies), UtilsModule.ToText(req or 0))
-        
-        if ChristmasRankProgressUI and _UIDescCache["ChristmasRank"] ~= finalDesc then
-            ChristmasRankProgressUI:SetTitle("Christmas Rank " .. cRank)
-            ChristmasRankProgressUI:SetDesc(finalDesc)
-            _UIDescCache["ChristmasRank"] = finalDesc
-        end
-
-        if Config.AutoChristmasRankUp and cRank < maxRank and req and cCandies >= req then
-            if Reliable then pcall(function() Reliable:FireServer("Christmas RankUp") end) end
-        end
-    end
-
-    -- [B] LOGIKA SHOP & DESKRIPSI TOGGLE (Dinamis Ikon & Detail Coin)
-    if ChristmasShopConfig then
-        -- 1. Refresh list dropdown jika belum dimuat (Tetap sama)
-        if not Optimizer.Cache.ChristmasShopLoaded then
-            local itemList = {}
-            for index, data in ipairs(ChristmasShopConfig) do
-                local itemSource = (data.Class == "Materials") and MaterialsModule or (data.Class == "Potions") and PotionsData
-                local itemInfo = itemSource and itemSource[data.Name]
-                
-                if itemInfo then
-                    table.insert(itemList, {
-                        Title = itemInfo.Display .. " (" .. data.Cost .. ")",
-                        Value = index,
-                        Icon = GetIcon(itemInfo.Template or 84366761557806)
-                    })
-                end
-            end
-            if ChristmasShopDrop then ChristmasShopDrop:Refresh(itemList) end
-            Optimizer.Cache.ChristmasShopLoaded = true
-        end
-
-        -- 2. Update Deskripsi & Gambar Utama Toggle
-        if ChristmasAutoBuyToggle then
-            local myCoins = pData.Materials and pData.Materials.ChristmasCoin or 0
-            
-            -- Ambil info koin natal secara dinamis dari MaterialsModule
-            local coinInfo = MaterialsModule["ChristmasCoin"]
-            local coinName = coinInfo and coinInfo.Display or "Christmas Coin"
-            local coinIcon = coinInfo and GetIcon(coinInfo.Template) or GetIcon(15774844626)
-            
-            local toggleDesc = ""
-            local currentMainImage = coinIcon -- Default jika tidak ada item terpilih
-            local currentRarity = "Common"
-            local currentItemTitle = "Christmas Shop"
-
-            if Config.SelectedChristmasItemIndex then
-                local idx = Config.SelectedChristmasItemIndex
-                local shopItem = ChristmasShopConfig[idx]
-
-                if shopItem then
-                    local itemSource = (shopItem.Class == "Materials") and MaterialsModule or (shopItem.Class == "Potions") and PotionsData
-                    local itemInfo = itemSource and itemSource[shopItem.Name]
-                    
-                    if itemInfo then
-                        local matIcon = GetIcon(itemInfo.Template or 84366761557806)
-                        local cost = shopItem.Cost or 0
-                        
-                        -- Update info untuk SetMainImage
-                        currentMainImage = matIcon
-                        currentRarity = itemInfo.Rarity or "Common"
-                        currentItemTitle = itemInfo.Display or shopItem.Name
-
-                        -- Deskripsi Lengkap: [Ikon Koin] [Nama Koin]: [Saldo] | Cost: [Harga]
-                        toggleDesc = string.format("%s %s: %s\nCost: %s %s", 
-                            coinIcon, coinName, UtilsModule.ToText(myCoins), 
-                            UtilsModule.ToText(cost), matIcon)
-                    end
-                end
-            else
-                -- Tampilan saat belum memilih item
-                toggleDesc = string.format("%s %s: %s\nSelect an item from the dropdown.", 
-                    coinIcon, coinName, UtilsModule.ToText(myCoins))
-            end
-
-            -- [CACHE GAMBAR] Agar performa tetap ringan (SetMainImage hanya jalan jika gambar berubah)
-            local imageHash = currentMainImage .. currentRarity .. currentItemTitle
-            if Optimizer.Cache.LastChristmasShopMainImageHash ~= imageHash then
-                if ChristmasAutoBuyToggle.SetMainImage then
-                    ChristmasAutoBuyToggle:SetMainImage({
-                        Image = currentMainImage,
-                        Title = currentItemTitle,
-                        Quantity = currentRarity,
-                        Gradient = GetGameGradient(currentRarity)
-                    }, 50)
-                end
-                Optimizer.Cache.LastChristmasShopMainImageHash = imageHash
-            end
-
-            -- [CACHE TEKS]
-            if Optimizer.Cache.LastChristmasShopToggleDesc ~= toggleDesc then
-                ChristmasAutoBuyToggle:SetDesc(toggleDesc)
-                Optimizer.Cache.LastChristmasShopToggleDesc = toggleDesc
-            end
-        end
-
-        -- 3. Eksekusi Auto Buy (Tetap Sama)
-        if Config.AutoBuyChristmasItem and Config.SelectedChristmasItemIndex then
-            local idx = Config.SelectedChristmasItemIndex
-            local shopItem = ChristmasShopConfig[idx]
-            local myCoins = pData.Materials and pData.Materials.ChristmasCoin or 0
-            
-            if shopItem and myCoins >= shopItem.Cost then
-                if Reliable then
-                    local now = tick()
-                    if not Optimizer.Cache.LastChristmasBuy or (now - Optimizer.Cache.LastChristmasBuy) > 1.2 then
-                        pcall(function() Reliable:FireServer("ChristmasShop Buy", { idx }) end)
-                        Notify("Christmas Shop", "Bought: " .. shopItem.Name, "shopping-cart")
-                        Optimizer.Cache.LastChristmasBuy = now
-                    end
-                end
-            end
-        end
-    end
-end
 -- MAIN GLOBAL LOOP TRIGGER
 -- // OPTIMIZED MAIN LOOP //
 task.spawn(function()
@@ -6605,7 +6350,6 @@ task.spawn(function()
             pcall(Optimizer.Update_RarityPower_Logic, pData)
             pcall(Optimizer.Update_AvatarCurse_Logic, pData)
             pcall(Optimizer.Update_EnergyUpgrade_Logic, pData)
-            pcall(Optimizer.Update_Christmas_Stuff_Logic,pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
