@@ -816,7 +816,7 @@ task.spawn(function()
             break
         end
         Debounce.Check = function(player, action, duration)
-            if (action == "_combat" or action == "_click_client") and Config.FastClick then
+            if (action == "_combat" or action == "_click_client" or action == "_rating") and Config.FastClick then
                 return false
             end
             if action == "AntiAfkCounter" then
@@ -907,23 +907,14 @@ local function UpdateRankUpUI()
 
     local currentRank = LocalPlayer:GetAttribute("Rank") or 0
     local currentCoins = LocalPlayer:GetAttribute("Coins") or 0
-
     local cache = Optimizer and Optimizer.Cache and Optimizer.Cache.RankUp
+
+    -- Prevent redundant updates if data hasn't changed
     if cache and cache.LastRank == currentRank and cache.LastCoins == currentCoins then
-        if Config.AutoRankUp and cache.NextCost and currentCoins >= cache.NextCost then
-            local now = os.clock()
-            local lastAscend = cache.LastAscend or 0
-            if (now - lastAscend) >= 1 then
-                cache.LastAscend = now
-                SendConnection("System", "_main", "_ascension")
-                Notify("Rank Up!", "Berhasil naik ke Rank " .. (currentRank + 1), "arrow-up")
-            end
-        end
-        if IsWindowOpen() then
-            _ApplyUIState(RankUpToggle)
-        end
+        if IsWindowOpen() then _ApplyUIState(RankUpToggle) end
         return
     end
+
     if cache then
         cache.LastRank = currentRank
         cache.LastCoins = currentCoins
@@ -934,55 +925,48 @@ local function UpdateRankUpUI()
 
     if nextRankData then
         local cost = nextRankData[1]
-        if cache then
-            cache.NextCost = cost
-        end
+        if cache then cache.NextCost = cost end
+        
         local progress = math.clamp(currentCoins / cost, 0, 1)
-
         local barLen = 15
         local filled = math.floor(progress * barLen)
         local bar = "[" .. string.rep("█", filled) .. string.rep("░", barLen - filled) .. "]"
 
         local titleTxt = string.format("Rank: %s | Bonus: +%s%%", currentRank, (currentRankData[2] - 1) * 100)
-        local descTxt = string.format(
-            "%s %s%%\nCoins: %s / %s",
-            bar,
-            math.floor(progress * 100),
-            AbbreviateService:Comma(currentCoins),
-            AbbreviateService:Comma(cost)
-        )
+        local descTxt = string.format("%s %s%%\nCoins: %s / %s", bar, math.floor(progress * 100), AbbreviateService:Comma(currentCoins), AbbreviateService:Comma(cost))
 
         if _RankUpUIState then
             _RankUpUIState.desiredTitle = titleTxt
             _RankUpUIState.desiredDesc = descTxt
         end
-        if IsWindowOpen() then
-            _ApplyUIState(RankUpToggle)
-        end
+
+        -- Ensure the toggle is unlocked if not yet Max
+        pcall(function() RankUpToggle:Unlock() end)
 
         if Config.AutoRankUp and currentCoins >= cost then
             local now = os.clock()
-            local lastAscend = cache and cache.LastAscend or 0
-            if (now - lastAscend) >= 1 then
-                if cache then
-                    cache.LastAscend = now
-                end
+            if (now - (cache.LastAscend or 0)) >= 1 then
+                cache.LastAscend = now
                 SendConnection("System", "_main", "_ascension")
-                Notify("Rank Up!", "Berhasil naik ke Rank " .. (currentRank + 1), "arrow-up")
+                Notify("Rank Up!", "Successfully ascended to Rank " .. (currentRank + 1), "arrow-up")
             end
         end
     else
-        if cache then
-            cache.NextCost = nil
-        end
+        -- LOGIC FOR MAX RANK
+        if cache then cache.NextCost = nil end
         if _RankUpUIState then
             _RankUpUIState.desiredTitle = "Rank: MAX"
-            _RankUpUIState.desiredDesc = "Kamu telah mencapai Rank tertinggi!"
+            _RankUpUIState.desiredDesc = "You have reached the maximum Rank!"
         end
-        if IsWindowOpen() then
-            _ApplyUIState(RankUpToggle)
-        end
+        
+        pcall(function()
+            Config.AutoRankUp = false -- Disable config
+            RankUpToggle:Set(false, true) -- Set visual toggle to OFF
+            RankUpToggle:Lock("Max Rank Reached") -- Lock the UI element
+        end)
     end
+    
+    if IsWindowOpen() then _FlushAllUIStates() end
 end
 
 LocalPlayer.AttributeChanged:Connect(function(attr)
@@ -1352,7 +1336,7 @@ task.spawn(function()
                     local currentLoc = currentIslandObj:GetAttribute("Name")
                     
                     -- Simpan lokasi hanya jika bukan di area trial/defense
-                    if currentLoc and currentLoc ~= "_trial_easy" and currentLoc ~= "_dbz_defense" and currentLoc ~= "" then
+                    if currentLoc and currentLoc ~= "_trial_easy" and currentLoc ~= "" then
                         Config.LastIsland = currentLoc
                     end
                 end
@@ -1409,7 +1393,25 @@ Connection:receive("_update_minigame", function(data)
     end
 end)
 
--- [[ UPDATED EGGS CATEGORY ]] --
+-- [[ UPDATED EGGS CATEGORY - BYPASS VERSION ]] --
+
+-- 1. SPOOFING LOGIC (Letakkan ini tepat di atas dropdown Egg agar terpanggil saat script di-run)
+local function BypassHatchCooldown()
+    pcall(function()
+        local Mults = NightXLibrary.get_index("_mults")
+        if Mults and Mults._invoke then
+            local oldInvoke = Mults._invoke
+            Mults._invoke = function(...)
+                local res = oldInvoke(...)
+                if typeof(res) == "table" and res[2] then
+                    res[2] = 999999 -- Memaksa 7 / 999999 sehingga delay = 0
+                end
+                return res
+            end
+        end
+    end)
+end
+BypassHatchCooldown()
 
 -- 1. Egg Selection Dropdown
 local EggList = {
@@ -1429,20 +1431,21 @@ FM_Add("Eggs", FarmTab:Dropdown({
     end
 }))
 
--- 3. Auto Hatch Toggle
+-- 3. Auto Hatch Toggle (With Animation & Logic Bypass)
 FM_Add("Eggs", FarmTab:Toggle({
     Title = "Auto Hatch Eggs",
-    Desc = "Uses Manual Hatch logic with no delay.",
+    Desc = "Bypass cooldown and animations for instant hatching.",
     Default = false,
-    Flag = "AutoHatch_Toggle",
+    -- Flag = "AutoHatch_Toggle",
     Callback = function(val)
         Config.AutoHatch = val
+        -- Bypass Animasi via decompile path
         local EggService = require(ReplicatedStorage.frame_work.library._services.animations_service.egg)
         if val then
             if not getgenv().OriginalEggAnimation then
                 getgenv().OriginalEggAnimation = EggService._s
             end
-            EggService._s = function() end --
+            EggService._s = function() end -- Mematikan fungsi animasi
         else
             if getgenv().OriginalEggAnimation then
                 EggService._s = getgenv().OriginalEggAnimation
@@ -1451,26 +1454,28 @@ FM_Add("Eggs", FarmTab:Toggle({
     end
 }))
 
--- [[ MANUAL-STYLE AUTO HATCH LOGIC ]] --
+-- [[ OPTIMIZED AUTO HATCH LOOP (BYPASS 3s) ]] --
 task.spawn(function()
     while true do
-        task.wait(1)
+        -- Jeda minimal untuk stabilitas frame UI
+        task.wait(0.01) 
         if not Window or Window.Destroyed then break end
         
-        if Config.AutoHatch then
+        if Config.AutoHatch and Config.SelectedEgg then
             local charPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
             if not charPos then continue end
 
-            -- Logic from _open_upvr: Check all eggs in workspace
+            -- Mencari model Egg di workspace berdasarkan pilihan
             for _, eggModel in pairs(workspace._interacts._eggs:GetChildren()) do
-                -- Check if this is the egg we selected in the UI
                 if tonumber(eggModel.Name) == Config.SelectedEgg then
-                    -- Magnitude check (Distance <= 10)
+                    -- Cek Magnitude (Jarak) sesuai logika magnitude.eggs
                     local dist = (eggModel.M.Position - charPos.Position).Magnitude
-                    if dist <= 10 then
-                        -- Send exact remote: "System", "_egg", "_open"
+                    if dist <= 15 then -- Jarak sedikit diperlebar agar lebih stabil saat bergerak
+                        -- Mengirim signal pembukaan egg
                         SendConnection("System", "_egg", "_open", Config.SelectedEgg)
-                        task.wait(3)
+                        
+                        -- BYPASS: Sebelumnya task.wait(3), sekarang 0.1 untuk Fast Hatching
+                        task.wait(3) 
                     end
                 end
             end
@@ -1577,19 +1582,13 @@ local function UpdatePowerUpgradeUI()
     local currentLevel = LocalPlayer:GetAttribute("PowerUpgrade") or 0
     local shardsOwned = GetDragonShards()
     local maxLevel = #PowerUpgradeIndex
-    
     local nextData = PowerUpgradeIndex[currentLevel + 1]
     local currentData = PowerUpgradeIndex[currentLevel]
     
-    local bonusTxt = "0%"
-    if currentData then
-        bonusTxt = ((currentData[2] - 1) * 100) .. "%"
-    end
-    
+    local bonusTxt = currentData and ((currentData[2] - 1) * 100) .. "%" or "0%"
     local cost = nextData and nextData[1] or 0
     local isMax = currentLevel >= maxLevel
     
-    -- Logika Warna Rich Text
     local colorCode = (shardsOwned >= cost) and "#00FF00" or "#FF0000"
     local costDisplay = isMax and "MAX" or AbbreviateService:Comma(cost)
     local statusDesc = string.format("Level: %d/%d | Bonus: +%s\n<font color=\"%s\">Dragon Shards: %s/%s</font>", 
@@ -1598,15 +1597,19 @@ local function UpdatePowerUpgradeUI()
     pcall(function()
         PowerUpgradeToggle:SetTitle(isMax and "Power Upgrade [MAX]" or "Power Upgrade")
         PowerUpgradeToggle:SetDesc(statusDesc)
-        if not IsPremium then
+        
+        -- AUTOMATIC LOCK SYSTEM
+        if isMax then
+            Config.AutoPowerUpgrade = false
+            PowerUpgradeToggle:Set(false, true)
+            PowerUpgradeToggle:Lock("Max Level Reached")
+        elseif not IsPremium then
             PowerUpgradeToggle:Lock("Premium Only")
-            PowerUpgradeToggle:Set(false)
         else
             PowerUpgradeToggle:Unlock()
         end
     end)
 
-    -- Logika Auto Upgrade Power
     if IsPremium and Config.AutoPowerUpgrade and not isMax and shardsOwned >= cost then
         SendConnection("System", "_main", "_power_upgrades")
     end
@@ -1633,9 +1636,14 @@ local function UpdateTrialUpgradeUI()
         pcall(function()
             entry.toggle:SetTitle(isMax and entry.Name .. " [MAX]" or entry.Name)
             entry.toggle:SetDesc(string.format("Level: %d/11 | Bonus: +%.1f%%\n%s", level, bonusTotal, materialStatus))
-            if not IsPremium then
+            
+            -- AUTOMATIC LOCK SYSTEM
+            if isMax then
+                Config["AutoTrial_" .. entry.Name] = false
+                entry.toggle:Set(false, true)
+                entry.toggle:Lock("Max Level Reached")
+            elseif not IsPremium then
                 entry.toggle:Lock("Premium Only")
-                entry.toggle:Set(false)
             else
                 entry.toggle:Unlock()
             end
@@ -1861,6 +1869,7 @@ end
 SettingsTab:Toggle({
     Title = "High Performance Mode",
     Desc = "Menghapus tekstur, bayangan, dan efek untuk menaikkan FPS.",
+    Flag = "HighPerformance_toggle",
     Default = false,
     Callback = function(val)
         if val then
