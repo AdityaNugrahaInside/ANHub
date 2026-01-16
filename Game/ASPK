@@ -804,8 +804,9 @@ end
 OriginalDebounceCheck = Debounce.Check
 -- [[ AUTO COLLECT TIME REWARDS ]] --
 Config.AutoTimeRewards = false
+-- Cari bagian Debounce.Check di script kamu dan ganti/tambahkan seperti ini:
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(0.1) do
         if not Window or Window.Destroyed then 
             Debounce.Check = function(player, action, duration)
                 if action == "AntiAfkCounter" then
@@ -815,16 +816,41 @@ task.spawn(function()
             end
             break
         end
+        
+        -- Bypass Cooldown (Sudah ada di script kamu)
         Debounce.Check = function(player, action, duration)
             if (action == "_combat" or action == "_click_client" or action == "_rating") and Config.FastClick then
                 return false
             end
-            if action == "AntiAfkCounter" then
-                return true
-            end
+            if action == "AntiAfkCounter" then return true end
             return OriginalDebounceCheck(player, action, duration)
         end
     end
+end)
+
+-- Pastikan diletakkan di bagian inisialisasi script
+local oldTaskDelay
+oldTaskDelay = hookfunction(getrenv().task.delay, function(d, f)
+    -- 1. Cek syarat dasar (FastClick aktif, d adalah angka, f adalah fungsi)
+    if Config.FastClick and typeof(d) == "number" and typeof(f) == "function" then
+        
+        -- 2. Ambil "Constants" (isi variabel/string tetap) di dalam fungsi f
+        -- Kita menggunakan pcall agar jika executor tidak support tidak menyebabkan crash
+        local success, constants = pcall(function() 
+            return (debug.getconstants or getconstants)(f) 
+        end)
+
+        if success and constants then
+            -- 3. Filter spesifik: Cari apakah ada string "_click" di dalam fungsi tersebut
+            if table.find(constants, "_click") and d < 0.8 then
+                -- Jika ini adalah fungsi pemicu klik, jalankan instan!
+                return task.spawn(f)
+            end
+        end
+    end
+
+    -- 4. Jika bukan fungsi _click, jalankan delay normal (Aman untuk sistem lain)
+    return oldTaskDelay(d, f)
 end)
 local AutoTimeRewardsToggle
 AutoTimeRewardsToggle = FM_Add("Farm", FarmTab:Toggle({
@@ -1248,7 +1274,8 @@ end
 
 -- Control variables
 -- [[ MINI GAME & AUTO LEAVE ]] --
-Config.TargetWave = 10; Config.LastIsland = "_hub"
+Config.TargetWave = 10;
+Config.LastIsland = ""
 FM_Add("Mini Game", FarmTab:Toggle({ Title = "Auto Enter Trial Easy", Default = false, Flag = "AutoTrialEasy_Toggle", Callback = function(val) Config.AutoTrialEasy = val end }))
 FM_Add("Mini Game", FarmTab:Toggle({ Title = "Auto Leave Trial", Default = false, Flag = "AutoLeaveWave_Toggle", Callback = function(val) Config.AutoLeaveWave = val end }))
 
@@ -1370,23 +1397,8 @@ Connection:receive("_update_minigame", function(data)
                     -- 1. Tentukan tujuan balik
                     local destination = Config.LastIsland or "_hub"
                     
-                    -- 2. PENTING: Hapus data LastIsland agar tidak memicu listener Manual Exit
-                    Config.LastIsland = nil 
-                    
-                    -- 3. Matikan toggle agar tidak spam selama proses teleport
-                    Config.AutoLeaveWave = false 
-                    
                     -- 4. Jalankan teleportasi
-                    SendConnection("System", "_main", "_teleport", destination, "Lobby")                
-                    
-                    Notify("Auto Leave", "Target Wave reached! Returning to: " .. destination, "log-out")
-                    
-                    -- 5. Nyalakan kembali toggle setelah 10 detik agar siap untuk Trial berikutnya
-                    task.delay(10, function()
-                        if Window and not Window.Destroyed then
-                            Config.AutoLeaveWave = true
-                        end
-                    end)
+                    SendConnection("System", "_main", "_teleport", destination, "Lobby")
                 end)
             end
         end
@@ -1458,7 +1470,7 @@ FM_Add("Eggs", FarmTab:Toggle({
 task.spawn(function()
     while true do
         -- Jeda minimal untuk stabilitas frame UI
-        task.wait(0.01) 
+        task.wait(0.1) 
         if not Window or Window.Destroyed then break end
         
         if Config.AutoHatch and Config.SelectedEgg then
@@ -1473,9 +1485,6 @@ task.spawn(function()
                     if dist <= 15 then -- Jarak sedikit diperlebar agar lebih stabil saat bergerak
                         -- Mengirim signal pembukaan egg
                         SendConnection("System", "_egg", "_open", Config.SelectedEgg)
-                        
-                        -- BYPASS: Sebelumnya task.wait(3), sekarang 0.1 untuk Fast Hatching
-                        task.wait(3) 
                     end
                 end
             end
@@ -1807,6 +1816,90 @@ SettingsTab:Button({
         Notify("Success", "Deleted!", "trash")
     end
 })
+-- ==========================================
+-- LOGIKA SERVER BROWSER (SORTED BY ID)
+-- ==========================================
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+
+local function GetSortedServers()
+    local ServerList = {}
+    local PlaceId = game.PlaceId
+    
+    -- Mengambil data server publik (Limit 100)
+    local url = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+    
+    local success, response = pcall(function()
+        return game:HttpGet(url)
+    end)
+
+    if success then
+        local data = HttpService:JSONDecode(response)
+        if data and data.data then
+            local rawServers = data.data
+            
+            -- 1. Sortir berdasarkan JobId secara Alfanumerik
+            table.sort(rawServers, function(a, b)
+                return a.id < b.id
+            end)
+            
+            -- 2. Masukkan ke tabel Dropdown dengan penomoran (No. ID Server)
+            local count = 0
+            for _, srv in ipairs(rawServers) do
+                -- if srv.id ~= game.JobId then -- Jangan masukkan server saat ini
+                    count = count + 1
+                    
+                    -- Format Title: "1. ID: [8-digit-id] (Pemain/Max)"
+                    local displayTitle = string.format("%d. ID: %s... [%d/%d]", 
+                        count, 
+                        srv.id:sub(1, 8), 
+                        srv.playing, 
+                        srv.maxPlayers
+                    )
+                    
+                    table.insert(ServerList, {
+                        Title = displayTitle,
+                        Value = srv.id -- Ini JobId asli untuk teleport
+                    })
+                -- end
+            end
+        end
+    end
+
+    return ServerList
+end
+
+-- ==========================================
+-- PENAMBAHAN KE UI (TAB SETTINGS)
+-- ==========================================
+SettingsTab:Section({ Title = "Server Browser", Icon = "server", Opened = false });
+
+local ServerDropdown = SettingsTab:Dropdown({
+    Title = "Server List",
+    Desc = "Daftar server diurutkan berdasarkan JobID.",
+    Values = GetSortedServers(),
+    Callback = function(val)
+        if val and val.Value then
+            Notify("Server", "Teleporting to Server #" .. val.Title:match("^(%d+)"), "send")
+            task.wait(0.5)
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, val.Value, LocalPlayer)
+        end
+    end
+})
+
+SettingsTab:Button({
+    Title = "Refresh Server List",
+    Icon = "refresh-cw",
+    Callback = function()
+        local updatedList = GetSortedServers()
+        if #updatedList > 0 then
+            ServerDropdown:Refresh(updatedList)
+            Notify("Success", "Daftar server diperbarui!", "check")
+        else
+            Notify("Error", "Gagal mengambil data server.", "x")
+        end
+    end
+})
 SettingsTab:Button({
     Title = "Rejoin Server",
     Icon = "rotate-cw",
@@ -1887,7 +1980,7 @@ SettingsTab:Button({
     Callback = function()
         for _, v in pairs(workspace:GetChildren()) do
             if v:IsA("BasePart") and v.Transparency == 1 and not v:IsA("Terrain") then
-                -- v:Destroy() -- Hati-hati dengan ini, bisa menghapus part penting
+                v:Destroy() -- Hati-hati dengan ini, bisa menghapus part penting
             end
         end
         Notify("Cleaned", "Workspace items optimized.", "check")
