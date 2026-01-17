@@ -789,7 +789,7 @@ AutoFastAttackToggle = FM_Add("Farm", FarmTab:Toggle({
     Default = false,
     Flag = "AutoFastAttack_Toggle",
     Callback = function(val)
-        if val and not IsPremium then
+        if not IsPremium then
             Config.FastClick = false
             pcall(function()
                 AutoFastAttackToggle:Unlock()
@@ -799,6 +799,14 @@ AutoFastAttackToggle = FM_Add("Farm", FarmTab:Toggle({
             return
         end
         Config.FastClick = val
+        while task.wait(0.01) do
+            if not Window or Window.Destroyed then break end
+            if not Config.FastClick then
+                SendConnection("System", "_main", "_click")
+            else
+                break
+            end
+        end
     end
 }))
 if not IsPremium then
@@ -815,12 +823,7 @@ Config.AutoTimeRewards = false
 task.spawn(function()
     while task.wait(0.1) do
         if not Window or Window.Destroyed then 
-            Debounce.Check = function(player, action, duration)
-                if action == "AntiAfkCounter" then
-                    return true
-                end
-                return OriginalDebounceCheck(player, action, duration)
-            end
+            Config.FastClick = false
             break
         end
         
@@ -833,31 +836,6 @@ task.spawn(function()
             return OriginalDebounceCheck(player, action, duration)
         end
     end
-end)
-
--- Pastikan diletakkan di bagian inisialisasi script
-local oldTaskDelay
-oldTaskDelay = hookfunction(getrenv().task.delay, function(d, f)
-    -- 1. Cek syarat dasar (FastClick aktif, d adalah angka, f adalah fungsi)
-    if Config.FastClick and typeof(d) == "number" and typeof(f) == "function" then
-        
-        -- 2. Ambil "Constants" (isi variabel/string tetap) di dalam fungsi f
-        -- Kita menggunakan pcall agar jika executor tidak support tidak menyebabkan crash
-        local success, constants = pcall(function() 
-            return (debug.getconstants or getconstants)(f) 
-        end)
-
-        if success and constants then
-            -- 3. Filter spesifik: Cari apakah ada string "_click" di dalam fungsi tersebut
-            if table.find(constants, "_click") and d < 0.8 then
-                -- Jika ini adalah fungsi pemicu klik, jalankan instan!
-                return task.spawn(f)
-            end
-        end
-    end
-
-    -- 4. Jika bukan fungsi _click, jalankan delay normal (Aman untuk sistem lain)
-    return oldTaskDelay(d, f)
 end)
 local AutoTimeRewardsToggle
 AutoTimeRewardsToggle = FM_Add("Farm", FarmTab:Toggle({
