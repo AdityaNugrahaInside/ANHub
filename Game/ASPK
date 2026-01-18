@@ -1253,22 +1253,55 @@ for i = 1, #SortedGachas, 2 do
         CreateGachaToggle(Group, item2.ID, item2.Data)
     end
 end
--- [[ MINI GAME CATEGORY ELEMENTS ]] --
-
--- [[ MINI GAME CATEGORY - UPDATED WITH DECOMPILE LOGIC ]] --
-
 -- Control variables
 -- [[ MINI GAME & AUTO LEAVE ]] --
 Config.TargetWave = 10;
+-- [[ GLOBAL CONTROL & TRIAL SETTINGS ]] --
+-- [[ MINI GAME: AUTO ENTRANCE & SPECIAL (TOP) ]] --
 Config.LastIsland = ""
-FM_Add("Mini Game", FarmTab:Toggle({ Title = "Auto Enter Trial Easy", Default = false, Flag = "AutoTrialEasy_Toggle", Callback = function(val) Config.AutoTrialEasy = val end }))
-FM_Add("Mini Game", FarmTab:Toggle({ Title = "Auto Leave Trial", Default = false, Flag = "AutoLeaveWave_Toggle", Callback = function(val) Config.AutoLeaveWave = val end }))
 
--- TOGGLE BARU: Auto 2x Power Area
+-- Group 1: Global Control & Tokyo
+local GlobalGroup = FM_Add("Mini Game", FarmTab:Group({ Title = "Global Control & Tokyo" }))
+GlobalGroup:Toggle({ 
+    Title = "Mini Game Auto Leave", 
+    Default = false, 
+    Flag = "GlobalAutoLeave_Toggle", 
+    Callback = function(val) Config.GlobalAutoLeave = val end 
+})
+GlobalGroup:Toggle({ 
+    Title = "Auto Tokyo Raid", 
+    Default = false, 
+    Flag = "AutoTokyo_Toggle", 
+    Callback = function(val) Config.AutoTokyoRaid = val end 
+})
+
+-- Group 2: Raids & Tower Entrance
+local EntranceGroup = FM_Add("Mini Game", FarmTab:Group({ Title = "Raids & Tower Entrance" }))
+EntranceGroup:Toggle({ 
+    Title = "Auto DBZ Raid", 
+    Default = false, 
+    Flag = "AutoDBZ_Toggle", 
+    Callback = function(val) Config.AutoDBZRaid = val end 
+})
+EntranceGroup:Toggle({ 
+    Title = "Auto HxH Tower", 
+    Default = false, 
+    Flag = "AutoHXH_Toggle", 
+    Callback = function(val) Config.AutoHXHTower = val end 
+})
+
+-- Group 3: Trial & Special Area
+local SpecialGroup = FM_Add("Mini Game", FarmTab:Group({ Title = "Trial & Special Area" }))
+SpecialGroup:Toggle({ 
+    Title = "Auto Trial Easy", 
+    Default = false, 
+    Flag = "AutoTrial_Toggle", 
+    Callback = function(val) Config.AutoTrialEasy = val end 
+})
+
 local AutoPowerAreaToggle
-AutoPowerAreaToggle = FM_Add("Mini Game", FarmTab:Toggle({ 
+AutoPowerAreaToggle = SpecialGroup:Toggle({ 
     Title = "Auto 2x Power Area", 
-    Desc = "Teleports to Training Area when area is Dbz Defense.",
     Default = false, 
     Flag = "AutoPowerArea_Toggle",
     Callback = function(val) 
@@ -1283,107 +1316,138 @@ AutoPowerAreaToggle = FM_Add("Mini Game", FarmTab:Toggle({
         end
         Config.AutoPowerArea = val 
     end 
-}))
-if not IsPremium then
-    Config.AutoPowerArea = false
-    pcall(function()
-        AutoPowerAreaToggle:Set(false, false, true)
-        AutoPowerAreaToggle:Lock("Premium Only")
-    end)
-end
+})
 
-FM_Add("Mini Game", FarmTab:Input({ Title = "Target Wave to Leave", Placeholder = "10", Flag = "TargetWave_Input", Callback = function(val) Config.TargetWave = tonumber(val) or 10 end }))
+-- [[ MINI GAME: TARGET WAVE SETTINGS (BOTTOM) ]] --
 
--- Definisikan ini di luar task.spawn (di bagian atas script utama)
-local lastTrialMinute = -1 
+-- Group 4: Trial & Tokyo Waves
+local WaveGroup1 = FM_Add("Mini Game", FarmTab:Group({ Title = "Trial & Tokyo Waves" }))
+WaveGroup1:Input({ 
+    Title = "Trial Target Wave", 
+    Placeholder = "10", 
+    Flag = "WaveTrial_Input", -- Menambahkan flag untuk menyimpan data Trial
+    Callback = function(val) Config.Wave_Trial = tonumber(val) or 10 end 
+})
+WaveGroup1:Input({ 
+    Title = "Tokyo Target Wave", 
+    Placeholder = "5", 
+    Flag = "WaveTokyo_Input", -- Menambahkan flag untuk menyimpan data Tokyo
+    Callback = function(val) Config.Wave_Tokyo = tonumber(val) or 5 end 
+})
 
--- [[ MANUAL EXIT AUTO-RETURN LOGIC ]] --
+-- Group 5: DBZ & HxH Waves
+local WaveGroup2 = FM_Add("Mini Game", FarmTab:Group({ Title = "DBZ & HxH Waves" }))
+WaveGroup2:Input({ 
+    Title = "DBZ Target Wave", 
+    Placeholder = "5", 
+    Flag = "WaveDBZ_Input", -- Menambahkan flag untuk menyimpan data DBZ
+    Callback = function(val) Config.Wave_DBZ = tonumber(val) or 5 end 
+})
+WaveGroup2:Input({ 
+    Title = "HxH Tower Target Wave", 
+    Placeholder = "15", 
+    Flag = "WaveHXH_Input", -- Menambahkan flag untuk menyimpan data HxH
+    Callback = function(val) Config.Wave_HXH = tonumber(val) or 15 end 
+})
+
+-- [[ FIXED MANUAL EXIT & SCHEDULER ]] --
 task.spawn(function()
     local currentIslandObj = LocalPlayer:WaitForChild("CurrentIsland", 10)
     if currentIslandObj then
         currentIslandObj:GetAttributeChangedSignal("Name"):Connect(function()
             local currentLoc = currentIslandObj:GetAttribute("Name")
-            
-            -- Validasi: Pastikan atribut tidak kosong dan kita tidak sedang di dalam area minigame
-            if not currentLoc or currentLoc == "" or currentLoc == "_trial_easy" or currentLoc == "_dbz_defense" then
-                return
-            end
+            -- Filter: Jangan teleport balik jika sedang di map minigame berikut
+            local MiniMaps = {["_trial_easy"]=true, ["_dbz_defense"]=true, ["_tokyo_raid"]=true, ["_dbz_raid"]=true, ["_hxh_tower"]=true}
+            if not currentLoc or currentLoc == "" or MiniMaps[currentLoc] then return end
 
-            -- Cek apakah ada data lokasi terakhir yang harus kita tuju
             if Config.LastIsland and Config.LastIsland ~= "" then
-                
-                if currentLoc == Config.LastIsland then
-                    -- SKENARIO A: Jika teleport tepat ke map tujuan (misal: _tokyo_city ke _tokyo_city)
-                    Config.LastIsland = nil -- Cukup hapus saja datanya
-                else
-                    -- SKENARIO B: Jika teleport ke map yang salah (misal: ninja_village padahal harusnya tokyo_city)
-                    task.wait(2) -- Jeda loading map
-                    
+                if currentLoc ~= Config.LastIsland then
+                    task.wait(2)
                     pcall(function()
-                        local destination = Config.LastIsland
-                        Config.LastIsland = nil -- Hapus agar tidak terjadi loop teleportasi
-                        
-                        SendConnection("System", "_main", "_teleport", destination, "Lobby")
+                        local dest = Config.LastIsland
+                        Config.LastIsland = nil
+                        SendConnection("System", "_main", "_teleport", dest, "Lobby")
                     end)
+                else
+                    Config.LastIsland = nil
                 end
             end
         end)
     end
 end)
 
--- [[ TRIAL SCHEDULER ]] --
+local lastTrialMinute = -1 
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(2) do
         if not Window or Window.Destroyed then break end
         
-        if Config.AutoTrialEasy then
-            local currentTime = os.date("*t")
-            local minute = currentTime.min
-            
-            if (minute == 0 or minute == 30) and minute ~= lastTrialMinute then
-                lastTrialMinute = minute -- Update menit agar tidak spam
-                
-                local currentIslandObj = LocalPlayer:FindFirstChild("CurrentIsland")
-                if currentIslandObj then
-                    local currentLoc = currentIslandObj:GetAttribute("Name")
-                    
-                    -- Simpan lokasi hanya jika bukan di area trial/defense
-                    if currentLoc and currentLoc ~= "_trial_easy" and currentLoc ~= "" then
-                        Config.LastIsland = currentLoc
-                    end
-                end
+        local currentIslandObj = LocalPlayer:FindFirstChild("CurrentIsland")
+        local currentLoc = currentIslandObj and currentIslandObj:GetAttribute("Name") or ""
+        local MiniMaps = {["_trial_easy"]=true, ["_dbz_defense"]=true, ["_tokyo_raid"]=true, ["_dbz_raid"]=true, ["_hxh_tower"]=true}
+        
+        if MiniMaps[currentLoc] then continue end -- Jika sudah di minigame, stop logic teleport
 
-                pcall(function()
-                    SendConnection("System", "_main", "_teleport", "_trial_easy")
-                    Notify("Mini Game", "Entering Trial. Return point: " .. tostring(Config.LastIsland or "_hub"), "info")
-                end)
-                
-                task.wait(60) -- Keamanan tambahan agar tidak double check dalam 1 menit
+        local currentTime = os.date("*t")
+        local minute = currentTime.min
+        
+        -- Logic Trial (Berdasarkan Waktu)
+        if Config.AutoTrialEasy and (minute == 0 or minute == 30) and minute ~= lastTrialMinute then
+            lastTrialMinute = minute
+            if currentLoc ~= "" then Config.LastIsland = currentLoc end
+            SendConnection("System", "_main", "_teleport", "_trial_easy")
+            task.wait(5)
+            continue
+        end
+
+        -- Logic Raid/Tower (Instan jika Toggle ON)
+        if currentLoc ~= "" and currentLoc ~= "_hub" then
+            if Config.AutoTokyoRaid then
+                Config.LastIsland = currentLoc
+                SendConnection("System", "_main", "_teleport", "_tokyo_raid")
+            elseif Config.AutoDBZRaid then
+                Config.LastIsland = currentLoc
+                SendConnection("System", "_main", "_teleport", "_dbz_raid")
+            elseif Config.AutoHXHTower then
+                Config.LastIsland = currentLoc
+                SendConnection("System", "_main", "_teleport", "_hxh_tower")
             end
         end
     end
 end)
 
--- [[ UPDATED AUTO LEAVE LOGIC ]] --
+-- [[ SEPARATED TARGET WAVES WITH GLOBAL TOGGLE ]] --
 Connection:receive("_update_minigame", function(data)
     if not Window or Window.Destroyed then return end
-    if not data or typeof(data) ~= "table" then return end
+    if not data or typeof(data) ~= "table" or not Config.GlobalAutoLeave then return end
 
     local modeString = data[2] 
-    
     if typeof(modeString) == "string" then
         local waveMatch = string.match(modeString, "Wave%s+(%d+)")
         local currentWave = waveMatch and tonumber(waveMatch)
         
         if currentWave then
-            -- LOGIKA AUTO LEAVE
-            if Config.AutoLeaveWave and currentWave >= tonumber(Config.TargetWave or 10) then
+            local currentIslandObj = LocalPlayer:FindFirstChild("CurrentIsland")
+            local currentLoc = currentIslandObj and currentIslandObj:GetAttribute("Name") or ""
+            
+            local targetWave = 999 -- Default sangat tinggi jika tidak terdeteksi
+            
+            -- Menentukan target wave berdasarkan map saat ini
+            if currentLoc == "_trial_easy" then
+                targetWave = Config.Wave_Trial or 10
+            elseif currentLoc == "_tokyo_raid" then
+                targetWave = Config.Wave_Tokyo or 5
+            elseif currentLoc == "_dbz_raid" then
+                targetWave = Config.Wave_DBZ or 5
+            elseif currentLoc == "_hxh_tower" then
+                targetWave = Config.Wave_HXH or 15
+            end
+
+            -- Jika wave saat ini sudah mencapai atau melewati target
+            if currentWave >= targetWave then
                 pcall(function()
-                    -- 1. Tentukan tujuan balik
-                    local destination = Config.LastIsland or "_hub"
-                    
-                    -- 4. Jalankan teleportasi
+                    local destination = (Config.LastIsland and Config.LastIsland ~= "") and Config.LastIsland or "_hub"
                     SendConnection("System", "_main", "_teleport", destination, "Lobby")
+                    Notify("Auto Leave", "Target reached in " .. currentLoc .. "! Returning to " .. destination, "info")
                 end)
             end
         end
@@ -1392,30 +1456,13 @@ end)
 
 -- [[ UPDATED EGGS CATEGORY - BYPASS VERSION ]] --
 
--- 1. SPOOFING LOGIC (Letakkan ini tepat di atas dropdown Egg agar terpanggil saat script di-run)
-local function BypassHatchCooldown()
-    pcall(function()
-        local Mults = NightXLibrary.get_index("_mults")
-        if Mults and Mults._invoke then
-            local oldInvoke = Mults._invoke
-            Mults._invoke = function(...)
-                local res = oldInvoke(...)
-                if typeof(res) == "table" and res[2] then
-                    res[2] = 999999 -- Memaksa 7 / 999999 sehingga delay = 0
-                end
-                return res
-            end
-        end
-    end)
-end
-BypassHatchCooldown()
-
 -- 1. Egg Selection Dropdown
 local EggList = {
-    {Title = "Ninja Village Egg (50)", Value = 1},
-    {Title = "Tokyo City Egg (250M)", Value = 2},
-    {Title = "XYZ Province Egg (5T)", Value = 3},
-    {Title = "Dragon Island Egg (500Q)", Value = 4}
+    {Title = "Ninja Village", Value = 1},
+    {Title = "Tokyo City", Value = 2},
+    {Title = "XYZ Province", Value = 3},
+    {Title = "Dragon Island", Value = 4},
+    {Title = "Ant Island", Value = 5}
 }
 
 FM_Add("Eggs", FarmTab:Dropdown({
@@ -1432,6 +1479,7 @@ FM_Add("Eggs", FarmTab:Dropdown({
 FM_Add("Eggs", FarmTab:Toggle({
     Title = "Auto Hatch Eggs",
     Desc = "Bypass cooldown and animations for instant hatching.",
+    Flag = "HatchEgg_Toggle",
     Default = false,
     -- Flag = "AutoHatch_Toggle",
     Callback = function(val)
@@ -1538,8 +1586,120 @@ task.delay(2, SafeUpdateWeaponUI)
 local TrialUpgradeEntries = {}
 local PowerUpgradeToggle = nil
 local _PowerUpgradeUIState = nil
+-- [[ TRIAL & POWER UPGRADE CATEGORY - UPDATED ]] --
+local TrialUpgradeEntries = {}
+local PowerUpgradeToggle = nil
+local PowerUpgradeHXHToggle = nil -- Tambahan untuk HxH
 local PowerUpgradeIndex = NightXLibrary.get_index("_power_upgrades")
+local PowerUpgrade2Index = NightXLibrary.get_index("_power_upgrades2") -- Index HxH
+-- [[ DAMAGE UPGRADE INDEX & HELPERS ]] --
+local DamageUpgradeIndex = NightXLibrary.get_index("_damage_upgrades")
+local DamageUpgrade2Index = NightXLibrary.get_index("_damage_upgrades2") -- Index untuk HxH
 
+-- Helper: Mendapatkan jumlah Magic Books
+local function GetMagicBooks()
+    local inv = LocalPlayer:FindFirstChild("Inventory")
+    local items = inv and inv:FindFirstChild("Items")
+    local book = items and items:FindFirstChild("_magic_book")
+    return book and book:GetAttribute("Amount") or 0
+end
+-- Helper: Mendapatkan jumlah Ametist (HxH Currency)
+local function GetAmetists()
+    local inv = LocalPlayer:FindFirstChild("Inventory")
+    local items = inv and inv:FindFirstChild("Items")
+    local ametist = items and items:FindFirstChild("_ametist")
+    return ametist and ametist:GetAttribute("Amount") or 0
+end
+
+-- Fungsi Update Damage Upgrade Dragonball (Magic Books)
+local function UpdateDamageUpgradeDBUI()
+    if not IsWindowAlive() or not DamageUpgradeDBToggle then return end
+    local level = LocalPlayer:GetAttribute("DamageUpgrade") or 0
+    local books = GetMagicBooks()
+    local maxLevel = #DamageUpgradeIndex
+    local nextData = DamageUpgradeIndex[level + 1]
+    local currentData = DamageUpgradeIndex[level]
+    
+    local bonus = currentData and ((currentData[2] - 1) * 100) .. "%" or "0%"
+    local cost = nextData and nextData[1] or 0
+    local isMax = level >= maxLevel
+    local color = (books >= cost) and "#00FF00" or "#FF0000"
+
+    pcall(function()
+        DamageUpgradeDBToggle:SetTitle(isMax and "Damage Upgrade DB [MAX]" or "Damage Upgrade DB")
+        DamageUpgradeDBToggle:SetDesc(string.format("Level: %d/%d | Bonus: +%s\n<font color=\"%s\">Magic Books: %s/%s</font>", 
+            level, maxLevel, bonus, color, AbbreviateService:Comma(books), isMax and "MAX" or AbbreviateService:Comma(cost)))
+        if isMax then DamageUpgradeDBToggle:Set(false, true); DamageUpgradeDBToggle:Lock("Max Level") end
+    end)
+
+    if IsPremium and Config.AutoDamageDB and not isMax and books >= cost then
+        SendConnection("System", "_main", "_damage_upgrades")
+    end
+end
+
+-- Fungsi Update Damage Upgrade HxH (Magic Books)
+local function UpdateDamageUpgradeHXHUI()
+    if not IsWindowAlive() or not DamageUpgradeHXHToggle then return end
+    local level = LocalPlayer:GetAttribute("DamageUpgrade2") or 0
+    local books = GetAmetists()
+    local maxLevel = #DamageUpgrade2Index
+    local nextData = DamageUpgrade2Index[level + 1]
+    local currentData = DamageUpgrade2Index[level]
+    
+    local bonus = currentData and ((currentData[2] - 1) * 100) .. "%" or "0%"
+    local cost = nextData and nextData[1] or 0
+    local isMax = level >= maxLevel
+    local color = (books >= cost) and "#00FF00" or "#FF0000"
+
+    pcall(function()
+        DamageUpgradeHXHToggle:SetTitle(isMax and "Damage Upgrade HxH [MAX]" or "Damage Upgrade HxH")
+        DamageUpgradeHXHToggle:SetDesc(string.format("Level: %d/%d | Bonus: +%s\n<font color=\"%s\">Ametists: %s/%s</font>", 
+            level, maxLevel, bonus, color, AbbreviateService:Comma(books), isMax and "MAX" or AbbreviateService:Comma(cost)))
+        if isMax then DamageUpgradeHXHToggle:Set(false, true); DamageUpgradeHXHToggle:Lock("Max Level") end
+    end)
+
+    if IsPremium and Config.AutoDamageHXH and not isMax and books >= cost then
+        SendConnection("System", "_main", "_damage_upgrades2")
+    end
+end
+-- Fungsi Update untuk Power Upgrade HxH (Ametist)
+local function UpdatePowerUpgradeHXHUI()
+    if not IsWindowAlive() or not PowerUpgradeHXHToggle then return end
+    
+    local currentLevel = LocalPlayer:GetAttribute("PowerUpgrade2") or 0
+    local ametistOwned = GetAmetists()
+    local maxLevel = #PowerUpgrade2Index
+    local nextData = PowerUpgrade2Index[currentLevel + 1]
+    local currentData = PowerUpgrade2Index[currentLevel]
+    
+    local bonusTxt = currentData and ((currentData[2] - 1) * 100) .. "%" or "0%"
+    local cost = nextData and nextData[1] or 0
+    local isMax = currentLevel >= maxLevel
+    
+    local colorCode = (ametistOwned >= cost) and "#00FF00" or "#FF0000"
+    local costDisplay = isMax and "MAX" or AbbreviateService:Comma(cost)
+    local statusDesc = string.format("Level: %d/%d | Bonus: +%s\n<font color=\"%s\">Ametists: %s/%s</font>", 
+        currentLevel, maxLevel, bonusTxt, colorCode, AbbreviateService:Comma(ametistOwned), costDisplay)
+
+    pcall(function()
+        PowerUpgradeHXHToggle:SetTitle(isMax and "Power Upgrade HxH [MAX]" or "Power Upgrade HxH")
+        PowerUpgradeHXHToggle:SetDesc(statusDesc)
+        
+        if isMax then
+            Config.AutoPowerUpgradeHXH = false
+            PowerUpgradeHXHToggle:Set(false, true)
+            PowerUpgradeHXHToggle:Lock("Max Level Reached")
+        elseif not IsPremium then
+            PowerUpgradeHXHToggle:Lock("Premium Only")
+        else
+            PowerUpgradeHXHToggle:Unlock()
+        end
+    end)
+
+    if IsPremium and Config.AutoPowerUpgradeHXH and not isMax and ametistOwned >= cost then
+        SendConnection("System", "_main", "_power_upgrades2")
+    end
+end
 -- 1. Helper: Mendapatkan jumlah Dragon Shard
 local function GetDragonShards()
     local inv = LocalPlayer:FindFirstChild("Inventory")
@@ -1636,25 +1796,38 @@ local function UpdateTrialUpgradeUI()
     end
 end
 
--- 5. Pembuatan UI
--- Group 1: Power Upgrade Utama (Dragon Shard)
-local MainPowerGroup = FM_Add("Trial/Power Upgrade", FarmTab:Group({ Title = "Dragon Shard Upgrades" }))
+-- Group 1: Power Upgrades (Dragon Shard & Ametist)
+local MainPowerGroup = FM_Add("Trial/Power Upgrade", FarmTab:Group({ Title = "Special Power Upgrades" }))
+
+-- Item 1: Dragon Shard
 PowerUpgradeToggle = MainPowerGroup:Toggle({
-    Title = "Power Upgrade",
-    Desc = "Loading data...",
+    Title = "Power Upgrade Dragon",
+    Desc = "Loading...",
     Default = false,
     Flag = "AutoPowerUpgrade_Toggle",
     Callback = function(val)
         if val and not IsPremium then
             Config.AutoPowerUpgrade = false
-            pcall(function()
-                PowerUpgradeToggle:Unlock()
-                PowerUpgradeToggle:Set(false, false, true)
-                PowerUpgradeToggle:Lock("Premium Only")
-            end)
+            pcall(function() PowerUpgradeToggle:Set(false, false, true); PowerUpgradeToggle:Lock("Premium Only") end)
             return
         end
         Config.AutoPowerUpgrade = val
+    end
+})
+
+-- Item 2: HxH Power (Ametist)
+PowerUpgradeHXHToggle = MainPowerGroup:Toggle({
+    Title = "Power Upgrade HxH",
+    Desc = "Loading...",
+    Default = false,
+    Flag = "AutoPowerUpgradeHXH_Toggle",
+    Callback = function(val)
+        if val and not IsPremium then
+            Config.AutoPowerUpgradeHXH = false
+            pcall(function() PowerUpgradeHXHToggle:Set(false, false, true); PowerUpgradeHXHToggle:Lock("Premium Only") end)
+            return
+        end
+        Config.AutoPowerUpgradeHXH = val
     end
 })
 if not IsPremium then
@@ -1662,6 +1835,8 @@ if not IsPremium then
     pcall(function()
         PowerUpgradeToggle:Set(false, false, true)
         PowerUpgradeToggle:Lock("Premium Only")
+        PowerUpgradeHXHToggle:Set(false, false, true)
+        PowerUpgradeHXHToggle:Lock("Premium Only")
     end)
 end
 
@@ -1700,22 +1875,52 @@ for i = 1, #TrialStats, 2 do
     end
 end
 
+-- Group: Damage Upgrades (Dragonball & HxH)
+local DamageGroup = FM_Add("Trial/Power Upgrade", FarmTab:Group({ Title = "Damage Upgrades" }))
+
+DamageUpgradeDBToggle = DamageGroup:Toggle({
+    Title = "Damage Upgrade DB",
+    Default = false,
+    Flag = "AutoDamageDB_Toggle",
+    Callback = function(val)
+        if val and not IsPremium then
+            Config.AutoDamageDB = false
+            pcall(function() DamageUpgradeDBToggle:Set(false, false, true); DamageUpgradeDBToggle:Lock("Premium Only") end)
+            return
+        end
+        Config.AutoDamageDB = val
+    end
+})
+
+DamageUpgradeHXHToggle = DamageGroup:Toggle({
+    Title = "Damage Upgrade HxH",
+    Default = false,
+    Flag = "AutoDamageHXH_Toggle",
+    Callback = function(val)
+        if val and not IsPremium then
+            Config.AutoDamageHXH = false
+            pcall(function() DamageUpgradeHXHToggle:Set(false, false, true); DamageUpgradeHXHToggle:Lock("Premium Only") end)
+            return
+        end
+        Config.AutoDamageHXH = val
+    end
+})
 -- 6. Loop Update & Listener
 task.spawn(function()
-    -- Listener untuk Power Upgrade
-    LocalPlayer:GetAttributeChangedSignal("PowerUpgrade"):Connect(UpdatePowerUpgradeUI)
+    -- Damage Upgrade Listeners
+    LocalPlayer:GetAttributeChangedSignal("DamageUpgrade"):Connect(UpdateDamageUpgradeDBUI)
+    LocalPlayer:GetAttributeChangedSignal("DamageUpgrade2"):Connect(UpdateDamageUpgradeHXHUI)
     
-    -- Listener untuk Trial Upgrades
-    local trialFolder = LocalPlayer:WaitForChild("TrialUpgrades", 10)
-    if trialFolder then
-        for _, stat in ipairs(TrialStats) do
-            trialFolder:GetAttributeChangedSignal(stat):Connect(UpdateTrialUpgradeUI)
-        end
-    end
+    -- Power Upgrade Listeners (Existing)
+    LocalPlayer:GetAttributeChangedSignal("PowerUpgrade"):Connect(UpdatePowerUpgradeUI)
+    LocalPlayer:GetAttributeChangedSignal("PowerUpgrade2"):Connect(UpdatePowerUpgradeHXHUI)
 
     while task.wait(1) do
         if not IsWindowAlive() then break end
+        UpdateDamageUpgradeDBUI()
+        UpdateDamageUpgradeHXHUI()
         UpdatePowerUpgradeUI()
+        UpdatePowerUpgradeHXHUI()
         UpdateTrialUpgradeUI()
     end
 end)
