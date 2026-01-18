@@ -61,6 +61,7 @@ end
 -- INISIALISASI DATA & SERVICES
 -- ==========================================
 local Debounce = NightXLibrary.get_service("debounce_service")
+local DropsService = NightXLibrary.get_service("drops_service") -- Tambahkan ini
 local Connection = NightXLibrary.get_connection()
 local AbbreviateService = NightXLibrary.get_service("abbreviate_service")
 local GradientFolder = ReplicatedStorage:WaitForChild("_assets"):WaitForChild("_gradients")
@@ -682,10 +683,10 @@ FM_CategorySelector = FarmTab:Category({
     },
     Callback = FM_OnChange
 })
+local lastMiniState = false -- Variabel pembantu untuk deteksi perpindahan mode
+local FarmGroup1 = FM_Add("Farm", FarmTab:Group({ Title = "Combat & Targeting" }))
 
-
--- [[ FARM ELEMENTS ]] --
-local EnemyDropdown = FM_Add("Farm", FarmTab:Dropdown({
+local EnemyDropdown = FarmGroup1:Dropdown({
     Title = "Select Enemy",
     Values = GetEnemiesList(),
     Multi = true,
@@ -696,17 +697,9 @@ local EnemyDropdown = FM_Add("Farm", FarmTab:Dropdown({
         if typeof(val) == "table" then for _, item in ipairs(val) do table.insert(Config.SelectedEnemies, item.RawName) end end
         currentTarget = nil
     end
-}))
+})
 
--- ==========================================
--- PERBAIKAN LOGIKA AUTO ATTACK ENEMIES
--- ==========================================
-local lastMiniState = false -- Variabel pembantu untuk deteksi perpindahan mode
-
--- ==========================================
--- AUTO ATTACK DENGAN LOGIKA PAUSE TRIAL
--- ==========================================
-FM_Add("Farm", FarmTab:Toggle({
+FarmGroup1:Toggle({
     Title = "Auto Attack Enemies",
     Default = false,
     Flag = "AutoAttack_Toggle",
@@ -718,21 +711,17 @@ FM_Add("Farm", FarmTab:Toggle({
                     task.wait(0.3)
                     if not IsWindowAlive() then break end
 
-                    -- 1. CEK WAKTU UNTUK PAUSE (Menit 00-01 & 30-31)
                     local currentTime = os.date("*t")
                     local min = currentTime.min
                     local isTrialTime = (min == 0 or min == 1 or min == 30 or min == 31)
                     local inMini = IsInMinigame()
 
-                    -- JIKA Auto Trial ON, sedang di menit krusial, DAN belum masuk minigame: PAUSE
                     if Config.AutoTrialEasy and isTrialTime and not inMini then
-                        currentTarget = nil -- Reset target agar tidak menyerang
-                        -- Opsional: Kirim notifikasi sekali saja jika perlu
+                        currentTarget = nil 
                         task.wait(1) 
-                        continue -- Lewati sisa kode di bawah (Pause)
+                        continue 
                     end
 
-                    -- 2. LOGIKA STANDAR (Akan berjalan jika tidak dalam kondisi pause)
                     local enemiesFolder = workspace:FindFirstChild("_enemies")
                     local firstEnemy = enemiesFolder and enemiesFolder:FindFirstChildOfClass("Model")
                     local isPowerArea = firstEnemy and firstEnemy:GetAttribute("_area") == -200
@@ -781,10 +770,11 @@ FM_Add("Farm", FarmTab:Toggle({
             end)
         end
     end
-}))
--- [[ PERBAIKAN LOGIKA AUTO ATTACK ]] --
+})
+local FarmGroup2 = FM_Add("Farm", FarmTab:Group({ Title = "Fast Attack & Utility" }))
+
 local AutoFastAttackToggle
-AutoFastAttackToggle = FM_Add("Farm", FarmTab:Toggle({
+AutoFastAttackToggle = FarmGroup2:Toggle({
     Title = "Auto Fast Attack",
     Default = false,
     Flag = "AutoFastAttack_Toggle",
@@ -808,14 +798,7 @@ AutoFastAttackToggle = FM_Add("Farm", FarmTab:Toggle({
             end
         end
     end
-}))
-if not IsPremium then
-    Config.FastClick = false
-    pcall(function()
-        AutoFastAttackToggle:Set(false, false, true)
-        AutoFastAttackToggle:Lock("Premium Only")
-    end)
-end
+})
 OriginalDebounceCheck = Debounce.Check
 -- [[ AUTO COLLECT TIME REWARDS ]] --
 Config.AutoTimeRewards = false
@@ -838,7 +821,7 @@ task.spawn(function()
     end
 end)
 local AutoTimeRewardsToggle
-AutoTimeRewardsToggle = FM_Add("Farm", FarmTab:Toggle({
+AutoTimeRewardsToggle = FarmGroup2:Toggle({
     Title = "Auto Collect Time Rewards",
     Desc = "Automatically claims playtime rewards when ready.",
     Default = false,
@@ -855,15 +838,19 @@ AutoTimeRewardsToggle = FM_Add("Farm", FarmTab:Toggle({
         end
         Config.AutoTimeRewards = val
     end
-}))
+})
+
+-- Logika Premium Check untuk Group 2
 if not IsPremium then
+    Config.FastClick = false
     Config.AutoTimeRewards = false
     pcall(function()
+        AutoFastAttackToggle:Set(false, false, true)
+        AutoFastAttackToggle:Lock("Premium Only")
         AutoTimeRewardsToggle:Set(false, false, true)
         AutoTimeRewardsToggle:Lock("Premium Only")
     end)
 end
-
 -- [[ TIME REWARDS AUTO-COLLECT LOGIC ]] --
 task.spawn(function()
     local TimeRewardsIndex = NightXLibrary.get_index("_time_rewards")
@@ -897,6 +884,95 @@ task.spawn(function()
         end
     end
 end)
+
+local FarmGroup3 = FM_Add("Farm", FarmTab:Group({ Title = "Performance Boost" }))
+
+FarmGroup3:Toggle({
+    Title = "Delete Drop Animation",
+    Desc = "Menghilangkan animasi koin/drop untuk mengurangi lag.",
+    Default = false,
+    Flag = "DeleteDropAnim_Toggle",
+    Callback = function(val)
+        Config.DeleteDropAnim = val
+    end
+})
+
+FarmGroup3:Toggle({
+    Title = "Disable Item Popups",
+    Desc = "Removes item/gacha box animations that appear in the center.",
+    Default = false,
+    Flag = "DisableItemPopups_Toggle",
+    Callback = function(val)
+        Config.DisableItemPopups = val
+    end
+})
+-- ==========================================
+-- HOOKING DROP SERVICE (BYPASS ANIMATION)
+-- ==========================================
+local OldHandleDrop = DropsService._handle_drop
+local OldCreateDrop = DropsService._create_drop
+
+-- Hook _handle_drop to disable explosion effects and attachment spawning
+DropsService._handle_drop = function(pos, amount, value, ...)
+    if Config.DeleteDropAnim then
+        -- We still call add_offset so the top coin HUD remains synchronized
+        if shared.coins_hud and shared.coins_hud.add_offset then
+            shared.coins_hud.add_offset(value)
+        end
+        
+        -- Since we want to avoid physical objects, we do not call the original function.
+        -- However, we must ensure the 'fill' reward in the HUD is still updated.
+        if shared.coins_hud and shared.coins_hud.add_fill then
+            shared.coins_hud.add_fill(value)
+        end
+        return 
+    end
+    return OldHandleDrop(pos, amount, value, ...)
+end
+
+-- Hook _create_drop to prevent items from entering the RenderStepped loop
+DropsService._create_drop = function(pos, height, vel, adornee, event, ...)
+    if Config.DeleteDropAnim then
+        -- If there is an event (callback for HUD/Sound updates), execute it instantly
+        if event then
+            task.spawn(event)
+        end
+        
+        -- If an object has already been created (adornee), destroy it immediately
+        if adornee then
+            adornee:Destroy()
+        end
+        
+        -- Return an empty table to prevent errors in the game's RenderStepped loop
+        return { ["position"] = Vector2.zero, ["event"] = nil }
+    end
+    return OldCreateDrop(pos, height, vel, adornee, event, ...)
+end
+
+-- ==========================================
+-- HOOKING POPUP SERVICE (DISABLE ANIMATIONS)
+-- ==========================================
+local PopupService = NightXLibrary.get_service("popup_service")
+
+-- Store original functions
+local OldItemPopup = PopupService._item
+local OldGachaPopup = PopupService._gacha
+
+-- Hook Item Popup function
+PopupService._item = function(itemId, amount, ...)
+    if Config.DisableItemPopups then
+        return -- Bypass UI Tween creation
+    end
+    return OldItemPopup(itemId, amount, ...)
+end
+
+-- Hook Gacha Popup function
+PopupService._gacha = function(gachaId, rollIndex, amount, ...)
+    if Config.DisableItemPopups then
+        return -- Bypass UI Tween creation
+    end
+    return OldGachaPopup(gachaId, rollIndex, amount, ...)
+end
 -- [[ ELEMEN UNTUK KATEGORI RANK UP ]] --
 
 local RankUpToggle = FM_Add("Rank Up", FarmTab:Toggle({
@@ -1211,7 +1287,7 @@ local function CreateGachaToggle(ParentGroup, gachaId, gachaData)
                         if owned >= 1 then
                             SendConnection("System", "_main", "_gachas", gachaId, 1)
                         end
-                        task.wait(3)
+                        task.wait(0.1)
                     end
                 end)
             end
@@ -1351,13 +1427,24 @@ WaveGroup2:Input({
 })
 
 -- [[ FIXED MANUAL EXIT & SCHEDULER ]] --
+-- Daftar Map yang tidak boleh disimpan sebagai LastIsland
+local MiniMaps = {
+    ["_trial_easy"] = true, 
+    ["_dbz_defense"] = true, 
+    ["_tokyo_raid"] = true, 
+    ["_dbz_raid"] = true, 
+    ["_hxh_tower"] = true,
+    ["_hub"] = true, -- Jangan balik ke Hub/Lobby utama
+    ["Lobby"] = true
+}
+
 task.spawn(function()
     local currentIslandObj = LocalPlayer:WaitForChild("CurrentIsland", 10)
     if currentIslandObj then
         currentIslandObj:GetAttributeChangedSignal("Name"):Connect(function()
             local currentLoc = currentIslandObj:GetAttribute("Name")
-            -- Filter: Jangan teleport balik jika sedang di map minigame berikut
-            local MiniMaps = {["_trial_easy"]=true, ["_dbz_defense"]=true, ["_tokyo_raid"]=true, ["_dbz_raid"]=true, ["_hxh_tower"]=true}
+            
+            -- Filter: Jangan teleport balik jika sedang di map minigame
             if not currentLoc or currentLoc == "" or MiniMaps[currentLoc] then return end
 
             if Config.LastIsland and Config.LastIsland ~= "" then
@@ -1365,8 +1452,9 @@ task.spawn(function()
                     task.wait(2)
                     pcall(function()
                         local dest = Config.LastIsland
-                        Config.LastIsland = nil
+                        Config.LastIsland = nil -- Reset setelah digunakan
                         SendConnection("System", "_main", "_teleport", dest, "Lobby")
+                        Notify("Teleport", "Returning to farm: " .. dest, "info")
                     end)
                 else
                     Config.LastIsland = nil
@@ -1378,14 +1466,14 @@ end)
 
 local lastTrialMinute = -1 
 task.spawn(function()
-    while task.wait(2) do
+    while task.wait(3) do
         if not Window or Window.Destroyed then break end
         
         local currentIslandObj = LocalPlayer:FindFirstChild("CurrentIsland")
         local currentLoc = currentIslandObj and currentIslandObj:GetAttribute("Name") or ""
-        local MiniMaps = {["_trial_easy"]=true, ["_dbz_defense"]=true, ["_tokyo_raid"]=true, ["_dbz_raid"]=true, ["_hxh_tower"]=true}
         
-        if MiniMaps[currentLoc] then continue end -- Jika sudah di minigame, stop logic teleport
+        -- Jika sudah di minigame, stop logic teleport otomatis agar tidak loop
+        if MiniMaps[currentLoc] and currentLoc ~= "_hub" then continue end 
 
         local currentTime = os.date("*t")
         local minute = currentTime.min
@@ -1393,14 +1481,18 @@ task.spawn(function()
         -- Logic Trial (Berdasarkan Waktu)
         if Config.AutoTrialEasy and (minute == 0 or minute == 30) and minute ~= lastTrialMinute then
             lastTrialMinute = minute
-            if currentLoc ~= "" then Config.LastIsland = currentLoc end
+            -- PERBAIKAN: Hanya simpan LastIsland jika lokasi saat ini adalah Map Farming (Bukan Minigame)
+            if currentLoc ~= "" and not MiniMaps[currentLoc] then 
+                Config.LastIsland = currentLoc 
+            end
+            
             SendConnection("System", "_main", "_teleport", "_trial_easy")
             task.wait(5)
             continue
         end
 
         -- Logic Raid/Tower (Instan jika Toggle ON)
-        if currentLoc ~= "" and currentLoc ~= "_hub" then
+        if currentLoc ~= "" and not MiniMaps[currentLoc] then
             if Config.AutoTokyoRaid then
                 Config.LastIsland = currentLoc
                 SendConnection("System", "_main", "_teleport", "_tokyo_raid")
