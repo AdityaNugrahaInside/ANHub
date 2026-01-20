@@ -80,8 +80,8 @@ local function IsInMinigame()
     if enemiesFolder then
         local firstEnemy = enemiesFolder:FindFirstChildOfClass("Model")
         if firstEnemy then
-            -- Menambahkan pengecekan atribut _area -200
-            if firstEnemy:GetAttribute("Minigame") or firstEnemy:GetAttribute("_area") == -200 then
+            -- Menambahkan pengecekan atribut _area -201
+            if firstEnemy:GetAttribute("Minigame") or firstEnemy:GetAttribute("_area") == -201 then
                 return true
             end
         end
@@ -107,10 +107,10 @@ local function GetBestTarget()
 
     for _, v in pairs(enemiesFolder:GetChildren()) do
         local enemyArea = v:GetAttribute("_area")
-        local isMinigameEnemy = v:GetAttribute("Minigame") or enemyArea == -200
+        local isMinigameEnemy = v:GetAttribute("Minigame") or enemyArea == -201
         
         -- LOGIKA FILTER:
-        -- 1. Jika di Minigame: Hanya boleh target musuh yang punya atribut Minigame/Area -200
+        -- 1. Jika di Minigame: Hanya boleh target musuh yang punya atribut Minigame/Area -201
         -- 2. Jika Farm Biasa: Hanya target musuh yang ada di daftar SelectedEnemies (Dropdown)
         local isSelected = false
         if inMinigame then
@@ -724,7 +724,7 @@ FarmGroup1:Toggle({
 
                     local enemiesFolder = workspace:FindFirstChild("_enemies")
                     local firstEnemy = enemiesFolder and enemiesFolder:FindFirstChildOfClass("Model")
-                    local isPowerArea = firstEnemy and firstEnemy:GetAttribute("_area") == -200
+                    local isPowerArea = firstEnemy and firstEnemy:GetAttribute("_area") == -201
                     
                     if lastMiniState ~= inMini then
                         lastMiniState = inMini
@@ -734,14 +734,14 @@ FarmGroup1:Toggle({
                     if Config.AutoPowerArea and isPowerArea then
                         local char = LocalPlayer.Character
                         local myRoot = char and char:FindFirstChild("HumanoidRootPart")
-                        local powerPos = Vector3.new(52255.9921875, 3.5937516689300537, 15767.1015625)
+                        local powerPos = Vector3.new(69846.671875, 1.3182189464569092, -19535.611328125)
 
                         if myRoot and (myRoot.Position - powerPos).Magnitude > 10 then
                             myRoot.CFrame = CFrame.new(powerPos)
                         end
                     elseif inMini or #Config.SelectedEnemies > 0 then
                         local enemyArea = currentTarget and currentTarget:GetAttribute("_area")
-                        local currentTargetIsMini = currentTarget and (currentTarget:GetAttribute("Minigame") or enemyArea == -200)
+                        local currentTargetIsMini = currentTarget and (currentTarget:GetAttribute("Minigame") or enemyArea == -201)
                         
                         local isValid = currentTarget 
                             and currentTarget.Parent 
@@ -789,7 +789,7 @@ AutoFastAttackToggle = FarmGroup2:Toggle({
             return
         end
         Config.FastClick = val
-        while task.wait() do
+        while task.wait(0.005) do
             if not Window or Window.Destroyed then break end
             if IsPremium and not Config.FastClick then
                 SendConnection("System", "_main", "_click")
