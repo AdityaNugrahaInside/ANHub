@@ -24,7 +24,10 @@ UnReliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Unreliable")
 ConfigsPath = ReplicatedStorage.Scripts.Configs
 UtilsModule = require(ConfigsPath.Utility.Utils)
 MaterialsModule = require(ConfigsPath.General.Materials)
+UnlocksPrices = require(ConfigsPath.General.Unlocks)
 YenModule = require(ConfigsPath.Machines.YenUpgrades)
+YenUpgrade2Module = require(ConfigsPath.Machines.YenUpgrades2)
+YenUpgrade2ToggleUI = {}
 TokenModule = require(ConfigsPath.Machines.TokenUpgrades)
 RankModule = require(ConfigsPath.Machines.RankUp)
 AvatarLevelsModule = require(ConfigsPath.Machines.AvatarLevels)
@@ -2711,8 +2714,20 @@ function CreateUpgradeSection(parentTab, categoryName, configData, flagPrefix, u
         end
     end
 end
+-- Kode asli Anda untuk Tier 1
 upgradeOrder = {"Luck", "Damage", "Yen", "Mastery", "Critical"}
 CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgradeConfig, "AutoYen_", YenUpgradeToggleUI, upgradeOrder)
+
+-- [TAMBAHKAN KODE INI DI BAWAHNYA]
+-- Pemisah visual agar user tahu ini adalah Tier 2
+local Yen2Separator = FarmTab:Paragraph({
+    Title = "--- Yen Upgrades Tier 2 ---",
+})
+FM_Add("Upgrade: Yen", Yen2Separator)
+
+-- Membuat UI Toggle untuk Tier 2 di kategori yang sama
+upgradeOrder2 = {"Damage", "Mastery", "Yen"} -- Sesuai urutan di config YenUpgrades2
+CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrade2Module.Config, "AutoYen2_", YenUpgrade2ToggleUI, upgradeOrder2)
 if TokenUpgradeConfig then
     CreateUpgradeSection(FarmTab, "Upgrade: Token", TokenUpgradeConfig, "AutoToken_", TokenUpgradeToggleUI, nil)
 end
@@ -4135,6 +4150,28 @@ SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
 });
+SettingsTab:Button({
+    Title = "Copy PlayerData to Clipboard",
+    Icon = "copy",
+    Callback = function()
+        local data = getgenv().PlayerData -- Mengambil data dari variabel global 
+        if data then
+            -- Menggunakan HttpService untuk mengubah tabel menjadi teks JSON [cite: 35]
+            local success, json = pcall(function()
+                return HttpService:JSONEncode(data)
+            end)
+            
+            if success then
+                setclipboard(json) -- Menyalin hasil ke clipboard [cite: 157, 163]
+                Notify("Success", "PlayerData copied! You can now paste it.", "copy") -- Mengirim notifikasi [cite: 74]
+            else
+                Notify("Error", "Failed to format PlayerData", "alert-circle")
+            end
+        else
+            Notify("Error", "PlayerData not found! Try scanning first.", "alert-circle")
+        end
+    end
+})
 ConfigSection = SettingsTab:Section({
     Title = "Config Manager",
     Icon = "save",
@@ -6419,50 +6456,63 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
     end
 end
 function Optimizer.Update_AutoUnlock_Logic(pData)
-    -- Cek switch toggle dan ketersediaan data Yen
+    -- Pastikan fitur aktif dan data dasar tersedia 
     if not Config.AutoUnlockRolls or not Reliable or not pData.Attributes or not pData.Unlocked then return end
 
-    local currentYen = pData.Attributes.Yen or 0
+    local currentYen = pData.Attributes.Yen or 0 --
 
+    -- Melakukan looping berdasarkan data yang diambil dari modul game
     for itemName, cost in pairs(UnlocksPrices) do
-        -- 1. Skip jika harganya Quest
+        -- 1. Lewati jika fitur bersifat Quest
         if type(cost) == "string" and cost == "Quest" then continue end
 
-        -- 2. Cek apakah Yen cukup
+        -- 2. Cek apakah saldo Yen Anda mencukupi
         if currentYen >= cost then
             local isLocked = false
             
-            -- Pengecekan Fitur Sistem (di table Unlocked)
-            if pData.Unlocked[itemName] ~= nil then
-                if pData.Unlocked[itemName] == false then
-                    isLocked = true
-                end
-            -- Pengecekan Gacha/Roll (di table Vault)
+            -- Cek di tabel Unlocked (untuk YenUpgrades2, Mages, dll)
+            if pData.Unlocked[itemName] == nil or pData.Unlocked[itemName] == false then
+                isLocked = true
+            -- Cek di tabel Vault (khusus kategori Roll/Gacha)
             elseif pData.Vault and pData.Vault[itemName] then
                 if pData.Vault[itemName]["1"] == nil or pData.Vault[itemName]["1"] == false then
                     isLocked = true
                 end
-            -- Jika tidak ada di Unlocked maupun Vault, anggap terkunci (Fitur baru)
-            elseif pData.Unlocked[itemName] == nil then
-                isLocked = true
             end
 
-            -- 3. Eksekusi jika benar-benar masih terkunci
+            -- 3. Eksekusi jika terdeteksi masih terkunci
             if isLocked then
                 pcall(function()
-                    -- Remote sesuai decompile: Try Unlock
+                    -- Mengirim remote "Try Unlock" dengan argumen tabel nama fitur
                     Reliable:FireServer("Try Unlock", {itemName})
                 end)
 
                 if Notify then 
-                    Notify("Auto Unlock", "Membeli Fitur: " .. itemName, "shopping-cart") 
+                    Notify("Auto Unlock", "Unlocking Feature: " .. itemName, "shopping-cart") 
                 end
-                
-                -- Tunggu sebentar agar data PlayerData di server terupdate sebelum loop berikutnya
                 task.wait(1)
-                break -- Keluar loop satu kali agar tidak spam sekaligus banyak
+                break 
             end
         end
+    end
+end
+-- Tambahkan fungsi ini ke dalam tabel Optimizer
+function Optimizer.Update_YenUpgrade2_Logic(pData)
+    -- Memastikan data YenUpgrades2 ada di PlayerData
+    if pData.YenUpgrades2 then
+        local yenIcon = GetIcon(139379806755218) -- Menggunakan icon Yen yang sama
+        
+        -- Memanggil fungsi helper generic yang sudah ada di baris 782 skrip Anda
+        Optimizer.GenericUpgradeLogic(
+            YenUpgrade2Module.Config,   -- List Config Tier 2
+            pData.YenUpgrades2,          -- Data Level Player Tier 2
+            YenUpgrade2Module,           -- Module Tier 2 (untuk hitung cost/buff)
+            YenUpgrade2ToggleUI,         -- UI Toggle Tier 2
+            "AutoYen2_",                 -- Prefix Flag Config
+            "Yen Upgrade 2",             -- Nama Remote Event sesuai decompile
+            (pData.Attributes.Yen or 0), -- Jumlah Yen player saat ini
+            yenIcon                      -- Icon Yen
+        )
     end
 end
 -- MAIN GLOBAL LOOP TRIGGER
@@ -6484,6 +6534,7 @@ task.spawn(function()
             -- [TUGAS RINGAN] Update UI (Jalan setiap 0.5 - 1 detik)
             -- Ini aman dijalankan sering-sering karena hanya baca data memory
             pcall(Optimizer.Update_Main_Data_Logic, pData)
+            pcall(Optimizer.Update_YenUpgrade2_Logic, pData)
             pcall(Optimizer.Update_Ascension_Logic, pData)
             pcall(Optimizer.Update_Enchantments_Logic, pData)
             pcall(Optimizer.Update_Reforge_Logic,pData)
