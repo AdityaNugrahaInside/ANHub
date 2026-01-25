@@ -6309,7 +6309,7 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
 
     -- Logika Biaya & Buff (Sesuai Decompile)
     -- Rumus Cost: (lvl * lvl + 1) * 50
-    local cost = (currentLvl * currentLvl + 1) * 50
+    local cost = currentLvl * (currentLvl + 1) * 25+50
     local currentBuff = currentLvl * 10 -- GetBuff: lvl * 10
     
     local isMaxed = currentLvl >= maxLvl
