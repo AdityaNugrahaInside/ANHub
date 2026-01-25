@@ -5228,49 +5228,61 @@ end
 
 function Optimizer.Update_Trainer_Logic(pData)
     for name, data in pairs(CombinedToggleUI) do
-        local toggle, mod, isGacha = data.Toggle, data.Mod, data.IsGacha
-        local currentLvl, tokenKey = 0, ""
-        local itemName, currentImage, currentRarity = (mod.Display or name), "rbxassetid://84366761557806", "Common"
+        -- Gunakan pcall di dalam loop agar jika satu trainer error, yang lain tetap jalan
+        pcall(function()
+            local toggle, mod, isGacha = data.Toggle, data.Mod, data.IsGacha
+            local currentLvl, tokenKey = 0, ""
+            local itemName, currentImage, currentRarity = (mod.Display or name), "rbxassetid://84366761557806", "Common"
 
-        if isGacha then
-            if pData.Attributes and pData.GachaLevel and pData.Attributes[name] then
-                local equippedIndex = pData.Attributes[name]
-                if mod.List and mod.List[equippedIndex] then
-                    local iData = mod.List[equippedIndex]
-                    itemName, currentRarity = iData.Display, iData.Rarity
-                    if iData.Template then currentImage = GetIcon(iData.Template) end
+            if isGacha then
+                if pData.Attributes and pData.GachaLevel and pData.Attributes[name] then
+                    local equippedIndex = pData.Attributes[name]
+                    if mod.List and mod.List[equippedIndex] then
+                        local iData = mod.List[equippedIndex]
+                        itemName, currentRarity = iData.Display, iData.Rarity
+                        if iData.Template then currentImage = GetIcon(iData.Template) end
+                    end
+                    currentLvl = pData.GachaLevel[name][tostring(equippedIndex)] or 0
                 end
-                currentLvl = pData.GachaLevel[name][tostring(equippedIndex)] or 0
+                if currentLvl == 0 then currentLvl = 1 end
+                tokenKey = mod.UpgradeMaterial or (name.."Token")
+            else
+                -- Cek apakah nama index sesuai (Wise vs WiseTrainer)
+                currentLvl = pData.CrateUpgrades[name] or pData.CrateUpgrades[name:gsub("Trainer", "")] or 0
+                if mod.ImageId then currentImage = GetIcon(mod.ImageId) end
+                tokenKey = mod.TOKEN_NAME or (name.."Token")
             end
-            if currentLvl == 0 then currentLvl = 1 end
-            tokenKey = mod.UpgradeMaterial or (name.."Token")
-        else
-            currentLvl = (pData.CrateUpgrades and pData.CrateUpgrades[name]) or 0
-            if mod.ImageId then currentImage = GetIcon(mod.ImageId) end
-            tokenKey = mod.TOKEN_NAME or (name.."Token")
-        end
 
-        local cost, maxLvl = mod.GetCost(currentLvl), (mod.MAX_LEVEL or mod.MaxLevel or 100)
-        local currentMat = pData.Materials[tokenKey] or 0
-        local matInfo = MaterialsModule[tokenKey]
-        local matDisplay = string.format("%s%s", (matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""), (matInfo and matInfo.Display or tokenKey))
+            -- Pastikan fungsi GetCost tersedia sebelum dipanggil
+            local cost = (mod.GetCost and mod.GetCost(currentLvl)) or 0
+            local maxLvl = (mod.MAX_LEVEL or mod.MaxLevel or 100)
+            local currentMat = pData.Materials[tokenKey] or 0
+            local matInfo = MaterialsModule[tokenKey]
+            local matDisplay = string.format("%s%s", (matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""), (matInfo and matInfo.Display or tokenKey))
 
-        local newTitle, newDesc, isMaxed = "", "", false
-        if currentLvl >= maxLvl then
-            isMaxed = true; newTitle = itemName .. " [MAX]"; newDesc = "Max Level Reached"
-        else
-            local chanceTxt = (not isGacha and mod.GetChance) and (" | Chance: " .. (math.floor(mod.GetChance(currentLvl) * 10) / 10) .. "%") or ""
-            newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
-            newDesc = string.format("Cost: %s%s\n%s: %s", UtilsModule.ToText(cost), chanceTxt, matDisplay, UtilsModule.ToText(currentMat))
-        end
+            local newTitle, newDesc, isMaxed = "", "", false
+            if currentLvl >= maxLvl then
+                isMaxed = true; newTitle = itemName .. " [MAX]"; newDesc = "Max Level Reached"
+            else
+                local chanceVal = (mod.GetChance and mod.GetChance(currentLvl)) or 0
+                local chanceTxt = chanceVal > 0 and (" | Chance: " .. (math.floor(chanceVal * 10) / 10) .. "%") or ""
+                newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
+                newDesc = string.format("Cost: %s%s\n%s: %s", UtilsModule.ToText(cost), chanceTxt, matDisplay, UtilsModule.ToText(currentMat))
+            end
 
-        local cache = Optimizer.Cache.Upgrade[name] or {}
-        if cache.Title ~= newTitle then toggle:SetTitle(newTitle) end
-        if cache.Desc ~= newDesc then toggle:SetDesc(newDesc) end
-        if isMaxed and not cache.IsMaxed then toggle:Lock("Already Maxed"); local k = isGacha and ("AutoUpgrade_"..name) or ("AutoChance_"..name); if Config[k] then Config[k] = false; toggle:Set(false) end end
-        if isGacha and toggle.SetMainImage and (cache.Image ~= currentImage or cache.Rarity ~= currentRarity) then toggle:SetMainImage({ Image = currentImage, Quantity = currentRarity, Title = itemName, Gradient = GetGameGradient(currentRarity) }, 50) end
-        
-        Optimizer.Cache.Upgrade[name] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed, Image = currentImage, Rarity = currentRarity }
+            local cache = Optimizer.Cache.Upgrade[name] or {}
+            if cache.Title ~= newTitle then toggle:SetTitle(newTitle) end
+            if cache.Desc ~= newDesc then toggle:SetDesc(newDesc) end
+            
+            if isMaxed and not cache.IsMaxed then 
+                toggle:Lock("Already Maxed")
+                local k = isGacha and ("AutoUpgrade_"..name) or ("AutoChance_"..name)
+                Config[k] = false
+                toggle:Set(false) 
+            end
+            
+            Optimizer.Cache.Upgrade[name] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed, Image = currentImage, Rarity = currentRarity }
+        end)
     end
 end
 
