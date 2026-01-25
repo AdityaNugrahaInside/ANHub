@@ -79,6 +79,8 @@ Config = {
     TargetRaid = {},
     TargetCapitalRaid = {},
     AutoLeave_CapitalRaid = 1000,
+    TargetMagicRaid = {},
+    AutoLeave_MagicRaid = 500,
     TargetDefense = {},
     TargetSorcerersDefense = {},
     TargetPirateTower = {},
@@ -901,14 +903,13 @@ function GetCurrentMapStatus()
 end
 function CheckIsFightingZone()
     local mapName = GetCurrentMapStatus()
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid"}
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid", "MagicRaid"} -- Tambahkan MagicRaid
 
     for _, keyword in ipairs(fightingKeywords) do
         if string.find(mapName, keyword) then 
             return true
         end
     end
-
     return false
 end
 
@@ -1659,7 +1660,7 @@ function LogicGamemodes()
 
         local EnemiesFolder = Workspace:FindFirstChild("Enemies")
         local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
-        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "SorcerersDefense"))
+        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "SorcerersDefense" or currentMap == "CapitalRaid" or currentMap == "MagicRaid"))
         
         if currentMap == "Raid" then isFightingZone = true 
         elseif currentMap == "Defense" then isFightingZone = hasEnemies
@@ -1836,6 +1837,7 @@ function LogicGamemodes()
                     {ID="Raid",             DB=raidDB,    Cfg=Config.TargetRaid,        Key="RaidModeKey",             CanOpen=true},
                     {ID="CapitalRaid", DB=nil, Cfg=Config.TargetCapitalRaid, Key="CapitalRaidModeKey", CanOpen=true, SelName="CapitalRaid"},
                     {ID="Defense",          DB=defenseDB, Cfg=Config.TargetDefense,     Key="DefenseModeKey",          CanOpen=true},
+                    {ID="MagicRaid", DB=nil, Cfg=Config.TargetMagicRaid, Key="MagicRaidModeKey", CanOpen=true, SelName="MagicRaid"},
                     {ID="Dungeon",          DB=dungeonDB, Cfg=Config.TargetDungeon,     Key=nil,                       CanOpen=false}
                 }
 
@@ -1918,6 +1920,26 @@ function LoadCapitalRaidData()
     end;
 end;
 LoadCapitalRaidData();
+magicRaidList = {}
+function LoadMagicRaidData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.MagicRaid); 
+    end);
+    if success and module then
+        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
+        local waves = module.MAX_WAVE or 500
+        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
+        local rewardCards = GenerateCardRewards(module.ChanceReward)
+
+        magicRaidList = {{
+            Title = module.Display or "Magic Raid",
+            Value = "MagicRaid",
+            Desc = desc,
+            Images = rewardCards
+        }}
+    end;
+end;
+LoadMagicRaidData();
 sorcerersDefenseList = {}
 function LoadSorcerersDefenseData()
     local success, module = pcall(function()
@@ -2074,7 +2096,8 @@ function BuildGameModesDropdownValues()
     AddList("", pirateTowerList, false) -- Pirate Tower tidak butuh prefix
     AddList("", shadowGateList, false)  -- Shadow Gate tidak butuh prefix
     AddList("", sorcerersDefenseList, false)
-    AddList("", capitalRaidList, false) -- Capital Raid tidak butuh prefix seperti Dungeon
+    AddList("", capitalRaidList, false)
+    AddList("", magicRaidList, false)
 
     return out
 end
@@ -2088,7 +2111,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Callback = function(val)
-        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT,capitalRaidT = {}, {}, {}, {}, {}, {}, {}
+        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT, capitalRaidT, magicRaidT = {}, {}, {}, {}, {}, {}, {}, {}
 
         for _, v in pairs(val) do
             -- Ambil Value murni
@@ -2109,6 +2132,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                     elseif raw == "ShadowGate" then table.insert(shadowT, "ShadowGate")
                     elseif raw == "SorcerersDefense" then table.insert(sorcerersT, "SorcerersDefense")
                     elseif raw == "CapitalRaid" then table.insert(capitalRaidT, "CapitalRaid")
+                    elseif raw == "MagicRaid" then table.insert(magicRaidT, "MagicRaid")
                     end
                 end
             end
@@ -2120,6 +2144,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetShadowGate = shadowT
         Config.TargetSorcerersDefense = sorcerersT
         Config.TargetCapitalRaid = capitalRaidT
+        Config.TargetMagicRaid = magicRaidT
         
         -- Kita panggil optimizer manual sekali agar deskripsi langsung berubah saat diklik
         pcall(Optimizer.Update_Gamemode_Dropdowns)
@@ -2230,7 +2255,13 @@ LeaveGroup3:Input({
 })
 LeaveGroup4 = FarmTab:Group({})
 FM_Add("GameModes", LeaveGroup4)
-
+LeaveGroup4:Input({
+    Title = "Magic Raid (Wave)",
+    Value = tostring(Config.AutoLeave_MagicRaid or 50),
+    Numeric = true,
+    Flag = "Leave_MagicRaid_Cfg",
+    Callback = function(txt) Config.AutoLeave_MagicRaid = tonumber(txt) or 50 end
+})
 LeaveGroup4:Toggle({
     Title = "Enable Auto Leave",
     Desc = "Master switch for auto leaving",
@@ -2250,6 +2281,7 @@ local function IsSafeReturnZoneName(zoneName)
     if zoneName == "PirateTower" then return false end
     if zoneName == "ShadowGate" then return false end
     if zoneName == "CapitalRaid" then return false end
+    if zoneName == "MagicRaid" then return false end
     return true
 end
 
@@ -2339,6 +2371,15 @@ task.spawn(function()
                         modeActive = true
                     end
                 end
+                if not modeActive then
+    local magicUI = HudGamemode:FindFirstChild("MagicRaid")
+    if magicUI and magicUI.Visible then
+        local txt = magicUI.wave.amount.Text -- Sesuaikan nama objek 'wave' atau 'room'
+        currentVal = tonumber(string.match(txt, "%d+")) or 0
+        targetLimit = Config.AutoLeave_MagicRaid
+        modeActive = true
+    end
+end
                 
                 -- F. Cek CAPITAL RAID
 if not modeActive then
@@ -3184,7 +3225,7 @@ task.spawn(function()
             
             local currentMap = GetCurrentMapStatus()
             -- Cari baris ini di sekitar baris 1452 dan ganti dengan ini:
-            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate"))
+            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "SorcerersDefense" or currentMap == "CapitalRaid" or currentMap == "MagicRaid"))
 
             -- [PRIORITAS 1: MEGA BOSS]
             -- Jika Mega Boss Aktif (via Auto Mega Boss) DAN config equip Mega Boss dipilih
@@ -4606,6 +4647,9 @@ function Optimizer.Update_Gamemode_Dropdowns()
 if Config.TargetCapitalRaid and #Config.TargetCapitalRaid > 0 then
     table.insert(summaryItems, "• Capital Raid")
 end
+if Config.TargetMagicRaid and #Config.TargetMagicRaid > 0 then
+        table.insert(summaryItems, "• Magic Raid")
+    end
 
     -- [LOGIKA FORMAT BARU DISINI]
     pcall(function()
