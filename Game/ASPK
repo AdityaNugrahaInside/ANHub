@@ -405,7 +405,6 @@ end
 LoadKeySystemData()
 getgenv().IsPremium = IsPremium
 if not IsPremium then return end
-
 UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
 
 Window = UI:CreateWindow({
@@ -1572,7 +1571,8 @@ local EggList = {
     {Title = "Tokyo City", Value = 2},
     {Title = "XYZ Province", Value = 3},
     {Title = "Dragon Island", Value = 4},
-    {Title = "Ant Island", Value = 5}
+    {Title = "Ant Island", Value = 5},
+    {Title = "New EGG", Value = 6}
 }
 
 FM_Add("Eggs", FarmTab:Dropdown({
