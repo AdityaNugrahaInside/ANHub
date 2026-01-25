@@ -77,6 +77,8 @@ Config = {
     AutoGamemode = false,
     TargetDungeon = {},
     TargetRaid = {},
+    TargetCapitalRaid = {},
+    AutoLeave_CapitalRaid = 1000,
     TargetDefense = {},
     TargetSorcerersDefense = {},
     TargetPirateTower = {},
@@ -505,7 +507,7 @@ end
 
 -- Jalankan pengecekan data
 LoadKeySystemData()
-
+if not IsPremium then return end
 UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
 
 Window = UI:CreateWindow({
@@ -899,7 +901,7 @@ function GetCurrentMapStatus()
 end
 function CheckIsFightingZone()
     local mapName = GetCurrentMapStatus()
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate"}
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid"}
 
     for _, keyword in ipairs(fightingKeywords) do
         if string.find(mapName, keyword) then 
@@ -1662,7 +1664,7 @@ function LogicGamemodes()
         if currentMap == "Raid" then isFightingZone = true 
         elseif currentMap == "Defense" then isFightingZone = hasEnemies
         elseif currentMap == "SorcerersDefense" then isFightingZone = hasEnemies
-        elseif currentMap == "PirateTower" or currentMap == "ShadowGate" then isFightingZone = true 
+        elseif currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "CapitalRaid" then isFightingZone = true 
         end
 
         if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") and not wasInGamemode then
@@ -1832,6 +1834,7 @@ function LogicGamemodes()
                     {ID="ShadowGate",       DB=nil,       Cfg=Config.TargetShadowGate,  Key="ShadowPortalModeKey",     CanOpen=true,  SelName="ShadowGate"},
                     {ID="SorcerersDefense", DB=nil,       Cfg=Config.TargetSorcerersDefense, Key="SorcerersDefenseModeKey", CanOpen=true, SelName="SorcerersDefense"},
                     {ID="Raid",             DB=raidDB,    Cfg=Config.TargetRaid,        Key="RaidModeKey",             CanOpen=true},
+                    {ID="CapitalRaid", DB=nil, Cfg=Config.TargetCapitalRaid, Key="CapitalRaidModeKey", CanOpen=true, SelName="CapitalRaid"},
                     {ID="Defense",          DB=defenseDB, Cfg=Config.TargetDefense,     Key="DefenseModeKey",          CanOpen=true},
                     {ID="Dungeon",          DB=dungeonDB, Cfg=Config.TargetDungeon,     Key=nil,                       CanOpen=false}
                 }
@@ -1895,7 +1898,26 @@ function LoadShadowGateData()
     end;
 end;
 LoadShadowGateData();
+capitalRaidList = {}
+function LoadCapitalRaidData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.CapitalRaid); -- Pastikan path ini benar di game
+    end);
+    if success and module then
+        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
+        local waves = module.MAX_WAVE or 500
+        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
+        local rewardCards = GenerateCardRewards(module.ChanceReward)
 
+        capitalRaidList = {{
+            Title = module.Display or "Capital Raid",
+            Value = "CapitalRaid",
+            Desc = desc,
+            Images = rewardCards
+        }}
+    end;
+end;
+LoadCapitalRaidData();
 sorcerersDefenseList = {}
 function LoadSorcerersDefenseData()
     local success, module = pcall(function()
@@ -2052,6 +2074,7 @@ function BuildGameModesDropdownValues()
     AddList("", pirateTowerList, false) -- Pirate Tower tidak butuh prefix
     AddList("", shadowGateList, false)  -- Shadow Gate tidak butuh prefix
     AddList("", sorcerersDefenseList, false)
+    AddList("", capitalRaidList, false) -- Capital Raid tidak butuh prefix seperti Dungeon
 
     return out
 end
@@ -2065,7 +2088,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Callback = function(val)
-        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT = {}, {}, {}, {}, {}, {}
+        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT,capitalRaidT = {}, {}, {}, {}, {}, {}, {}
 
         for _, v in pairs(val) do
             -- Ambil Value murni
@@ -2085,6 +2108,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                     if raw == "PirateTower" then table.insert(pirateT, "PirateTower")
                     elseif raw == "ShadowGate" then table.insert(shadowT, "ShadowGate")
                     elseif raw == "SorcerersDefense" then table.insert(sorcerersT, "SorcerersDefense")
+                    elseif raw == "CapitalRaid" then table.insert(capitalRaidT, "CapitalRaid")
                     end
                 end
             end
@@ -2095,6 +2119,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetPirateTower = pirateT
         Config.TargetShadowGate = shadowT
         Config.TargetSorcerersDefense = sorcerersT
+        Config.TargetCapitalRaid = capitalRaidT
         
         -- Kita panggil optimizer manual sekali agar deskripsi langsung berubah saat diklik
         pcall(Optimizer.Update_Gamemode_Dropdowns)
@@ -2196,8 +2221,17 @@ LeaveGroup3:Input({
     Flag = "Leave_Shadow_Cfg",
     Callback = function(txt) Config.AutoLeave_ShadowGate = tonumber(txt) or 50 end
 })
+LeaveGroup3:Input({
+    Title = "Capital Raid (Wave)",
+    Value = tostring(Config.AutoLeave_CapitalRaid or 50),
+    Numeric = true,
+    Flag = "Leave_Capital_Cfg",
+    Callback = function(txt) Config.AutoLeave_CapitalRaid = tonumber(txt) or 50 end
+})
+LeaveGroup4 = FarmTab:Group({})
+FM_Add("GameModes", LeaveGroup4)
 
-LeaveGroup3:Toggle({
+LeaveGroup4:Toggle({
     Title = "Enable Auto Leave",
     Desc = "Master switch for auto leaving",
     Flag = "AutoLeave_Cfg",
@@ -2215,6 +2249,7 @@ local function IsSafeReturnZoneName(zoneName)
     if zoneName == "SorcerersDefense" then return false end
     if zoneName == "PirateTower" then return false end
     if zoneName == "ShadowGate" then return false end
+    if zoneName == "CapitalRaid" then return false end
     return true
 end
 
@@ -2304,6 +2339,17 @@ task.spawn(function()
                         modeActive = true
                     end
                 end
+                
+                -- F. Cek CAPITAL RAID
+if not modeActive then
+    local capitalUI = HudGamemode:FindFirstChild("CapitalRaid")
+    if capitalUI and capitalUI.Visible then
+        local txt = capitalUI.wave.amount.Text -- Sesuaikan jika UI game menggunakan istilah 'room' atau 'floor'
+        currentVal = tonumber(string.match(txt, "%d+")) or 0
+        targetLimit = Config.AutoLeave_CapitalRaid
+        modeActive = true
+    end
+end
 
                 -- E. Cek SHADOW GATE
                 if not modeActive then
@@ -2508,7 +2554,6 @@ ExchangeButton = GeneralManagerSection:Button({
     end
 })
 FM_Add("Exchange", ExchangeButton)
-
 AutoUnlockToggle = GeneralManagerSection:Toggle({
     Title = "Auto Unlock All Features",
     Desc = "Automatically unlocks Gacha machines and new features when Yen is sufficient.",
@@ -2518,7 +2563,6 @@ AutoUnlockToggle = GeneralManagerSection:Toggle({
     end
 })
 FM_Add("Rolls", AutoUnlockToggle)
-
 _rollGroup = nil
 _rollCount = 0
 for _, rollType in ipairs(AllRollTypes) do
@@ -4558,6 +4602,10 @@ function Optimizer.Update_Gamemode_Dropdowns()
     if Config.TargetSorcerersDefense and #Config.TargetSorcerersDefense > 0 then
         table.insert(summaryItems, "• Sorcerers Defense")
     end
+    -- TAMBAHKAN INI AGAR MUNCUL DI DESKRIPSI UI
+if Config.TargetCapitalRaid and #Config.TargetCapitalRaid > 0 then
+    table.insert(summaryItems, "• Capital Raid")
+end
 
     -- [LOGIKA FORMAT BARU DISINI]
     pcall(function()
@@ -6359,7 +6407,7 @@ function Optimizer.Update_AutoUnlock_Logic(pData)
             if isLocked then
                 pcall(function()
                     -- Remote sesuai decompile: Try Unlock
-                    Reliable:FireServer("Try Unlock", itemName)
+                    Reliable:FireServer("Try Unlock", {itemName})
                 end)
 
                 if Notify then 
@@ -6396,6 +6444,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Enchantments_Logic, pData)
             pcall(Optimizer.Update_Reforge_Logic,pData)
             pcall(Optimizer.Update_Exchange_Logic, pData)
+            pcall(Optimizer.Update_AutoUnlock_Logic, pData)
             pcall(Optimizer.Update_Roll_Logic, pData)
             pcall(Optimizer.Update_Craft_Logic, pData)
             pcall(Optimizer.Update_Trainer_Logic, pData)
@@ -6406,7 +6455,6 @@ task.spawn(function()
             pcall(Optimizer.Update_Gamemode_Dropdowns)
             pcall(Optimizer.Update_RarityPower_Logic, pData)
             pcall(Optimizer.Update_AvatarCurse_Logic, pData)
-            pcall(Optimizer.Update_AutoUnlock_Logic, pData)
             pcall(Optimizer.Update_EnergyUpgrade_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
