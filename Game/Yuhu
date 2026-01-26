@@ -24,6 +24,7 @@ UnReliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Unreliable")
 ConfigsPath = ReplicatedStorage.Scripts.Configs
 UtilsModule = require(ConfigsPath.Utility.Utils)
 MaterialsModule = require(ConfigsPath.General.Materials)
+EnergyUpgradeConfig = require(ConfigsPath.BasicUpgrades.EnergyUpgrade)
 UnlocksPrices = require(ConfigsPath.General.Unlocks)
 YenModule = require(ConfigsPath.Machines.YenUpgrades)
 YenUpgrade2Module = require(ConfigsPath.Machines.YenUpgrades2)
@@ -38,12 +39,10 @@ EnchantmentsConfig = require(ReplicatedStorage.Scripts.Configs.Machines.Enchantm
 TradeTokenInfo = MaterialsModule.TradeToken
 YenUpgradeConfig = YenModule.Config
 TokenUpgradeConfig = TokenModule.Config
--- Tambahkan di bagian atas bersama module lainnya
 RarityPowerConfig = require(ReplicatedStorage.Scripts.Configs.RarityPower)
-RarityPowerUI = {} -- Tempat menyimpan toggle UI
--- Mengambil konfigurasi langsung dari path ReplicatedStorage
+RarityPowerUI = {}
 AvatarCursesPath = ReplicatedStorage.Scripts.Configs.Machines.AvatarCurses
-AvatarCursesConfig = require(AvatarCursesPath) -- Otomatis memuat TokenName, TokenCost, dan Table
+AvatarCursesConfig = require(AvatarCursesPath)
 
 hrp = nil
 humanoid = nil
@@ -111,6 +110,35 @@ TokenUpgradeToggleUI = {}
 ZoneDisplayToID = {}
 getgenv().PlayerData = nil
 getgenv().EnemiesData = nil
+local function JSONPretty(val, indent)
+    indent = indent or 0;
+    local valType = typeof(val); -- Menggunakan typeof untuk deteksi Instance
+    
+    if valType == "table" then
+        local s = "{\n";
+        for k, v in pairs(val) do
+            local formattedKey = typeof(k) == "number" and tostring(k) or "\"" .. tostring(k) .. "\"";
+            s = s .. string.rep("    ", indent + 1) .. formattedKey .. ": " .. tostring(JSONPretty(v, indent + 1)) .. ",\n";
+        end;
+        return s .. string.rep("    ", indent) .. "}";
+    elseif valType == "string" then
+        return "\"" .. val .. "\"";
+    elseif valType == "Instance" then
+        -- PERBAIKAN: Jika objek adalah Instance, ambil jalur lengkapnya (Hierarchy)
+        return "\"" .. val:GetFullName() .. "\""; 
+    elseif valType == "function" then
+        local info = debug.getinfo(val)
+        return "\"function: " .. tostring(info.source) .. " | Line: " .. tostring(info.linedefined) .. "\"";
+    else
+        -- Untuk tipe data lain seperti boolean, number, atau RBXScriptConnection
+        local result = tostring(val)
+        if valType == "number" or valType == "boolean" then
+            return result
+        else
+            return "\"" .. result .. "\""
+        end
+    end;
+end;
 function LoadDatabasesAndConfigs()
     local Cfg = ReplicatedStorage.Scripts.Configs
     local MZ = Cfg:FindFirstChild("MultipleZones") or Cfg:FindFirstChild("Multiple Zones")
@@ -1663,12 +1691,28 @@ function LogicGamemodes()
 
         local EnemiesFolder = Workspace:FindFirstChild("Enemies")
         local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
-        local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "SorcerersDefense" or currentMap == "CapitalRaid" or currentMap == "MagicRaid"))
-        
-        if currentMap == "Raid" then isFightingZone = true 
-        elseif currentMap == "Defense" then isFightingZone = hasEnemies
-        elseif currentMap == "SorcerersDefense" then isFightingZone = hasEnemies
-        elseif currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "CapitalRaid" then isFightingZone = true 
+        local isFightingZone = false
+
+        if string.find(currentMap, ":") then
+            if string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") then
+                isFightingZone = true
+            end
+        else
+            local fixedZones = {
+                PirateTower = true,
+                ShadowGate = true,
+                SorcerersDefense = true,
+                CapitalRaid = true,
+                MagicRaid = true,
+                Raid = true
+            }
+            if fixedZones[currentMap] then
+                isFightingZone = true
+            end
+        end
+
+        if currentMap == "Defense" or currentMap == "SorcerersDefense" then
+            isFightingZone = hasEnemies
         end
 
         if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") and not wasInGamemode then
@@ -2096,11 +2140,10 @@ function BuildGameModesDropdownValues()
     AddList("Dungeon", dungeonList, true)
     AddList("Raid", raidList, true)
     AddList("Defense", defenseList, true)
-    AddList("", pirateTowerList, false) -- Pirate Tower tidak butuh prefix
-    AddList("", shadowGateList, false)  -- Shadow Gate tidak butuh prefix
-    AddList("", sorcerersDefenseList, false)
-    AddList("", capitalRaidList, false)
-    AddList("", magicRaidList, false)
+    local singleLists = {pirateTowerList, shadowGateList, sorcerersDefenseList, capitalRaidList, magicRaidList}
+    for _, list in ipairs(singleLists) do
+        AddList("", list, false)
+    end
 
     return out
 end
@@ -2115,6 +2158,13 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImagePadding = 6,
     Callback = function(val)
         local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT, capitalRaidT, magicRaidT = {}, {}, {}, {}, {}, {}, {}, {}
+        local singleTargetMap = {
+            PirateTower = pirateT,
+            ShadowGate = shadowT,
+            SorcerersDefense = sorcerersT,
+            CapitalRaid = capitalRaidT,
+            MagicRaid = magicRaidT
+        }
 
         for _, v in pairs(val) do
             -- Ambil Value murni
@@ -2130,13 +2180,8 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                     elseif mode == "Defense" then table.insert(defenseT, name)
                     end
                 else
-                    -- Handle Single Mode (tanpa titik dua)
-                    if raw == "PirateTower" then table.insert(pirateT, "PirateTower")
-                    elseif raw == "ShadowGate" then table.insert(shadowT, "ShadowGate")
-                    elseif raw == "SorcerersDefense" then table.insert(sorcerersT, "SorcerersDefense")
-                    elseif raw == "CapitalRaid" then table.insert(capitalRaidT, "CapitalRaid")
-                    elseif raw == "MagicRaid" then table.insert(magicRaidT, "MagicRaid")
-                    end
+                    local bucket = singleTargetMap[raw]
+                    if bucket then table.insert(bucket, raw) end
                 end
             end
         end
@@ -2201,78 +2246,54 @@ GMCreateToggle = GM_Group2:Toggle({
     end
 })
 
-LeaveGroup1 = FarmTab:Group({})
-FM_Add("GameModes", LeaveGroup1)
+-- [[ CATEGORY: AUTO LEAVE SETTINGS ]] --
 
-LeaveGroup1:Input({
-    Title = "Dungeon (Room)",
-    Value = tostring(Config.AutoLeave_Dungeon or 50),
-    Numeric = true,
-    Flag = "Leave_Dungeon_Cfg",
-    Callback = function(txt) Config.AutoLeave_Dungeon = tonumber(txt) or 50 end
-})
+-- 1. Buat Master Toggle di Group Terpisah agar terlihat jelas
+local LeaveMasterGroup = FarmTab:Group({Title = "Auto Leave Control"})
+FM_Add("GameModes", LeaveMasterGroup)
 
-LeaveGroup1:Input({
-    Title = "Raid (Wave)",
-    Value = tostring(Config.AutoLeave_Raid or 25),
-    Numeric = true,
-    Flag = "Leave_Raid_Cfg",
-    Callback = function(txt) Config.AutoLeave_Raid = tonumber(txt) or 25 end
-})
-
-LeaveGroup2 = FarmTab:Group({})
-FM_Add("GameModes", LeaveGroup2)
-
-LeaveGroup2:Input({
-    Title = "Defense (Wave)",
-    Value = tostring(Config.AutoLeave_Defense or 30),
-    Numeric = true,
-    Flag = "Leave_Defense_Cfg",
-    Callback = function(txt) Config.AutoLeave_Defense = tonumber(txt) or 30 end
-})
-
-LeaveGroup2:Input({
-    Title = "Pirate Tower (Floor)",
-    Value = tostring(Config.AutoLeave_PirateTower or 100),
-    Numeric = true,
-    Flag = "Leave_Pirate_Cfg",
-    Callback = function(txt) Config.AutoLeave_PirateTower = tonumber(txt) or 100 end
-})
-
-LeaveGroup3 = FarmTab:Group({})
-FM_Add("GameModes", LeaveGroup3)
-
-LeaveGroup3:Input({
-    Title = "Shadow Gate (Wave)",
-    Value = tostring(Config.AutoLeave_ShadowGate or 50),
-    Numeric = true,
-    Flag = "Leave_Shadow_Cfg",
-    Callback = function(txt) Config.AutoLeave_ShadowGate = tonumber(txt) or 50 end
-})
-LeaveGroup3:Input({
-    Title = "Capital Raid (Wave)",
-    Value = tostring(Config.AutoLeave_CapitalRaid or 50),
-    Numeric = true,
-    Flag = "Leave_Capital_Cfg",
-    Callback = function(txt) Config.AutoLeave_CapitalRaid = tonumber(txt) or 50 end
-})
-LeaveGroup4 = FarmTab:Group({})
-FM_Add("GameModes", LeaveGroup4)
-LeaveGroup4:Input({
-    Title = "Magic Raid (Wave)",
-    Value = tostring(Config.AutoLeave_MagicRaid or 50),
-    Numeric = true,
-    Flag = "Leave_MagicRaid_Cfg",
-    Callback = function(txt) Config.AutoLeave_MagicRaid = tonumber(txt) or 50 end
-})
-LeaveGroup4:Toggle({
+LeaveMasterGroup:Toggle({
     Title = "Enable Auto Leave",
-    Desc = "Master switch for auto leaving",
+    Desc = "Master switch for auto leaving gamemodes when target is reached.",
     Flag = "AutoLeave_Cfg",
     Callback = function(val)
         Config.AutoLeave = val
     end
 })
+
+-- 2. Logika Pembagian 2 Input per Group
+local leaveConfigs = {
+    {Title = "Dungeon (Room)", Key = "AutoLeave_Dungeon", Default = 50, Flag = "Leave_Dungeon_Cfg"},
+    {Title = "Raid (Wave)", Key = "AutoLeave_Raid", Default = 25, Flag = "Leave_Raid_Cfg"},
+    {Title = "Defense (Wave)", Key = "AutoLeave_Defense", Default = 30, Flag = "Leave_Defense_Cfg"},
+    {Title = "Pirate Tower (Floor)", Key = "AutoLeave_PirateTower", Default = 100, Flag = "Leave_Pirate_Cfg"},
+    {Title = "Shadow Gate (Wave)", Key = "AutoLeave_ShadowGate", Default = 50, Flag = "Leave_Shadow_Cfg"},
+    {Title = "Capital Raid (Wave)", Key = "AutoLeave_CapitalRaid", Default = 50, Flag = "Leave_Capital_Cfg"},
+    {Title = "Magic Raid (Wave)", Key = "AutoLeave_MagicRaid", Default = 50, Flag = "Leave_MagicRaid_Cfg"}
+}
+
+local currentLeaveGroup = nil
+local leaveCounter = 0
+
+for _, cfg in ipairs(leaveConfigs) do
+    -- Setiap 2 item, buat group baru
+    if leaveCounter % 2 == 0 then
+        currentLeaveGroup = FarmTab:Group({})
+        FM_Add("GameModes", currentLeaveGroup)
+    end
+
+    currentLeaveGroup:Input({
+        Title = cfg.Title,
+        Value = tostring(Config[cfg.Key] or cfg.Default),
+        Numeric = true,
+        Flag = cfg.Flag,
+        Callback = function(txt) 
+            Config[cfg.Key] = tonumber(txt) or cfg.Default 
+        end
+    })
+
+    leaveCounter = leaveCounter + 1
+end
 
 local function IsSafeReturnZoneName(zoneName)
     if not zoneName or zoneName == "" or zoneName == "Unknown" then return false end
@@ -4156,19 +4177,7 @@ SettingsTab:Button({
     Callback = function()
         local data = getgenv().PlayerData -- Mengambil data dari variabel global 
         if data then
-            -- Menggunakan HttpService untuk mengubah tabel menjadi teks JSON [cite: 35]
-            local success, json = pcall(function()
-                return HttpService:JSONEncode(data)
-            end)
-            
-            if success then
-                setclipboard(json) -- Menyalin hasil ke clipboard [cite: 157, 163]
-                Notify("Success", "PlayerData copied! You can now paste it.", "copy") -- Mengirim notifikasi [cite: 74]
-            else
-                Notify("Error", "Failed to format PlayerData", "alert-circle")
-            end
-        else
-            Notify("Error", "PlayerData not found! Try scanning first.", "alert-circle")
+            setclipboard(JSONPretty(getgenv().PlayerData, 1))
         end
     end
 })
@@ -4681,12 +4690,12 @@ function Optimizer.Update_Gamemode_Dropdowns()
         table.insert(summaryItems, "• Sorcerers Defense")
     end
     -- TAMBAHKAN INI AGAR MUNCUL DI DESKRIPSI UI
-if Config.TargetCapitalRaid and #Config.TargetCapitalRaid > 0 then
-    table.insert(summaryItems, "• Capital Raid")
-end
-if Config.TargetMagicRaid and #Config.TargetMagicRaid > 0 then
-        table.insert(summaryItems, "• Magic Raid")
+    if Config.TargetCapitalRaid and #Config.TargetCapitalRaid > 0 then
+        table.insert(summaryItems, "• Capital Raid")
     end
+    if Config.TargetMagicRaid and #Config.TargetMagicRaid > 0 then
+            table.insert(summaryItems, "• Magic Raid")
+        end
 
     -- [LOGIKA FORMAT BARU DISINI]
     pcall(function()
@@ -5329,50 +5338,31 @@ function Optimizer.Update_Vault_Logic(pData)
 end
 
 function Optimizer.Update_Avatar_Logic(pData)
-    -- Pastikan data tersedia
     if not pData.AvatarLevels or not AvatarLevelsModule then return end
     
     local currentAvatar = pData.Attributes.Avatar
     local isAvatarSelected = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
-    -- [1. LOGIKA VIEWPORT (3D PREVIEW)]
-    -- Hanya jalankan jika avatar berubah untuk menghemat performa
+
+    -- [1. LOGIKA VIEWPORT]
     if isAvatarSelected then
         if Optimizer.Cache.LastAvatarID ~= currentAvatar then
             Optimizer.Cache.LastAvatarID = currentAvatar
-            
             local modelPath = ReplicatedFirst:WaitForChild("Assets"):WaitForChild("Enemies"):FindFirstChild(currentAvatar)
             
             if AvatarStatusPara and modelPath then
-                -- 1. Setup Model (Clone agar aslinya tidak pindah)
                 local modelClone = modelPath:Clone()
-                
-                -- Hitung titik tengah model menggunakan Bounding Box
                 local orientation, size = modelClone:GetBoundingBox()
-                local centerPoint = Vector3.new(0, 0, 0)
-                
-                -- Pindahkan model agar pusatnya ada di (0,0,0) di dunia Viewport
                 modelClone:PivotTo(CFrame.new(-orientation.Position)) 
-                
-                -- 2. Inisialisasi Viewport (Kirim model ke modul Viewport Anda)
                 AvatarStatusPara:SetViewport(modelClone)
                 
-                -- 3. Setup Kamera Statis
                 local vp = AvatarStatusPara.ViewportFrame
                 if vp and vp.CurrentCamera then
-                    -- Jarak kamera (dist) disesuaikan dengan ukuran model (biar tidak terlalu dekat/jauh)
                     local dist = size.Magnitude * 0.8 
-                    
-                    -- CFrame.lookAt(PosisiKamera, TitikYangDilihat)
-                    -- Kita taruh kamera di depan (Z = -dist) dan sedikit naik (Y = 0.2) agar presisi
-                    vp.CurrentCamera.CFrame = CFrame.lookAt(
-                        Vector3.new(0, 0.2, -dist), -- Posisi kamera
-                        Vector3.new(0, 0, 0)        -- Melihat ke tengah model
-                    )
+                    vp.CurrentCamera.CFrame = CFrame.lookAt(Vector3.new(0, 0.2, -dist), Vector3.new(0, 0, 0))
                 end
             end
         end
     else
-        -- Jika tidak ada avatar dipilih, hapus preview dan reset cache
         if Optimizer.Cache.LastAvatarID ~= nil then
             Optimizer.Cache.LastAvatarID = nil
             if AvatarStatusPara and AvatarStatusPara.ViewportFrame then
@@ -5386,23 +5376,18 @@ function Optimizer.Update_Avatar_Logic(pData)
     if pData.Attributes and pData.Materials then
         local avatarDisplayName = currentAvatar
         local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
-        local tokenDisplayName = tokenKey
         local currentLevel = pData.AvatarLevels[currentAvatar] or 0
-        local maxLevel = AvatarLevelsModule.MaxLevel or 100
+        
+        -- MENGGUNAKAN GETMAXLEVEL DINAMIS
+        local maxLevel = isAvatarSelected and AvatarLevelsModule.GetMaxLevel(currentAvatar) or 100
         local myTokens = pData.Materials[tokenKey] or 0
         
         local newTitle = "No Avatar Selected"
         local newDesc = "Select an avatar in the game's interface to begin."
 
         if isAvatarSelected then
-            -- Ambil Nama Display Avatar
-            if EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
+            if EnemiesConfig[currentAvatar] then
                 avatarDisplayName = EnemiesConfig[currentAvatar].Display
-            end
-
-            -- Ambil Nama Display Token
-            if MaterialsModule and MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display then
-                tokenDisplayName = MaterialsModule[tokenKey].Display
             end
 
             local nextLevel = currentLevel + 1
@@ -5410,44 +5395,43 @@ function Optimizer.Update_Avatar_Logic(pData)
             local currentBuff = AvatarLevelsModule.GetBuff(currentLevel)
             local nextBuff = isMaxed and currentBuff or AvatarLevelsModule.GetBuff(nextLevel)
             local cost = isMaxed and 0 or AvatarLevelsModule.GetCost(currentLevel)
+            local tokenDisplayName = MaterialsModule[tokenKey].Display or tokenKey
             
-            local costStr = UtilsModule.ToText(cost, 0)
-            local tokenCountStr = UtilsModule.ToText(myTokens, 0)
             local tokenIcon = GetAvatarTokenIcon() or ""
-
             newTitle = string.format("%s (Lv. %d / %d)", avatarDisplayName, currentLevel, maxLevel)
             
             if isMaxed then
-                newDesc = string.format("<b>MAX Level Reached!</b>\n\nBuff: +%s%%\n%s %s: %s", 
-                    UtilsModule.ToText(currentBuff), tokenIcon, tokenDisplayName, tokenCountStr)
+                newDesc = string.format(
+                    "<b>STATUS: MAX LEVEL</b>\n\n" ..
+                    "Total Buff: <font color='#00ff00'>+%s%% Damage</font>\n" ..
+                    "%s%s %s", 
+                    UtilsModule.ToText(currentBuff), tokenIcon,tokenDisplayName, UtilsModule.ToText(myTokens, 0)
+                )
                 
-                -- Matikan Auto jika sudah MAX
                 if AvatarLevelToggle and not AvatarLevelToggle.Locked then
-                    AvatarLevelToggle:Lock()
-                    AvatarLevelToggle:SetTitle("Auto Avatar Level Up [MAX]")
+                    AvatarLevelToggle:Lock("MAX")
                     Config.AutoAvatarLevelUp = false
                     AvatarLevelToggle:Set(false)
                 end
             else
-                newDesc = string.format("<b>Current Buff: +%s%%</b>\nNext Buff: +%s%%\n\nCost: %s / %s\n(%s %s)",
-                    UtilsModule.ToText(currentBuff), UtilsModule.ToText(nextBuff),
-                    costStr, tokenCountStr, tokenIcon, tokenDisplayName)
+                -- MENAMPILKAN HARGA DAN BUFF
+                newDesc = string.format(
+                    "<b>Current Buff: <font color='#00ff00'>+%s%%</font></b>\n" ..
+                    "Next Buff: <font color='#00aaff'>+%s%%</font>\n\n" ..
+                    "Upgrade Cost: <font color='#ffaa00'>%s</font> %s%s\n" ..
+                    "Your Balance: %s",
+                    UtilsModule.ToText(currentBuff),
+                    UtilsModule.ToText(nextBuff),
+                    UtilsModule.ToText(cost, 0), tokenIcon,tokenDisplayName,
+                    UtilsModule.ToText(myTokens, 0)
+                )
                 
                 if AvatarLevelToggle and AvatarLevelToggle.Locked then
                     AvatarLevelToggle:Unlock()
-                    AvatarLevelToggle:SetTitle("Auto Avatar Level Up")
                 end
-            end
-        else
-            -- Reset UI jika tidak ada avatar
-            if AvatarLevelToggle and not AvatarLevelToggle.Locked then
-                AvatarLevelToggle:Lock()
-                Config.AutoAvatarLevelUp = false
-                AvatarLevelToggle:Set(false)
             end
         end
 
-        -- Update ke UI (Hanya jika teks berubah untuk optimasi)
         if AvatarStatusPara then
             if Optimizer.Cache.LastAvatarTitle ~= newTitle then
                 AvatarStatusPara:SetTitle(newTitle)
@@ -5460,42 +5444,23 @@ function Optimizer.Update_Avatar_Logic(pData)
         end
     end
 
-    -- [3. LOGIKAL AUTO UPGRADE]
+    -- [3. LOGIKA AUTO UPGRADE]
     if Config.AutoAvatarLevelUp and isAvatarSelected then
         local currentLevel = pData.AvatarLevels[currentAvatar] or 0
-        local maxLevel = AvatarLevelsModule.MaxLevel or 100
+        local maxLevel = AvatarLevelsModule.GetMaxLevel(currentAvatar)
         local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
-        local myTokens = pData.Materials[tokenKey] or 0
         
         if currentLevel < maxLevel then
             local cost = AvatarLevelsModule.GetCost(currentLevel)
-            if myTokens >= cost then
+            if (pData.Materials[tokenKey] or 0) >= cost then
                 if Reliable then
-                    pcall(function()
-                        Reliable:FireServer("Avatar Upgrade")
-                    end)
-                    
-                    -- Webhook & Notif
-                    local avatarName = currentAvatar
-                    if EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
-                        avatarName = EnemiesConfig[currentAvatar].Display
-                    end
-                    
-                    Notify("Avatar", string.format("Auto Upgrade: %s to Lv. %d", avatarName, currentLevel + 1))
-                    
-                    local now = os.time()
-                    if not LastWebhookTime["AvatarLevels"] or (now - LastWebhookTime["AvatarLevels"]) >= 10 then
-                        SendAvatarUpgradeWebhook(avatarName, currentLevel + 1, maxLevel, AvatarLevelsModule.GetBuff(currentLevel + 1))
-                        LastWebhookTime["AvatarLevels"] = now
-                    end
-                    
-                    task.wait(1.5) -- Jeda agar tidak spam server
+                    pcall(function() Reliable:FireServer("Avatar Upgrade") end)
+                    task.wait(1) -- Debounce agar tidak spam
                 end
             end
         end
     end
 end
-
 function Optimizer.Update_Heroes_Logic(pData)
     if not HeroesStatsModule or not Reliable or not pData.EquippedHeroes or not pData.Heroes then return end
     
@@ -6375,43 +6340,45 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     end
 end
 
-
--- Tambahkan Fungsi Optimizer Baru
 function Optimizer.Update_EnergyUpgrade_Logic(pData)
-    if not IsPremium then
-        if Config.AutoEnergyUpgrade then
-            Config.AutoEnergyUpgrade = false
-        end
+    -- Pastikan module terload dan user adalah Premium
+    if not EnergyUpgradeConfig or not IsPremium then
+        if Config.AutoEnergyUpgrade then Config.AutoEnergyUpgrade = false end
         if EnergyUpgradeToggle then
-            pcall(function() EnergyUpgradeToggle:Set(false) end)
-            pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
+            pcall(function() 
+                EnergyUpgradeToggle:Set(false)
+                if not IsPremium then EnergyUpgradeToggle:Lock("Need Premium User") end
+            end)
         end
         return
     end
-    -- Berdasarkan decompile, nama data level kemungkinan 'EnergyUpgrade'
-    -- Jika di game aslinya berbeda, silakan sesuaikan path pData-nya
+
+    -- Ambil Data dari PlayerData
+    -- Berdasarkan decompile, index level biasanya sama dengan nama sistemnya
     local currentLvl = pData.EnergyUpgrade or 0 
-    local maxLvl = 50
-    local tokenKey = "EnergyToken"
-    local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
     
-    -- Ambil info material untuk icon
+    -- Ambil Data Langsung dari Module (Modular)
+    local maxLvl = EnergyUpgradeConfig.MAX
+    local tokenKey = EnergyUpgradeConfig.TOKEN_NAME
+    local displayName = EnergyUpgradeConfig.Display
+    local imageId = EnergyUpgradeConfig.ImageId
+    
+    -- Ambil Kalkulasi dari Fungsi Module
+    local cost = EnergyUpgradeConfig.GetEvolveCost(EnergyUpgradeConfig, currentLvl)
+    local bonusText = EnergyUpgradeConfig.GetDisplayBonus(currentLvl)
+    
+    local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
     local matInfo = MaterialsModule[tokenKey]
     local matIcon = matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""
-    local matName = matInfo and matInfo.Display or "Energy Token"
+    local matName = matInfo and matInfo.Display or tokenKey
 
-    -- Logika Biaya & Buff (Sesuai Decompile)
-    -- Rumus Cost: (lvl * lvl + 1) * 50
-    local cost = currentLvl * (currentLvl + 1) * 25+50
-    local currentBuff = currentLvl * 10 -- GetBuff: lvl * 10
-    
     local isMaxed = currentLvl >= maxLvl
     local newTitle = ""
     local newDesc = ""
 
     if isMaxed then
-        newTitle = "Energy Upgrade [MAX]"
-        newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>+%s%% Mastery</font>", UtilsModule.ToText(currentBuff))
+        newTitle = displayName .. " [MAX]"
+        newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", bonusText)
         
         if not EnergyUpgradeToggle.Locked then
             EnergyUpgradeToggle:Lock("Max level reached")
@@ -6419,29 +6386,29 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
             EnergyUpgradeToggle:Set(false)
         end
     else
-        newTitle = string.format("Energy Upgrade [%d/%d]", currentLvl, maxLvl)
+        newTitle = string.format("%s [%d/%d]", displayName, currentLvl, maxLvl)
         newDesc = string.format(
-            "Current Buff: <font color='#d667ff'>+%s%% Mastery</font>\n" ..
-            "%s%s %s/%s",
-            UtilsModule.ToText(currentBuff),
+            "Current Bonus: <font color='#d667ff'>%s</font>\n" ..
+            "%s%s %s / %s",
+            bonusText,
             matIcon, matName, UtilsModule.ToText(cost), UtilsModule.ToText(myTokens)
         )
         
         if EnergyUpgradeToggle.Locked then EnergyUpgradeToggle:Unlock() end
     end
 
-    -- Update UI dengan Cache agar ringan
-    local cacheKey = "EnergyUp_Status"
+    -- Update UI dengan Cache (Optimasi Performa)
+    local cacheKey = "EnergyUp_Modular_Status"
     if Optimizer.Cache[cacheKey] ~= newDesc then
         EnergyUpgradeToggle:SetTitle(newTitle)
         EnergyUpgradeToggle:SetDesc(newDesc)
         
         if EnergyUpgradeToggle.SetMainImage then
             EnergyUpgradeToggle:SetMainImage({
-                Image = GetIcon(137070555439430),
+                Image = GetIcon(imageId),
                 Quantity = "Lv." .. currentLvl,
-                Title = "Energy Upgrade",
-                Gradient = GetGameGradient("Rare") -- Gunakan warna Rare (Biru)
+                Title = displayName,
+                Gradient = GetGameGradient("Rare") 
             }, 60)
         end
         Optimizer.Cache[cacheKey] = newDesc
@@ -6451,22 +6418,18 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
     if Config.AutoEnergyUpgrade and not isMaxed then
         if myTokens >= cost then
             if Reliable then
-                -- Berdasarkan decompile: shared.Reply.To("Evolve EnergyUpgrade")
                 pcall(function()
+                    -- Mengirim remote sesuai instruksi decompile Interface.c
                     Reliable:FireServer("Evolve EnergyUpgrade")
                 end)
                 
-                -- Webhook (Opsional)
-                local now = os.time()
-                if not LastWebhookTime["EnergyUpgrade"] or (now - LastWebhookTime["EnergyUpgrade"]) >= 5 then
-                    SendUpgradeWebhook("Energy Upgrade", "Energy Upgrade", currentLvl + 1, cost)
-                    LastWebhookTime["EnergyUpgrade"] = now
-                end
-                task.wait(0.5) -- Debounce
+                -- Anti-spam delay
+                task.wait(0.5) 
             end
         end
     end
 end
+
 function Optimizer.Update_AutoUnlock_Logic(pData)
     -- Pastikan fitur aktif dan data dasar tersedia 
     if not Config.AutoUnlockRolls or not Reliable or not pData.Attributes or not pData.Unlocked then return end
