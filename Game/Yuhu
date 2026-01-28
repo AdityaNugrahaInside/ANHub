@@ -544,7 +544,7 @@ if not IsPremium then return end
 UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
 
 Window = UI:CreateWindow({
-    Title = "AN Hub - Anime Weapons",
+    Title = "AN Hub - Anime Weapon",
     Icon = "rbxassetid://84366761557806",
     Author = "Aditya Nugraha",
     Folder = "AnimeWeapons",
@@ -1168,9 +1168,6 @@ function LogicAutoFarm()
                 
                 if hrp.AssemblyLinearVelocity.Magnitude > 0 then
                     hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                end
-                if LocalPlayer.UserId == 5465738868 then
-                    UnReliable:FireServer("Hit", {currentTargetObj.Uid});
                 end
             end)
         end
@@ -2747,7 +2744,7 @@ local Yen2Separator = FarmTab:Paragraph({
 FM_Add("Upgrade: Yen", Yen2Separator)
 
 -- Membuat UI Toggle untuk Tier 2 di kategori yang sama
-upgradeOrder2 = {"Damage", "Mastery", "Yen"} -- Sesuai urutan di config YenUpgrades2
+upgradeOrder2 = {"Damage", "Mastery", "Yen","Drop Rate","Critical","Run Speed"} -- Sesuai urutan di config YenUpgrades2
 CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrade2Module.Config, "AutoYen2_", YenUpgrade2ToggleUI, upgradeOrder2)
 if TokenUpgradeConfig then
     CreateUpgradeSection(FarmTab, "Upgrade: Token", TokenUpgradeConfig, "AutoToken_", TokenUpgradeToggleUI, nil)
