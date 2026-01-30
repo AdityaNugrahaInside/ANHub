@@ -1551,12 +1551,15 @@ FarmGroup:Toggle({
 EnemyDropdown = FarmGroup:Dropdown({
     Title = "Select Enemy",
     Values = {},
-    AllowNone = true,
+    AllowNone = true, -- Ini memungkinkan pilihan kosong
     Flag = "EnemyDropdown_Cfg",
     Callback = function(val)
-        -- Library ANUI mengirimkan tabel item yang dipilih ke callback
-        if type(val) == "table" then
+        -- Jika val adalah tabel dan memiliki Value, maka set musuh
+        if type(val) == "table" and val.Value then
             Config.SelectedEnemy = val.Value
+        else
+            -- Jika tidak memilih apa pun (Clear), set jadi nil
+            Config.SelectedEnemy = nil
         end
     end
 })
@@ -1600,17 +1603,26 @@ function Optimizer.Update_KillAura_Logic(data)
         end
     end
 end
--- [[ 3. LOGIKA FILTERING DINAMIS (VERIFIED FOR ANUI) ]] --
 function Optimizer.RefreshMonsterList(pData)
-    -- 1. Validasi keberadaan data
+    -- 1. Validasi keberadaan data pData dan Database General
     if not pData or not pData.InGame or not pData.InGame.Info then return end
     if not GeneralReplica or not GeneralReplica.Data or not WorldMap then return end
+    
     local currentMapName = pData.InGame.Info.Map 
     
-    -- 2. Cek apakah perlu refresh
+    -- 2. Cek apakah terjadi perpindahan Map
     if LastMapName == currentMapName then return end
 
-    -- 3. Cari MapId
+    -- [[ FIX: RESET SELEKSI SAAT PINDAH MAP ]]
+    -- Mengosongkan variabel pilihan agar script berhenti menyerang musuh dari map lama
+    Config.SelectedEnemy = nil 
+    
+    -- Mengosongkan tampilan visual pada Dropdown UI
+    if EnemyDropdown then
+        EnemyDropdown:Set(nil) 
+    end
+
+    -- 3. Cari MapId berdasarkan nama Map saat ini
     local currentMapId = nil
     for id, data in pairs(WorldMap) do
         if data.Name == currentMapName then
@@ -1619,40 +1631,42 @@ function Optimizer.RefreshMonsterList(pData)
         end
     end
 
-    -- 4. Filter Monster
+    -- 4. Filter Monster berdasarkan MapId yang ditemukan
     local filteredOptions = {}
     local monsters = GeneralReplica.Data.Monsters
     
     if monsters then
         local tempMonsters = {}
         for _, mData in pairs(monsters) do
-            if mData.MapId == currentMapId and mData.Id ~= _ then
+            -- Filter: Masukkan monster jika MapId cocok dan ID valid
+            if mData.MapId == currentMapId then
                 table.insert(tempMonsters, mData)
             end
         end
 
-        -- Urutkan berdasarkan Rarity
+        -- Urutkan monster berdasarkan Rarity (Monster lemah di atas, Boss/Rare di bawah)
         table.sort(tempMonsters, function(a, b) 
             return (a.Rarity or 0) < (b.Rarity or 0) 
         end)
 
-        -- Susun tabel untuk Dropdown ANUI
+        -- 5. Susun tabel opsi untuk library ANUI
         for _, mData in ipairs(tempMonsters) do
             table.insert(filteredOptions, {
                 Title = tostring(mData.Name) .. " (Rank " .. tostring(mData.Rank or "?") .. ")",
-                Value = { Name = mData.Name, Id = mData.Id },
+                Value = { Name = mData.Name, Id = mData.Id }, -- Simpan data lengkap di Value
                 Icon = mData.ImageId
             })
         end
     end
 
-    -- 5. Update UI menggunakan SetValues
+    -- 6. Update UI Dropdown
     if #filteredOptions > 0 then
+        -- Simpan nama map terakhir agar tidak refresh terus-menerus (hemat CPU)
         LastMapName = currentMapName 
-        -- Memanggil SetValues pada instance element Dropdown
         EnemyDropdown:Refresh(filteredOptions)
     else
-        EnemyDropdown:SetValues({ {Title = "Searching Monsters...", Value = nil} })
+        -- Jika map tidak memiliki monster (misal: Lobby/Map khusus)
+        EnemyDropdown:Refresh({ {Title = "No Monsters in this Map", Value = nil} })
     end
 end
 function Optimizer.Update_Farm_Logic(pData)
@@ -1677,7 +1691,7 @@ function Optimizer.Update_Farm_Logic(pData)
 
     local targetMonster = nil
     
-    if inDungeon and not isEnemySelected then
+    if inDungeon then
         -- === LOGIKA DUNGEON ===
         local mapMonsterIds = {}
         local currentMapName = pData.InGame.Info.Map
@@ -1709,7 +1723,7 @@ function Optimizer.Update_Farm_Logic(pData)
                 end
             end
         end
-    elseif isEnemySelected then
+    elseif not inDungeon and isEnemySelected then
         -- === LOGIKA MAP NORMAL ===
         local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
         if debrisMonsters then
