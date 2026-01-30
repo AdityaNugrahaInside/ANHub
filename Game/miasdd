@@ -1656,39 +1656,103 @@ function Optimizer.RefreshMonsterList(pData)
     end
 end
 function Optimizer.Update_Farm_Logic(pData)
-    -- 1. Jeda Proteksi: Jangan lakukan apapun jika sedang transisi atau ganti lokasi
-    if IsTransitioning or LocationChanging then return end
-    
+    -- 1. Refresh list musuh di Dropdown
     Optimizer.RefreshMonsterList(pData)
-    
-    -- 2. Validasi: Hanya jalan jika AutoFarm aktif dan musuh sudah dipilih di dropdown
-    if not Config.AutoFarm or not Config.SelectedEnemy then return end
 
-    local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
+    -- 2. Cek apakah Auto Farm aktif
+    if not Config.AutoFarm then return end
+
+    -- Deteksi status
+    local inDungeon = IsInsideDungeon(pData)
+    local isEnemySelected = Config.SelectedEnemy and type(Config.SelectedEnemy) == "table" and Config.SelectedEnemy.Name ~= nil and Config.SelectedEnemy.Name ~= ""
+
+    -- PROTEKSI: Jika tidak di Dungeon DAN tidak ada musuh dipilih, BERHENTI
+    if not inDungeon and not isEnemySelected then 
+        return 
+    end
+
+    local character = game.Players.LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
+
     local targetMonster = nil
-    local monsterName = Config.SelectedEnemy.Name
+    
+    if inDungeon and not isEnemySelected then
+        -- === LOGIKA DUNGEON ===
+        local mapMonsterIds = {}
+        local currentMapName = pData.InGame.Info.Map
+        local currentMapId = nil
+        
+        for id, data in pairs(WorldMap) do
+            if data.Name == currentMapName then currentMapId = id break end
+        end
 
-    -- 3. Cari target hanya berdasarkan pilihan dropdown (Berlaku di mana saja)
-    if debrisMonsters then
-        for _, monster in pairs(debrisMonsters:GetChildren()) do
-            if monster:IsA("Model") and monster.PrimaryPart then
-                -- Cek apakah Title monster cocok dengan pilihan dropdown kamu
-                if monster:GetAttribute("Title") == monsterName then
-                    targetMonster = monster
-                    break 
+        -- Isi daftar pengecualian jika Map ID ditemukan
+        if currentMapId then
+            for _, mData in pairs(GeneralReplica.Data.Monsters) do
+                if mData.MapId == currentMapId then 
+                    mapMonsterIds[tostring(mData.Name)] = true 
+                end
+            end
+        end
+
+        local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
+        if debrisMonsters then
+            for _, monster in pairs(debrisMonsters:GetChildren()) do
+                if monster:IsA("Model") and monster.PrimaryPart then
+                    local monsterTitle = monster:GetAttribute("Title") or ""
+                    -- Nyerang apapun yang BUKAN musuh map normal
+                    if not mapMonsterIds[tostring(monsterTitle)] then
+                        targetMonster = monster
+                        break
+                    end
+                end
+            end
+        end
+    elseif isEnemySelected then
+        -- === LOGIKA MAP NORMAL ===
+        local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
+        if debrisMonsters then
+            for _, monster in pairs(debrisMonsters:GetChildren()) do
+                if monster:IsA("Model") and monster.PrimaryPart then
+                    if monster:GetAttribute("Title") == Config.SelectedEnemy.Name then
+                        targetMonster = monster
+                        break 
+                    end
+                end
+            end
+        end
+
+        -- Cari di Island Pads jika di Debris tidak ada
+        if not targetMonster then
+            local currentMapId = nil
+            local currentMapName = pData.InGame.Info.Map
+            for id, data in pairs(WorldMap) do
+                if data.Name == currentMapName then currentMapId = id break end
+            end
+            if currentMapId then
+                local islandFolderName = currentMapId .. ". " .. WorldMap[currentMapId].Name:gsub("_", " ")
+                local padFolder = workspace.Islands:FindFirstChild(islandFolderName) and workspace.Islands[islandFolderName]:FindFirstChild("Pads")
+                if padFolder then
+                    for _, monsterPart in pairs(padFolder:GetChildren()) do
+                        if monsterPart:GetAttribute("Ids") == tonumber(Config.SelectedEnemy.Id) then
+                            targetMonster = monsterPart
+                            break
+                        end
+                    end
                 end
             end
         end
     end
 
-    -- 4. Eksekusi Teleport jika target ditemukan
+    -- 3. EKSEKUSI TELEPORT
     if targetMonster then
-        local character = LocalPlayer.Character
-        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-        if rootPart then
-            local targetCFrame = targetMonster.PrimaryPart.CFrame
-            -- Teleport dengan offset 7 studs di atas musuh
-            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, 7)
+        local targetPos = targetMonster:IsA("Model") and targetMonster.PrimaryPart.Position or targetMonster.Position
+        local distance = (rootPart.Position - targetPos).Magnitude
+        
+        if distance > 10 then
+            local targetCFrame = targetMonster:IsA("Model") and targetMonster.PrimaryPart.CFrame or targetMonster.CFrame
+            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, 5)
         end
     end
 end
@@ -1712,7 +1776,7 @@ local RaidList = {}
 if GeneralReplica and GeneralReplica.Data and GeneralReplica.Data.Dungeons then
     for dName, dData in pairs(GeneralReplica.Data.Dungeons) do
         local item = {
-            Title = dData.Name:gsub("_", " "),
+            Title = dData.Name:gsub("_", " ") .. dData.MapId,
             Id = dData.Id,
             Value = dData.Name,
             Icon = dData.ImageId
