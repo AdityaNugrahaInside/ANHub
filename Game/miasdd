@@ -1776,7 +1776,7 @@ local RaidList = {}
 if GeneralReplica and GeneralReplica.Data and GeneralReplica.Data.Dungeons then
     for dName, dData in pairs(GeneralReplica.Data.Dungeons) do
         local item = {
-            Title = dData.Name:gsub("_", " ") .. dData.MapId,
+            Title = dData.Name:gsub("_", " ") .. "(" .. dData.MapId .. ")",
             Id = dData.Id,
             Value = dData.Name,
             Icon = dData.ImageId
