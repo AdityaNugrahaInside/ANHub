@@ -51,6 +51,10 @@ local MapDBFile = "Map_Database.json"
 -- Tambahkan ini di bagian variabel Config Anda
 local Config = {
     SelectedEnemy = nil,
+    SelectedDungeon = {}, -- Gunakan tabel kosong karena Multi = true
+    SelectedRaid = nil,    -- Tetap nil karena single select
+    AutoEnter = false,
+    SelectedEnemy = nil,
     MapConfigurations = {},
     AutoFarm = false,
     AutoRankUp = false,
@@ -66,7 +70,10 @@ local ConfigName = "ANConfig"
 local CurrentMapEnemiesCache = {}
 local IsLoadingConfig = false
 local IsLoadingMapSelection = false
-
+local IsInDungeonEvent = false
+local IsTransitioning = false
+local LocationChanging = false
+local LocalUsername = LocalPlayer.Name -- Menggunakan username kamu
 local UI
 local Window
 
@@ -348,7 +355,60 @@ local function SyncData()
     end
 end
 SyncData()
+-- Listener untuk Masuk/Keluar Dungeon
+-- Listener untuk Masuk/Keluar Dungeon
+ReplicatedStorage.Events.To_Client.OnClientEvent:Connect(function(data)
+    if type(data) == "table" and data.Action == "Dungeon" and data.Type == "Outlines" then
+        local wasInDungeon = IsInDungeonEvent
+        
+        -- Cek status dungeon
+        if data.Players and table.find(data.Players, LocalUsername) then
+            IsInDungeonEvent = true
+        else
+            IsInDungeonEvent = false
+        end
+
+        -- Jika terjadi transisi (Masuk atau Keluar)
+        if wasInDungeon ~= IsInDungeonEvent then
+            IsTransitioning = true
+            
+            -- RESET DROPDOWN: Hapus pilihan musuh sebelum jeda selesai
+            if EnemyDropdown then
+                EnemyDropdown:Set(nil) 
+                Config.SelectedEnemy = nil
+            end
+            
+            -- Jeda 1 detik agar tidak auto farm saat loading
+            task.delay(1, function() 
+                IsTransitioning = false 
+            end)
+        end
+    end
+end)
+
+-- Listener untuk Perubahan Lokasi (Replica_ReplicaSetValue)
+-- Menangani Log Arg 2: {"Players", "username", "Location"}
+ReplicatedStorage.ReplicaRemoteEvents.Replica_ReplicaSetValue.OnClientEvent:Connect(function(id, path, value)
+    if type(path) == "table" and path[1] == "Players" and path[2] == LocalUsername and path[3] == "Location" then
+        LocationChanging = true
+        LastMapName = "NONE" -- Paksa refresh list monster
+        
+        -- Jeda agar tidak memukul musuh di map sebelumnya
+        task.delay(1, function() LocationChanging = false end)
+    end
+end)
 ReplicatedStorage.Events.To_Server:FireServer({Value = state,Path = { "Settings", "AFK_MODE" },Action = "Settings"})
+-- Fungsi helper untuk mengecek apakah pemain sedang berada di dalam match dungeon
+local function IsInsideDungeon()
+    local dungeonFolder = workspace:FindFirstChild("Dungeons")
+    if dungeonFolder then
+        for _, dungeon in pairs(dungeonFolder:GetChildren()) do
+            -- Jika folder dungeon memiliki isi (seperti Starting_Room), pemain sedang di dalam
+            if #dungeon:GetChildren() > 0 then return true end
+        end
+    end
+    return false
+end
 -- Fungsi untuk mengambil saldo item apa pun (Energy, Token, Coins, dll) secara akurat
 local function GetBalance(pData, itemName)
     if not PlayerReplica or not GeneralReplica or not pData.Inventory then return 0 end
@@ -1174,22 +1234,23 @@ function Optimizer.Update_Leveling_Items_Logic(pData)
     if not GeneralReplica or not pData.Inventory or not pData.InGame then return end
 
     local levelingDb = GeneralReplica.Data.Leveling_Items
-    local equippedPowers = pData.Inventory.Settings.Equipped.Powers.List
     local inventoryItems = pData.Inventory.Items
+    local equippedSettings = pData.Inventory.Settings.Equipped
 
     for internalKey, toggle in pairs(LevelingToggles) do
         local benchData = levelingDb[internalKey]
         if not benchData then continue end
 
-        -- [[ LOGIKA MAP LOCK ]] --
+        -- [[ 1. MAP LOCK CHECK ]] --
         local mapIdStr = tostring(benchData.MapId or 0)
         local isMapUnlocked = pData.InGame.Unlocked.Maps[mapIdStr]
 
         if not isMapUnlocked and (benchData.MapId ~= 1) then
             if not Optimizer.Cache["MapLockLvlItem_"..internalKey] then
-                toggle:Lock("Need Unlock Map: ".. WorldMap[benchData.MapId].Name:gsub("_", " "))
+                toggle:Lock("Need Unlock Map: ".. (WorldMap[benchData.MapId] and WorldMap[benchData.MapId].Name:gsub("_", " ") or "Unknown"))
                 Optimizer.Cache["MapLockLvlItem_"..internalKey] = true
             end
+            continue
         else
             if Optimizer.Cache["MapLockLvlItem_"..internalKey] then
                 toggle:Unlock()
@@ -1197,46 +1258,60 @@ function Optimizer.Update_Leveling_Items_Logic(pData)
             end
         end
 
-        -- Ambil UniqueId dari Equipped list
-        local rawType = benchData.Item_Type[1] or ""
-        if rawType == "Pyrokinetics1" then rawType = "Pyrokinetics" end
-        local formattedType = rawType:gsub(" ", "_")
-        
-        local equippedUniqueId = equippedPowers[formattedType]
+        -- [[ 2. IDENTIFIKASI EQUIPPED UNIQUE ID ]] --
+        local equippedUniqueId = nil
+
+        -- --- TAHAP 1: PENCARIAN VIA METADATA (.U) ---
+        for uId, item in pairs(inventoryItems) do
+            if item.Equipped == true and item.U then
+                local categoryFolder = item.U[benchData.Bench_Category]
+                if categoryFolder and categoryFolder.List then
+                    local slotData = categoryFolder.List[benchData.Slot]
+                    if slotData and slotData.Name == benchData.Name then
+                        equippedUniqueId = uId
+                        break 
+                    end
+                end
+            end
+        end
+
+        -- --- TAHAP 2: FALLBACK VIA EQUIPPED SETTINGS (Jika Tahap 1 Gagal) ---
+        if not equippedUniqueId then
+            if benchData.Category == "Avatars" then
+                equippedUniqueId = equippedSettings.Avatars and equippedSettings.Avatars.Equipped
+            elseif equippedSettings.Powers and equippedSettings.Powers.List then
+                local rawType = benchData.Item_Type and benchData.Item_Type[1] or ""
+                local formattedType = rawType:gsub(" ", "_")
+                equippedUniqueId = equippedSettings.Powers.List[formattedType]
+            end
+        end
+
+        -- [[ 3. VALIDASI AKHIR DATA ITEM ]] --
         local itemData = equippedUniqueId and inventoryItems[equippedUniqueId]
 
         if not itemData then
-            if Optimizer.Cache["LvlUI_"..internalKey] ~= "None" then
+            if Optimizer.Cache["LvlUI_"..internalKey] ~= "NotEquipped" then
                 toggle:SetDesc("<font color='#ffaa00'>Item Not Equipped</font>")
-                Optimizer.Cache["LvlUI_"..internalKey] = "None"
+                Optimizer.Cache["LvlUI_"..internalKey] = "NotEquipped"
             end
             continue
         end
 
+        -- [[ 4. LOGIKA LEVELING ]] --
         pcall(function()
             local currentLevel = 0
             local folderU = itemData.U
-            if folderU then
-                if folderU.Leveling_Items and folderU.Leveling_Items.List.Level then
-                    currentLevel = folderU.Leveling_Items.List.Level.Level or 0
-                elseif folderU.Prog_Lv_Items and folderU.Prog_Lv_Items.List.Level then
-                    currentLevel = folderU.Prog_Lv_Items.List.Level.Level or 0
-                end
-            end
-
-            local currentBuffText = ""
-            local currentConfig = benchData.List[currentLevel]
-            if currentConfig and currentConfig.Stats then
-                for _, stat in pairs(currentConfig.Stats) do
-                    local totalStatValue = currentLevel * (stat.Value or 0)
-                    totalStatValue = string.format("x%.2f", totalStatValue)
-                    local val = stat.Multiply and totalStatValue
-                    currentBuffText = currentBuffText .. string.format("\nBuff: <font color='#55aaff'>%s %s</font>", tostring(val), stat.Main_Stat)
+            
+            -- Ambil level dari metadata (jalur dinamis sesuai Bench_Category)
+            if folderU and folderU[benchData.Bench_Category] then
+                local slotData = folderU[benchData.Bench_Category].List[benchData.Slot]
+                if slotData then
+                    currentLevel = slotData.Level or 0
                 end
             end
 
             local nextLevel = currentLevel + 1
-            local nextLevelConfig = benchData.List[nextLevel]
+            local nextLevelConfig = benchData.List[nextLevel] 
 
             if nextLevelConfig then
                 local price = nextLevelConfig.Price
@@ -1248,8 +1323,8 @@ function Optimizer.Update_Leveling_Items_Logic(pData)
                 local balColor = canAfford and "#00ff00" or "#ff0000"
                 
                 local desc = string.format(
-                    "Level: <font color='#ffffff'>%d</font>%s\n<font color='%s'>%s: %s/%s </font>", 
-                    currentLevel, currentBuffText, balColor, 
+                    "Level: <font color='#ffffff'>%d</font>\n<font color='%s'>%s: %s/%s </font>", 
+                    currentLevel, balColor, 
                     currencyId:gsub("_", " "), NumberFormatter:Format(myBalance), NumberFormatter:Format(reqAmount)
                 )
                 
@@ -1258,16 +1333,17 @@ function Optimizer.Update_Leveling_Items_Logic(pData)
                     Optimizer.Cache["LvlUI_"..internalKey] = desc
                 end
 
-                -- Eksekusi jika Map Terbuka dan Saldo Cukup
-                if Config.AutoLevelingItems[internalKey] and canAfford and not Optimizer.Cache["MapLockLvlItem_"..internalKey] then
-                    game:GetService("ReplicatedStorage").Events.To_Server:FireServer({
-                            ["UniqueId"] = equippedUniqueId,
-                            ["Action"] = "Leveling_Items",
-                            ["Bench_Name"] = internalKey
+                -- Eksekusi Remote
+                if Config.AutoLevelingItems[internalKey] and canAfford then
+                    ReplicatedStorage.Events.To_Server:FireServer({
+                        ["UniqueId"] = equippedUniqueId,
+                        ["Action"] = "Leveling_Items",
+                        ["Bench_Name"] = internalKey
                     })
                 end
             else
-                local descMax = string.format("Level: <font color='#ffff00'>%d (MAX)</font>%s", currentLevel, currentBuffText)
+                -- Max Level
+                local descMax = string.format("Level: <font color='#ffff00'>%d (MAX)</font>", currentLevel)
                 if Optimizer.Cache["LvlUI_"..internalKey] ~= descMax then
                     toggle:SetDesc(descMax)
                     Optimizer.Cache["LvlUI_"..internalKey] = descMax
@@ -1286,9 +1362,9 @@ local function CreateLevelingProgItemsUI()
     for internalName, data in pairs(LevelingProgData) do
         -- [[ FILTER EVENT ITEMS ]] --
         local lowerName = internalName:lower()
-        if lowerName:find("halloween") or lowerName:find("ghost") or lowerName:find("christmas") then
-            continue -- Lewati item jika mengandung kata filter
-        end
+        -- if lowerName:find("halloween") or lowerName:find("ghost") or lowerName:find("christmas") then
+        --     continue -- Lewati item jika mengandung kata filter
+        -- end
 
         table.insert(bList, {
             Key = internalName,
@@ -1325,92 +1401,131 @@ function Optimizer.Update_Prog_Lv_Items_Logic(pData)
     if not GeneralReplica or not pData.Inventory or not pData.InGame then return end
 
     local levelingProgDb = GeneralReplica.Data.Prog_Lv_Items
-    local equippedPowers = pData.Inventory.Settings.Equipped.Powers.List
     local inventoryItems = pData.Inventory.Items
+    local equippedSettings = pData.Inventory.Settings.Equipped
 
-    -- Loop hanya pada item yang lolos filter UI
     for internalKey, toggle in pairs(LevelingProgToggles) do
         local benchData = levelingProgDb[internalKey]
         if not benchData then continue end
 
-        -- [[ MAP LOCK CHECK ]] --
+        -- [[ 1. MAP LOCK CHECK ]] --
         local mapIdStr = tostring(benchData.MapId or 0)
-        if not pData.InGame.Unlocked.Maps[mapIdStr] and benchData.MapId ~= 1 then
-            if not Optimizer.Cache["MapLockLvlProg_"..internalKey] then
-                toggle:Lock("Need Unlock Map: ".. WorldMap[benchData.MapId].Name:gsub("_", " "))
-                Optimizer.Cache["MapLockLvlProg_"..internalKey] = true
+        local isMapUnlocked = pData.InGame.Unlocked.Maps[mapIdStr]
+
+        if not isMapUnlocked and (benchData.MapId ~= 1) then
+            if not Optimizer.Cache["MapLockProgItem_"..internalKey] then
+                toggle:Lock("Unlock Map: ".. (WorldMap[benchData.MapId] and WorldMap[benchData.MapId].Name:gsub("_", " ") or "Unknown"))
+                Optimizer.Cache["MapLockProgItem_"..internalKey] = true
             end
             continue
         else
-            if Optimizer.Cache["MapLockLvlProg_"..internalKey] then
+            if Optimizer.Cache["MapLockProgItem_"..internalKey] then
                 toggle:Unlock()
-                Optimizer.Cache["MapLockLvlProg_"..internalKey] = nil
+                Optimizer.Cache["MapLockProgItem_"..internalKey] = nil
             end
         end
 
-        -- [[ 2. IDENTIFIKASI ITEM & LEVEL ]] --
-        local rawType = benchData.Item_Type[1] or ""
-        local rawType2 = internalKey:gsub("_Leveling", "")
-        local formattedType = rawType:gsub(" ", "_")
-        
-        local equippedUniqueId = equippedPowers[formattedType]
+        -- [[ 2. IDENTIFIKASI EQUIPPED UNIQUE ID (DUAL-CHECK) ]] --
+        local equippedUniqueId = nil
+
+        -- --- TAHAP 1: PENCARIAN VIA METADATA (.U) ---
+        for uId, item in pairs(inventoryItems) do
+            if item.Equipped == true and item.U then
+                local categoryFolder = item.U[benchData.Bench_Category]
+                if categoryFolder and categoryFolder.List then
+                    local slotData = categoryFolder.List[benchData.Slot]
+                    -- Contoh: Cek apakah item.U.Prog_Lv_Items.List.Level.Name == "Zanpakuto_Leveling"
+                    if slotData and slotData.Name == benchData.Name then
+                        equippedUniqueId = uId
+                        break 
+                    end
+                end
+            end
+        end
+
+        -- --- TAHAP 2: FALLBACK VIA EQUIPPED SETTINGS (Jika Tahap 1 Gagal) ---
+        if not equippedUniqueId then
+            -- Kebanyakan Prog_Lv masuk ke kategori Powers (Zanpakuto, Geass, PirateCrew)
+            if equippedSettings.Powers and equippedSettings.Powers.List then
+                local rawType = benchData.Item_Type and benchData.Item_Type[1] or ""
+                local formattedType = rawType:gsub(" ", "_")
+                equippedUniqueId = equippedSettings.Powers.List[formattedType]
+            end
+        end
+
+        if not equippedUniqueId then
+            local rawType2 = internalKey:gsub("_Leveling", "")
+            equippedUniqueId = pData.Inventory.Settings.Equipped.Powers.List[rawType2]
+        end
+
+        -- [[ 3. VALIDASI AKHIR DATA ITEM ]] --
         local itemData = equippedUniqueId and inventoryItems[equippedUniqueId]
 
         if not itemData then
-            formattedType = rawType:gsub(" ", "_")
-            
-            equippedUniqueId = equippedPowers[rawType2]
-            itemData = equippedUniqueId and inventoryItems[equippedUniqueId]
-            if not itemData then
-                if Optimizer.Cache["LvlProgUI_"..internalKey] ~= "None" then
-                    toggle:SetDesc("<font color='#ffaa00'>Item Not Equipped</font>")
-                    Optimizer.Cache["LvlProgUI_"..internalKey] = "None"
-                end
-                continue
+            if Optimizer.Cache["LvlProgUI_"..internalKey] ~= "None" then
+                toggle:SetDesc("<font color='#ffaa00'>Item Not Equipped</font>")
+                Optimizer.Cache["LvlProgUI_"..internalKey] = "None"
             end
         end
 
+        -- [[ 4. LOGIKA LEVELING KHUSUS PROG_LV ]] --
         pcall(function()
+            local levelDef = benchData.List.Level
+            if not levelDef then return end
+
+            -- Ambil level saat ini dari metadata item yang ditemukan
             local currentLevel = 0
-            if itemData.U and itemData.U.Prog_Lv_Items and itemData.U.Prog_Lv_Items.List.Level then
-                currentLevel = itemData.U.Prog_Lv_Items.List.Level.Level or 0
+            if itemData.U and itemData.U[benchData.Bench_Category] then
+                local slotData = itemData.U[benchData.Bench_Category].List[benchData.Slot]
+                if slotData then
+                    currentLevel = slotData.Level or 0
+                end
             end
 
-            local levelDef = benchData.List.Level
             local maxLevel = levelDef.Max_Levels or 100
 
             if currentLevel < maxLevel then
-                -- Kalkulasi Harga Sesuai Database
-                local priceTable = levelDef.Price[1]
-                local baseAmount = math.abs(priceTable.Amount)
+                -- Kalkulasi Harga Sesuai Aturan Database Prog_Lv
+                local priceInfo = levelDef.Price[1]
+                local baseAmount = math.abs(priceInfo.Amount)
                 local inc = levelDef.Price_Increase or 0
-                local currentCost = levelDef.Price_Compound and (baseAmount * ((1 + inc) ^ currentLevel)) or (baseAmount * (1 + (inc * currentLevel)))
+                
+                -- Rumus: base * ((1 + inc) ^ level) jika compound, atau base * (1 + (inc * level))
+                local currentCost = levelDef.Price_Compound 
+                    and (baseAmount * ((1 + inc) ^ currentLevel)) 
+                    or (baseAmount * (1 + (inc * currentLevel)))
 
-                local myBalance = GetBalance(pData, priceTable.Id)
+                local myBalance = GetBalance(pData, priceInfo.Id)
                 local canAfford = myBalance >= currentCost
                 local balColor = canAfford and "#00ff00" or "#ff0000"
-
-                -- Update Tampilan
-                local desc = string.format("Level: %d/%d\n<font color='%s'>%s: %s/%s</font>", 
-                    currentLevel, maxLevel, balColor, priceTable.Id:gsub("_", " "), 
-                    NumberFormatter:Format(myBalance), NumberFormatter:Format(currentCost))
-
+                
+                local desc = string.format(
+                    "Level: <font color='#ffffff'>%d/%d</font>\n<font color='%s'>%s: %s/%s</font>", 
+                    currentLevel, maxLevel, balColor, 
+                    priceInfo.Id:gsub("_", " "), NumberFormatter:Format(myBalance), NumberFormatter:Format(currentCost)
+                )
+                
                 if Optimizer.Cache["LvlProgUI_"..internalKey] ~= desc then
                     toggle:SetDesc(desc)
                     Optimizer.Cache["LvlProgUI_"..internalKey] = desc
                 end
 
-                -- Eksekusi
+                -- Eksekusi Remote
                 if Config.AutoLevelingProgItems[internalKey] and canAfford then
                     ReplicatedStorage.Events.To_Server:FireServer({
-                        UniqueId = equippedUniqueId,
-                        Action = "Prog_Lv_Items",
-                        Bench_Name = internalKey,
-                        Upgrade_Name = "Level"
+                        ["UniqueId"] = equippedUniqueId,
+                        ["Action"] = "Prog_Lv_Items",
+                        ["Bench_Name"] = internalKey,
+                        ["Upgrade_Name"] = benchData.Slot -- Biasanya "Level"
                     })
                 end
             else
-                toggle:SetDesc("<font color='#ffff00'>STATUS: MAXED</font>")
+                -- Max Level
+                local descMax = string.format("Level: <font color='#ffff00'>%d (MAX)</font>", currentLevel)
+                if Optimizer.Cache["LvlProgUI_"..internalKey] ~= descMax then
+                    toggle:SetDesc(descMax)
+                    Optimizer.Cache["LvlProgUI_"..internalKey] = descMax
+                end
             end
         end)
     end
@@ -1460,7 +1575,7 @@ function Optimizer.Update_KillAura_Logic(data)
     -- Berjalan hanya jika Toggle Kill Aura aktif
     if Config.AutoKillAura then
         -- Get_Monsters_InRange tanpa parameter akan mengambil semua monster yang terdeteksi
-        local nearbyMonsters = MouseModule.Get_Monsters_InRange()
+        local nearbyMonsters = MouseModule.Get_Monsters_InRange(100)
         local args = nil
         
         if nearbyMonsters and #nearbyMonsters > 0 then
@@ -1540,47 +1655,61 @@ function Optimizer.RefreshMonsterList(pData)
         EnemyDropdown:SetValues({ {Title = "Searching Monsters...", Value = nil} })
     end
 end
-
--- [[ 4. LOGIKA EKSEKUSI ATTACK & AUTO TELEPORT ]] --
-
-
 function Optimizer.Update_Farm_Logic(pData)
-    -- 1. Refresh list musuh di Dropdown berdasarkan Map saat ini
+    -- 1. Jeda Proteksi: Jangan lakukan apapun jika sedang transisi atau ganti lokasi
+    if IsTransitioning or LocationChanging then return end
+    
     Optimizer.RefreshMonsterList(pData)
+    
+    -- 2. Validasi: Hanya jalan jika AutoFarm aktif dan musuh sudah dipilih di dropdown
+    if not Config.AutoFarm or not Config.SelectedEnemy then return end
 
-    -- 2. Jalankan Auto Farm jika aktif dan target sudah dipilih (sebagai Table)
-    if Config.AutoFarm and Config.SelectedEnemy and type(Config.SelectedEnemy) == "table" then
+    local targetMonster = nil
+    local inDungeon = IsInsideDungeon()
+
+    if inDungeon and not Config.SelectedEnemy then
+        -- === LOGIKA TARGET DALAM DUNGEON ===
+        -- Ambil daftar ID monster yang terdaftar di map normal saat ini untuk dikecualikan
+        local mapMonsterIds = {}
+        local currentMapName = pData.InGame.Info.Map
+        local currentMapId = nil
         
-        -- FILTER SAFETY: Jangan teleport jika sedang di dalam Dungeon
-        local dungeonFolder = workspace:FindFirstChild("Dungeons")
-        if dungeonFolder then
-            for _, dungeon in pairs(dungeonFolder:GetChildren()) do
-                if #dungeon:GetChildren() > 0 then return end
+        for id, data in pairs(WorldMap) do
+            if data.Name == currentMapName then 
+                currentMapId = id 
+                break 
             end
         end
 
-        local targetMonster = nil
-        local finalTargetId = nil 
-
-        -- --- FASE 1: MENCARI DI DEBRIS (MODEL & ATTRIBUTE TITLE) ---
-        local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
-        if debrisMonsters then
-            for _, monster in pairs(debrisMonsters:GetChildren()) do
-                if monster:IsA("Model") and monster.PrimaryPart then
-                    -- Cocokkan Title dengan Config.SelectedEnemy.Name
-                    if monster:GetAttribute("Title") == Config.SelectedEnemy.Name then
-                        targetMonster = monster
-                        break 
-                    end
+        if currentMapId then
+            for _, mData in pairs(GeneralReplica.Data.Monsters) do
+                if mData.MapId == currentMapId then
+                    mapMonsterIds[tostring(mData.Id)] = true
                 end
             end
         end
 
-        -- --- FASE 2: MENCARI DI ISLAND PADS (PART & ATTRIBUTE IDS) ---
-        if not targetMonster then
+        -- Cari monster di Debris yang TIDAK ada dalam daftar pengecualian
+        local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
+        if debrisMonsters then
+            for _, monster in pairs(debrisMonsters:GetChildren()) do
+                if monster:IsA("Model") and monster.PrimaryPart then
+                    local mId = tostring(monster:GetAttribute("Ids") or "")
+                    if not mapMonsterIds[mId] then
+                        targetMonster = monster
+                        break
+                    end
+                end
+            end
+        end
+    else
+        
+        -- === MODE NORMAL: Filter Nama & MapId ===
+        if Config.SelectedEnemy and type(Config.SelectedEnemy) == "table" then
+            local currentMapName = pData.InGame.Info.Map 
             local currentMapId = nil
-            local currentMapName = pData.InGame.Info.Map
-            
+
+            -- Ambil MapId saat ini berdasarkan nama Map
             for id, data in pairs(WorldMap) do
                 if data.Name == currentMapName then
                     currentMapId = id
@@ -1588,43 +1717,43 @@ function Optimizer.Update_Farm_Logic(pData)
                 end
             end
 
-            if currentMapId then
-                -- Konstruksi path Island: "MapId. Nama Map"
-                local islandFolderName = currentMapId .. ". " .. WorldMap[currentMapId].Name:gsub("_", " ")
-                local padFolder = workspace.Islands:FindFirstChild(islandFolderName) and workspace.Islands[islandFolderName]:FindFirstChild("Pads")
-                
-                if padFolder then
-                    for _, monsterPart in pairs(padFolder:GetChildren()) do
-                        -- Mencari objek berupa Part/MeshPart
-                        if monsterPart:GetAttribute("Ids") == tonumber(Config.SelectedEnemy.Id) then
-                            targetMonster = monsterPart
-                            break
+            -- AMBIL DATA MONSTER DARI DATABASE (GeneralReplica.Data.Monsters)
+            local monsterName = Config.SelectedEnemy.Name
+            local monsterData = GeneralReplica.Data.Monsters[monsterName]
+
+            -- FILTER: Jika MapId monster tidak cocok dengan MapId saat ini, STOP.
+            if monsterData and currentMapId and monsterData.MapId ~= currentMapId then
+                return -- Berhenti, jangan lakukan teleport atau pencarian
+            end
+
+            -- Jika MapId cocok, baru cari monster di Debris
+            if debrisMonsters then
+                for _, monster in pairs(debrisMonsters:GetChildren()) do
+                    if monster:IsA("Model") and monster.PrimaryPart then
+                        if monster:GetAttribute("Title") == monsterName then
+                            targetMonster = monster
+                            break 
                         end
                     end
                 end
             end
         end
+    end
 
-        -- 3. EKSEKUSI TELEPORT & SERANGAN
-        if targetMonster then
-            local character = game.Players.LocalPlayer.Character
-            local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-
-            if rootPart then
-                -- Tentukan posisi target (PrimaryPart untuk Model, Position untuk Part)
-                local targetPos = targetMonster:IsA("Model") and targetMonster.PrimaryPart.Position or targetMonster.Position
-                local distance = (rootPart.Position - targetPos).Magnitude
-                
-                if distance > 10 then
-                    -- Teleport ke lokasi target dengan offset 5 studs di belakang
-                    local targetCFrame = targetMonster:IsA("Model") and targetMonster.PrimaryPart.CFrame or targetMonster.CFrame
-                    rootPart.CFrame = targetCFrame * CFrame.new(0, 0, 5)
-                end
+    -- 3. EKSEKUSI TELEPORT
+    if targetMonster then
+        local character = game.Players.LocalPlayer.Character
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            local targetPos = targetMonster:IsA("Model") and targetMonster.PrimaryPart.Position or targetMonster.Position
+            local distance = (rootPart.Position - targetPos).Magnitude
+            if distance > 10 then
+                local targetCFrame = targetMonster:IsA("Model") and targetMonster.PrimaryPart.CFrame or targetMonster.CFrame
+                rootPart.CFrame = targetCFrame * CFrame.new(0, 0, 5)
             end
         end
     end
 end
-
 -- [[ GAME MODE CATEGORY ]] --
 local GameModeGroup = FarmTab:Group({ Title = "Game Mode / Dungeons" })
 FM_Add("Farm", GameModeGroup)
@@ -1667,13 +1796,11 @@ end
 GameModeGroup:Dropdown({
     Title = "Select Dungeon",
     Values = DungeonList,
-    Multi = true,
+    Multi = true, -- Mengirimkan list/daftar
     AllowNone = true,
     Flag = "Dungeon_cfg",
     Callback = function(val)
-        if type(val) == "table" then
-            Config.SelectedMode = val.Value
-        end
+        Config.SelectedDungeon = val -- Menyimpan list pilihan
     end
 })
 
@@ -1684,62 +1811,68 @@ GameModeGroup:Dropdown({
     AllowNone = true,
     Flag = "Raid_cfg",
     Callback = function(val)
-        if type(val) == "table" then
-            Config.SelectedMode = val.Value
-        end
+        -- Simpan string val.Value jika ada, jika tidak set nil
+        Config.SelectedRaid = (type(val) == "table" and val.Value) or nil
     end
 })
--- [[ LOGIKA AUTO ENTER DENGAN PENGECEKAN ISI DUNGEON ]] --
+
+-- Fungsi helper untuk membersihkan tag RichText dan mengambil teks murni
+local function GetCleanStatus(text)
+    if not text then return "" end
+    return text:gsub("<.-%>", ""):lower() 
+end
+
 function Optimizer.Update_GameMode_Logic(pData)
-    if Config.AutoEnter and Config.SelectedMode then
-        
-        -- 1. CEK WORKSPACE: Apakah ada dungeon yang sudah memiliki isi/children?
-        local dungeonFolder = workspace:FindFirstChild("Dungeons")
-        if dungeonFolder then
-            for _, dungeon in pairs(dungeonFolder:GetChildren()) do
-                -- Memeriksa apakah folder dungeon spesifik (contoh: Hollow_Raid_xxx) 
-                -- sudah memiliki isi di dalamnya (contoh: Starting_Room)
-                if #dungeon:GetChildren() > 0 then
-                    -- Jika ditemukan isi, berarti kita sudah di dalam sesi game.
-                    -- Berhenti di sini agar tidak mengirim Fireserver lagi.
-                    return 
-                end
-            end
-        end
+    if not Config.AutoEnter then return end
+    
+    -- 1. CEK STATUS: Jangan kirim remote jika sudah di dalam match
+    if IsInsideDungeon() then return end
 
-        -- 2. Ambil data dungeon dari database GeneralReplica
-        local dungeonData = GeneralReplica.Data.Dungeons[Config.SelectedMode]
-        if not dungeonData then return end
+    -- 2. LOGIKA PENGECEKAN TARGET
+    local function TryJoin(modeName)
+        local data = GeneralReplica.Data.Dungeons[modeName]
+        if not data then return false end
 
+        -- Ambil status murni (kecil semua)
+        local status = GetCleanStatus(data.Portal_Text)
+
+        -- PERBAIKAN: Boleh masuk jika status mengandung 'open' atau 'closing'
+        local isAvailable = string.find(status, "open") or string.find(status, "closing")
+        if not isAvailable then return false end
+
+        -- CEK SALDO (Jika ada harga tiket)
         local canEnter = true
-
-        -- 3. Pengecekan Syarat Masuk (Price/Inventory)
-        if dungeonData.Price then
-            local requiredItemId = dungeonData.Price.Id
-            local requiredAmount = math.abs(dungeonData.Price.Amount)
-            
-            local inventory = pData.Inventory.Items
-            local playerItemAmount = GetBalance(pData, requiredItemId)
-            print(playerItemAmount)
-
-            -- Cek kecukupan item
-            if playerItemAmount < requiredAmount then
+        if data.Price then
+            local reqAmount = math.abs(data.Price.Amount)
+            if GetBalance(pData, data.Price.Id) < reqAmount then
                 canEnter = false
             end
         end
 
-        -- 4. Eksekusi Masuk jika syarat terpenuhi
         if canEnter then
-            local args = {
-                {
-                    Action = "_Enter_Dungeon",
-                    Name = Config.SelectedMode
-                }
-            }
-            
-            -- Kirim Remote ke Server
-            game:GetService("ReplicatedStorage").Events.To_Server:FireServer(unpack(args))
-            task.wait(2)
+            game:GetService("ReplicatedStorage").Events.To_Server:FireServer({
+                Action = "_Enter_Dungeon",
+                Name = modeName
+            })
+            task.wait(2) -- Jeda proteksi agar tidak spam
+            return true 
+        end
+        return false
+    end
+
+    -- PRIORITAS 1: Cek Raid
+    if Config.SelectedRaid then
+        if TryJoin(Config.SelectedRaid) then return end
+    end
+
+    -- PRIORITAS 2: Cek semua Dungeon yang dipilih (Sesuai nama variabel dropdown Anda)
+    local selected = Config.SelectedDungeon 
+    if type(selected) == "table" and #selected > 0 then
+        for _, item in ipairs(selected) do
+            local dungeonName = type(item) == "table" and item.Value or item
+            if TryJoin(dungeonName) then 
+                break 
+            end
         end
     end
 end
@@ -1962,7 +2095,6 @@ task.spawn(function()
             pcall(Optimizer.Update_Prestige_Logic, pData)
             pcall(Optimizer.Update_Leveling_Items_Logic, pData)
             pcall(Optimizer.Update_Prog_Lv_Items_Logic, pData)
-            pcall(Optimizer.Update_GameMode_Logic, pData)
         end
     end
 end)
@@ -1978,6 +2110,7 @@ task.spawn(function()
         
         if pData then
             -- Jalankan logika Rank Up secara otomatis
+            pcall(Optimizer.Update_GameMode_Logic, pData)
             pcall(Optimizer.Update_Farm_Logic, pData)
         end
     end
