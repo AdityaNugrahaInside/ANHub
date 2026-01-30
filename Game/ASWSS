@@ -1555,7 +1555,7 @@ EnemyDropdown = FarmGroup:Dropdown({
     Flag = "EnemyDropdown_Cfg",
     Callback = function(val)
         -- Jika val adalah tabel dan memiliki Value, maka set musuh
-        if type(val) == "table" and val.Value then
+        if type(val) == "table" then
             Config.SelectedEnemy = val.Value
         else
             -- Jika tidak memilih apa pun (Clear), set jadi nil
