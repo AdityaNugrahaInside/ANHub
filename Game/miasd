@@ -1656,98 +1656,39 @@ function Optimizer.RefreshMonsterList(pData)
     end
 end
 function Optimizer.Update_Farm_Logic(pData)
-    -- 1. Refresh list musuh di Dropdown
+    -- 1. Jeda Proteksi: Jangan lakukan apapun jika sedang transisi atau ganti lokasi
+    if IsTransitioning or LocationChanging then return end
+    
     Optimizer.RefreshMonsterList(pData)
     
-    if not Config.AutoFarm then return end
+    -- 2. Validasi: Hanya jalan jika AutoFarm aktif dan musuh sudah dipilih di dropdown
+    if not Config.AutoFarm or not Config.SelectedEnemy then return end
 
+    local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
     local targetMonster = nil
-    local inDungeon = IsInsideDungeon()
+    local monsterName = Config.SelectedEnemy.Name
 
-    if inDungeon and not Config.SelectedEnemy then
-        -- === LOGIKA TARGET DALAM DUNGEON ===
-        -- Ambil daftar ID monster yang terdaftar di map normal saat ini untuk dikecualikan
-        local mapMonsterIds = {}
-        local currentMapName = pData.InGame.Info.Map
-        local currentMapId = nil
-        
-        for id, data in pairs(WorldMap) do
-            if data.Name == currentMapName then 
-                currentMapId = id 
-                break 
-            end
-        end
-
-        if currentMapId then
-            for _, mData in pairs(GeneralReplica.Data.Monsters) do
-                if mData.MapId == currentMapId then
-                    mapMonsterIds[tostring(mData.Id)] = true
-                end
-            end
-        end
-
-        -- Cari monster di Debris yang TIDAK ada dalam daftar pengecualian
-        local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
-        if debrisMonsters then
-            for _, monster in pairs(debrisMonsters:GetChildren()) do
-                if monster:IsA("Model") and monster.PrimaryPart then
-                    local mId = tostring(monster:GetAttribute("Ids") or "")
-                    if not mapMonsterIds[mId] then
-                        targetMonster = monster
-                        break
-                    end
-                end
-            end
-        end
-    else
-        
-        -- === MODE NORMAL: Filter Nama & MapId ===
-        if Config.SelectedEnemy and type(Config.SelectedEnemy) == "table" then
-            local currentMapName = pData.InGame.Info.Map 
-            local currentMapId = nil
-
-            -- Ambil MapId saat ini berdasarkan nama Map
-            for id, data in pairs(WorldMap) do
-                if data.Name == currentMapName then
-                    currentMapId = id
-                    break
-                end
-            end
-
-            -- AMBIL DATA MONSTER DARI DATABASE (GeneralReplica.Data.Monsters)
-            local monsterName = Config.SelectedEnemy.Name
-            local monsterData = GeneralReplica.Data.Monsters[monsterName]
-
-            -- FILTER: Jika MapId monster tidak cocok dengan MapId saat ini, STOP.
-            if monsterData and currentMapId and monsterData.MapId ~= currentMapId then
-                return -- Berhenti, jangan lakukan teleport atau pencarian
-            end
-
-            -- Jika MapId cocok, baru cari monster di Debris
-            if debrisMonsters then
-                for _, monster in pairs(debrisMonsters:GetChildren()) do
-                    if monster:IsA("Model") and monster.PrimaryPart then
-                        if monster:GetAttribute("Title") == monsterName then
-                            targetMonster = monster
-                            break 
-                        end
-                    end
+    -- 3. Cari target hanya berdasarkan pilihan dropdown (Berlaku di mana saja)
+    if debrisMonsters then
+        for _, monster in pairs(debrisMonsters:GetChildren()) do
+            if monster:IsA("Model") and monster.PrimaryPart then
+                -- Cek apakah Title monster cocok dengan pilihan dropdown kamu
+                if monster:GetAttribute("Title") == monsterName then
+                    targetMonster = monster
+                    break 
                 end
             end
         end
     end
 
-    -- 3. EKSEKUSI TELEPORT
+    -- 4. Eksekusi Teleport jika target ditemukan
     if targetMonster then
-        local character = game.Players.LocalPlayer.Character
+        local character = LocalPlayer.Character
         local rootPart = character and character:FindFirstChild("HumanoidRootPart")
         if rootPart then
-            local targetPos = targetMonster:IsA("Model") and targetMonster.PrimaryPart.Position or targetMonster.Position
-            local distance = (rootPart.Position - targetPos).Magnitude
-            if distance > 10 then
-                local targetCFrame = targetMonster:IsA("Model") and targetMonster.PrimaryPart.CFrame or targetMonster.CFrame
-                rootPart.CFrame = targetCFrame * CFrame.new(0, 0, 5)
-            end
+            local targetCFrame = targetMonster.PrimaryPart.CFrame
+            -- Teleport dengan offset 7 studs di atas musuh
+            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, 7)
         end
     end
 end
