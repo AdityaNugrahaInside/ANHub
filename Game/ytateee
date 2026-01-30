@@ -1656,12 +1656,9 @@ function Optimizer.RefreshMonsterList(pData)
     end
 end
 function Optimizer.Update_Farm_Logic(pData)
-    -- 1. Jeda Proteksi: Jangan lakukan apapun jika sedang transisi atau ganti lokasi
-    if IsTransitioning or LocationChanging then return end
-    
+    -- 1. Refresh list musuh di Dropdown
     Optimizer.RefreshMonsterList(pData)
     
-    -- 2. Validasi: Hanya jalan jika AutoFarm aktif dan musuh sudah dipilih di dropdown
     if not Config.AutoFarm then return end
 
     local targetMonster = nil
