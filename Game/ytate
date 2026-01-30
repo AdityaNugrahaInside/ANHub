@@ -1662,7 +1662,7 @@ function Optimizer.Update_Farm_Logic(pData)
     Optimizer.RefreshMonsterList(pData)
     
     -- 2. Validasi: Hanya jalan jika AutoFarm aktif dan musuh sudah dipilih di dropdown
-    if not Config.AutoFarm or not Config.SelectedEnemy then return end
+    if not Config.AutoFarm then return end
 
     local targetMonster = nil
     local inDungeon = IsInsideDungeon()
@@ -1702,7 +1702,7 @@ function Optimizer.Update_Farm_Logic(pData)
                 end
             end
         end
-    else
+    elseif Config.SelectedEnemy then
         
         -- === MODE NORMAL: Filter Nama & MapId ===
         if Config.SelectedEnemy and type(Config.SelectedEnemy) == "table" then
