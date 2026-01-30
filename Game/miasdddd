@@ -386,29 +386,29 @@ ReplicatedStorage.Events.To_Client.OnClientEvent:Connect(function(data)
     end
 end)
 
--- Listener untuk Perubahan Lokasi (Replica_ReplicaSetValue)
--- Menangani Log Arg 2: {"Players", "username", "Location"}
-ReplicatedStorage.ReplicaRemoteEvents.Replica_ReplicaSetValue.OnClientEvent:Connect(function(id, path, value)
-    if type(path) == "table" and path[1] == "Players" and path[2] == LocalUsername and path[3] == "Location" then
-        LocationChanging = true
-        LastMapName = "NONE" -- Paksa refresh list monster
+-- -- Listener untuk Perubahan Lokasi (Replica_ReplicaSetValue)
+-- -- Menangani Log Arg 2: {"Players", "username", "Location"}
+-- ReplicatedStorage.ReplicaRemoteEvents.Replica_ReplicaSetValue.OnClientEvent:Connect(function(id, path, value)
+--     if type(path) == "table" and path[1] == "Players" and path[2] == LocalUsername and path[3] == "Location" then
+--         LocationChanging = true
+--         LastMapName = "NONE" -- Paksa refresh list monster
         
-        -- Jeda agar tidak memukul musuh di map sebelumnya
-        task.delay(1, function() LocationChanging = false end)
-    end
-end)
-ReplicatedStorage.Events.To_Server:FireServer({Value = state,Path = { "Settings", "AFK_MODE" },Action = "Settings"})
--- Fungsi helper untuk mengecek apakah pemain sedang berada di dalam match dungeon
-local function IsInsideDungeon()
-    local dungeonFolder = workspace:FindFirstChild("Dungeons")
-    if dungeonFolder then
-        for _, dungeon in pairs(dungeonFolder:GetChildren()) do
-            -- Jika folder dungeon memiliki isi (seperti Starting_Room), pemain sedang di dalam
-            if #dungeon:GetChildren() > 0 then return true end
-        end
-    end
-    return false
-end
+--         -- Jeda agar tidak memukul musuh di map sebelumnya
+--         task.delay(1, function() LocationChanging = false end)
+--     end
+-- end)
+-- ReplicatedStorage.Events.To_Server:FireServer({Value = state,Path = { "Settings", "AFK_MODE" },Action = "Settings"})
+-- -- Fungsi helper untuk mengecek apakah pemain sedang berada di dalam match dungeon
+-- local function IsInsideDungeon()
+--     local dungeonFolder = workspace:FindFirstChild("Dungeons")
+--     if dungeonFolder then
+--         for _, dungeon in pairs(dungeonFolder:GetChildren()) do
+--             -- Jika folder dungeon memiliki isi (seperti Starting_Room), pemain sedang di dalam
+--             if #dungeon:GetChildren() > 0 then return true end
+--         end
+--     end
+--     return false
+-- end
 -- Fungsi untuk mengambil saldo item apa pun (Energy, Token, Coins, dll) secara akurat
 local function GetBalance(pData, itemName)
     if not PlayerReplica or not GeneralReplica or not pData.Inventory then return 0 end
@@ -1603,26 +1603,17 @@ function Optimizer.Update_KillAura_Logic(data)
         end
     end
 end
+-- [[ 3. LOGIKA FILTERING DINAMIS (VERIFIED FOR ANUI) ]] --
 function Optimizer.RefreshMonsterList(pData)
-    -- 1. Validasi keberadaan data pData dan Database General
+    -- 1. Validasi keberadaan data
     if not pData or not pData.InGame or not pData.InGame.Info then return end
     if not GeneralReplica or not GeneralReplica.Data or not WorldMap then return end
-    
     local currentMapName = pData.InGame.Info.Map 
     
-    -- 2. Cek apakah terjadi perpindahan Map
+    -- 2. Cek apakah perlu refresh
     if LastMapName == currentMapName then return end
 
-    -- [[ FIX: RESET SELEKSI SAAT PINDAH MAP ]]
-    -- Mengosongkan variabel pilihan agar script berhenti menyerang musuh dari map lama
-    Config.SelectedEnemy = nil 
-    
-    -- Mengosongkan tampilan visual pada Dropdown UI
-    if EnemyDropdown then
-        EnemyDropdown:Set(nil) 
-    end
-
-    -- 3. Cari MapId berdasarkan nama Map saat ini
+    -- 3. Cari MapId
     local currentMapId = nil
     for id, data in pairs(WorldMap) do
         if data.Name == currentMapName then
@@ -1631,42 +1622,40 @@ function Optimizer.RefreshMonsterList(pData)
         end
     end
 
-    -- 4. Filter Monster berdasarkan MapId yang ditemukan
+    -- 4. Filter Monster
     local filteredOptions = {}
     local monsters = GeneralReplica.Data.Monsters
     
     if monsters then
         local tempMonsters = {}
         for _, mData in pairs(monsters) do
-            -- Filter: Masukkan monster jika MapId cocok dan ID valid
-            if mData.MapId == currentMapId then
+            if mData.MapId == currentMapId and mData.Id ~= _ then
                 table.insert(tempMonsters, mData)
             end
         end
 
-        -- Urutkan monster berdasarkan Rarity (Monster lemah di atas, Boss/Rare di bawah)
+        -- Urutkan berdasarkan Rarity
         table.sort(tempMonsters, function(a, b) 
             return (a.Rarity or 0) < (b.Rarity or 0) 
         end)
 
-        -- 5. Susun tabel opsi untuk library ANUI
+        -- Susun tabel untuk Dropdown ANUI
         for _, mData in ipairs(tempMonsters) do
             table.insert(filteredOptions, {
                 Title = tostring(mData.Name) .. " (Rank " .. tostring(mData.Rank or "?") .. ")",
-                Value = { Name = mData.Name, Id = mData.Id }, -- Simpan data lengkap di Value
+                Value = { Name = mData.Name, Id = mData.Id },
                 Icon = mData.ImageId
             })
         end
     end
 
-    -- 6. Update UI Dropdown
+    -- 5. Update UI menggunakan SetValues
     if #filteredOptions > 0 then
-        -- Simpan nama map terakhir agar tidak refresh terus-menerus (hemat CPU)
         LastMapName = currentMapName 
+        -- Memanggil SetValues pada instance element Dropdown
         EnemyDropdown:Refresh(filteredOptions)
     else
-        -- Jika map tidak memiliki monster (misal: Lobby/Map khusus)
-        EnemyDropdown:Refresh({ {Title = "No Monsters in this Map", Value = nil} })
+        EnemyDropdown:SetValues({ {Title = "Searching Monsters...", Value = nil} })
     end
 end
 function Optimizer.Update_Farm_Logic(pData)
