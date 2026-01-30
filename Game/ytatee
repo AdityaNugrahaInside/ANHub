@@ -1702,7 +1702,7 @@ function Optimizer.Update_Farm_Logic(pData)
                 end
             end
         end
-    elseif Config.SelectedEnemy then
+    else
         
         -- === MODE NORMAL: Filter Nama & MapId ===
         if Config.SelectedEnemy and type(Config.SelectedEnemy) == "table" then
