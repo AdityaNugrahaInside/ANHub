@@ -306,7 +306,8 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Gacha Pet", Icon = "rbxassetid://15625074556"}, -- Tambahkan iniProgression
         {Title = "Progression", Icon = "rbxassetid://17378852767"}, -- Tambahkan ini
         {Title = "Leveling Items", Icon = "rbxassetid://122732639067510"}, -- Tambahkan ini
-        {Title = "Leveling Prog Items", Icon = "rbxassetid://122732639067510"}, -- Tambahkan ini
+        {Title = "Leveling Prog Items", Icon = "rbxassetid://103501763167478"}, -- Tambahkan ini
+        {Title = "Upgrade Chance", Icon = "rbxassetid://129764606489391"}, -- Tambahkan ini
     },
     Callback = FM_OnChange
 })
@@ -1310,6 +1311,16 @@ function Optimizer.Update_Leveling_Items_Logic(pData)
                 end
             end
 
+            local currentBuffText = "\nBuff: "
+            local currentConfig = benchData.List[currentLevel]
+            if currentConfig and currentConfig.Stats then
+                for _, stat in pairs(currentConfig.Stats) do
+                    totalStatValue = string.format("x%.2f", stat.Value)
+                    local val = stat.Multiply and totalStatValue
+                    currentBuffText = currentBuffText .. string.format("<font color='#55aaff'>%s %s</font>\n", tostring(val), stat.Main_Stat)
+                end
+            end
+
             local nextLevel = currentLevel + 1
             local nextLevelConfig = benchData.List[nextLevel] 
 
@@ -1323,8 +1334,8 @@ function Optimizer.Update_Leveling_Items_Logic(pData)
                 local balColor = canAfford and "#00ff00" or "#ff0000"
                 
                 local desc = string.format(
-                    "Level: <font color='#ffffff'>%d</font>\n<font color='%s'>%s: %s/%s </font>", 
-                    currentLevel, balColor, 
+                    "Level: <font color='#ffffff'>%d/%d</font>%s\n<font color='%s'>%s: %s/%s </font>", 
+                    currentLevel, #benchData.List, currentBuffText, balColor, 
                     currencyId:gsub("_", " "), NumberFormatter:Format(myBalance), NumberFormatter:Format(reqAmount)
                 )
                 
@@ -1343,7 +1354,7 @@ function Optimizer.Update_Leveling_Items_Logic(pData)
                 end
             else
                 -- Max Level
-                local descMax = string.format("Level: <font color='#ffff00'>%d (MAX)</font>", currentLevel)
+                local descMax = string.format("Level: <font color='#ffff00'>%d/%d (MAX)</font>%s", currentLevel,#benchData.List, currentBuffText)
                 if Optimizer.Cache["LvlUI_"..internalKey] ~= descMax then
                     toggle:SetDesc(descMax)
                     Optimizer.Cache["LvlUI_"..internalKey] = descMax
@@ -1482,6 +1493,16 @@ function Optimizer.Update_Prog_Lv_Items_Logic(pData)
                 end
             end
 
+            local currentBuffText = "\nBuff: "
+            local currentConfig = levelDef
+            if currentConfig and currentConfig.Stats then
+                for _, stat in pairs(currentConfig.Stats) do
+                    totalStatValue = string.format("x%.2f", currentLevel * (stat.Value or 0))
+                    local val = stat.Multiply and totalStatValue
+                    currentBuffText = currentBuffText .. string.format("<font color='#55aaff'>%s %s</font>\n", tostring(val), stat.Main_Stat:gsub("_"," "))
+                end
+            end
+
             local maxLevel = levelDef.Max_Levels or 100
 
             if currentLevel < maxLevel then
@@ -1500,8 +1521,8 @@ function Optimizer.Update_Prog_Lv_Items_Logic(pData)
                 local balColor = canAfford and "#00ff00" or "#ff0000"
                 
                 local desc = string.format(
-                    "Level: <font color='#ffffff'>%d/%d</font>\n<font color='%s'>%s: %s/%s</font>", 
-                    currentLevel, maxLevel, balColor, 
+                    "Level: <font color='#ffffff'>%d/%d</font>%s\n<font color='%s'>%s: %s/%s</font>", 
+                    currentLevel, maxLevel,currentBuffText, balColor, 
                     priceInfo.Id:gsub("_", " "), NumberFormatter:Format(myBalance), NumberFormatter:Format(currentCost)
                 )
                 
@@ -1521,7 +1542,7 @@ function Optimizer.Update_Prog_Lv_Items_Logic(pData)
                 end
             else
                 -- Max Level
-                local descMax = string.format("Level: <font color='#ffff00'>%d (MAX)</font>", currentLevel)
+                local descMax = string.format("Level: <font color='#ffff00'>%d/%d (MAX)</font>%s", currentLevel,maxLevel,currentBuffText)
                 if Optimizer.Cache["LvlProgUI_"..internalKey] ~= descMax then
                     toggle:SetDesc(descMax)
                     Optimizer.Cache["LvlProgUI_"..internalKey] = descMax
@@ -1547,6 +1568,7 @@ FarmGroup:Toggle({
     end
 })
 
+
 -- Dropdown Select Enemy
 EnemyDropdown = FarmGroup:Dropdown({
     Title = "Select Enemy",
@@ -1555,7 +1577,7 @@ EnemyDropdown = FarmGroup:Dropdown({
     Flag = "EnemyDropdown_Cfg",
     Callback = function(val)
         -- Jika val adalah tabel dan memiliki Value, maka set musuh
-        if type(val) == "table" then
+        if type(val) == "table" and val.Value then
             Config.SelectedEnemy = val.Value
         else
             -- Jika tidak memilih apa pun (Clear), set jadi nil
@@ -1578,12 +1600,12 @@ function Optimizer.Update_KillAura_Logic(data)
     -- Berjalan hanya jika Toggle Kill Aura aktif
     if Config.AutoKillAura then
         -- Get_Monsters_InRange tanpa parameter akan mengambil semua monster yang terdeteksi
-        local nearbyMonsters = MouseModule.Get_Monsters_InRange(100)
+        local nearbyMonsters = MouseModule.Get_Monsters_InRange()
         local args = nil
         
-        if nearbyMonsters and #nearbyMonsters > 0 then
+        if nearbyMonsters and #nearbyMonsters > 1 then
             -- Ambil data monster yang paling dekat (index 1)
-            local targetData = nearbyMonsters[1]
+            local targetData = nearbyMonsters[2]
             local monsterModel = targetData.Character
             local args = {
                 {
@@ -1881,6 +1903,156 @@ function Optimizer.Update_GameMode_Logic(pData)
         end
     end
 end
+
+local UpgradeChanceToggles = {}
+
+local function CreateUpgradeChanceUI()
+    local UpgradeData = GeneralReplica and GeneralReplica.Data and GeneralReplica.Data.Upgrades
+    if not UpgradeData then return end
+    
+    local uList = {}
+    for mainKey, data in pairs(UpgradeData) do
+        -- Filter berdasarkan UI_Name == "Upgrade_Chance"
+        if data.UI_Name == "Upgrade_Chance" then
+            table.insert(uList, {
+                MainKey = mainKey,
+                Data = data,
+                MapId = data.MapId or 0
+            })
+        end
+    end
+
+    -- Sort berdasarkan MapId
+    table.sort(uList, function(a, b) return a.MapId < b.MapId end)
+
+    local currentGroup = nil
+    for i, upg in ipairs(uList) do
+        if (i - 1) % 2 == 0 then
+            currentGroup = FarmTab:Group({ Title = "Upgrade Chance: Map " .. upg.MapId })
+            FM_Add("Upgrade Chance", currentGroup)
+        end
+
+        -- Karena struktur datanya memiliki .List (seperti Wind_Spirit_Progression.List.Wind_Spirit)
+        for subKey, subData in pairs(upg.Data.List) do
+            local cfgKey = upg.MainKey .. "|" .. subKey
+            UpgradeChanceToggles[cfgKey] = currentGroup:Toggle({
+                Title = subKey:gsub("_", " "),
+                Desc = "Checking...",
+                Image = subData.ImageId or "rbxassetid://10850280457",
+                ImageSize = 24,
+                Flag = "UpgChance_"..cfgKey,
+                Callback = function(val)
+                    Config.AutoProgression[cfgKey] = val -- Menggunakan tabel config yang sama atau buat baru
+                end
+            })
+        end
+    end
+end
+
+CreateUpgradeChanceUI()
+function Optimizer.Update_Upgrade_Chance_Logic(pData)
+    if not GeneralReplica or not pData.InGame or not pData.InGame.Upgrades then return end
+    
+    local upgradeGenDb = GeneralReplica.Data.Upgrades
+    local playerUpgList = pData.InGame.Upgrades.List
+
+    for cfgKey, toggle in pairs(UpgradeChanceToggles) do
+        local mainKey, subKey = cfgKey:match("^(.-)|(.-)$")
+        local genMainData = upgradeGenDb[mainKey]
+        local genSubData = genMainData and genMainData.List[subKey]
+        
+        if not genSubData then continue end
+
+        -- [[ 1. MAP LOCK CHECK ]] --
+        local mapIdStr = tostring(genMainData.MapId or 0)
+        local isMapUnlocked = pData.InGame.Unlocked.Maps[mapIdStr]
+
+        if not isMapUnlocked and (genMainData.MapId ~= 1) then
+            if not Optimizer.Cache["MapLockUpgChance_"..cfgKey] then
+                toggle:Lock("Need Map: ".. (WorldMap[genMainData.MapId] and WorldMap[genMainData.MapId].Name:gsub("_", " ") or "Unknown"))
+                Optimizer.Cache["MapLockUpgChance_"..cfgKey] = true
+            end
+            continue
+        else
+            if Optimizer.Cache["MapLockUpgChance_"..cfgKey] then
+                toggle:Unlock()
+                Optimizer.Cache["MapLockUpgChance_"..cfgKey] = nil
+            end
+        end
+
+        -- [[ 2. GET CURRENT LEVEL & STATS HELPER ]] --
+        local currentLevel = (playerUpgList[mainKey] and playerUpgList[mainKey][subKey]) or 0
+        local maxLevel = genSubData.Max_Levels or #genSubData.Levels
+
+        -- Fungsi pembantu untuk mengambil teks Buff
+        local function GetStatBuffText(lvl)
+            local dataAtLevel = genSubData.Levels[lvl]
+            if dataAtLevel and dataAtLevel.Stats then
+                local buffs = {}
+                for _, stat in ipairs(dataAtLevel.Stats) do
+                    table.insert(buffs, string.format("<font color='#00aaff'>+%s %s</font>", tostring(stat.Value), stat.Name:gsub("_", " ")))
+                end
+                return "\nBuff: " .. table.concat(buffs, " | ")
+            end
+            return ""
+        end
+        
+        pcall(function()
+            if currentLevel < maxLevel then
+                -- [[ LOGIKA SAAT BELUM MAX ]] --
+                local nextLevel = currentLevel + 1
+                local nextLevelData = genSubData.Levels[nextLevel]
+
+                if nextLevelData then
+                    local priceInfo = nextLevelData.Price[1]
+                    local reqAmount = math.abs(priceInfo.Amount)
+                    local myBalance = GetBalance(pData, priceInfo.Id)
+                    
+                    local chance = (nextLevelData.Success_Chance or 0) * 100
+                    local buffText = GetStatBuffText(nextLevel) -- Buff untuk level selanjutnya
+
+                    local canAfford = myBalance >= reqAmount
+                    local balColor = canAfford and "#00ff00" or "#ff0000"
+                    
+                    local desc = string.format(
+                        "Level: <font color='#ffffff'>%d/%d</font>%s\nChance: <font color='#ffff00'>%d%%</font>\n<font color='%s'>%s: %s/%s</font>",
+                        currentLevel, maxLevel, buffText, chance, balColor,
+                        priceInfo.Id:gsub("_", " "), NumberFormatter:Format(myBalance), NumberFormatter:Format(reqAmount)
+                    )
+
+                    if Optimizer.Cache["UpgChanceUI_"..cfgKey] ~= desc then
+                        toggle:SetDesc(desc)
+                        Optimizer.Cache["UpgChanceUI_"..cfgKey] = desc
+                    end
+
+                    -- EXECUTE
+                    if Config.AutoProgression[cfgKey] and canAfford then
+                        ReplicatedStorage.Events.To_Server:FireServer({
+                            Upgrading_Name = subKey,
+                            Action = "_Upgrades",
+                            Upgrade_Name = mainKey
+                        })
+                        task.wait(0.5) 
+                    end
+                end
+            else
+                -- [[ LOGIKA SAAT SUDAH MAX (Biar Enak Dipandang) ]] --
+                local maxBuffText = GetStatBuffText(maxLevel) -- Mengambil buff dari level tertinggi
+                local descMax = string.format(
+                    "Level: <font color='#ffff00'>%d/%d (MAX)</font>%s", 
+                    currentLevel, maxLevel, maxBuffText
+                )
+
+                if Optimizer.Cache["UpgChanceUI_"..cfgKey] ~= descMax then
+                    toggle:SetDesc(descMax)
+                    Optimizer.Cache["UpgChanceUI_"..cfgKey] = descMax
+                    -- Matikan toggle otomatis jika sudah max
+                    if Config.AutoProgression[cfgKey] then toggle:Set(false) end
+                end
+            end
+        end)
+    end
+end
 -- [[ Settings Tab ]] --
 SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings-2" });
 SettingsTab:Section({ Title = "Config Manager", Icon = "save", Opened = true });
@@ -2100,6 +2272,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Prestige_Logic, pData)
             pcall(Optimizer.Update_Leveling_Items_Logic, pData)
             pcall(Optimizer.Update_Prog_Lv_Items_Logic, pData)
+            pcall(Optimizer.Update_Upgrade_Chance_Logic, pData) -- Tambahkan baris ini
         end
     end
 end)
