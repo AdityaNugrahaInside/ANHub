@@ -934,7 +934,7 @@ function GetCurrentMapStatus()
 end
 function CheckIsFightingZone()
     local mapName = GetCurrentMapStatus()
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid", "MagicRaid"} -- Tambahkan MagicRaid
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid", "MagicRaid", "SkullRaid"} -- Tambahkan MagicRaid
 
     for _, keyword in ipairs(fightingKeywords) do
         if string.find(mapName, keyword) then 
@@ -1701,6 +1701,7 @@ function LogicGamemodes()
                 SorcerersDefense = true,
                 CapitalRaid = true,
                 MagicRaid = true,
+                SkullRaid = true,                
                 Raid = true
             }
             if fixedZones[currentMap] then
