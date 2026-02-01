@@ -356,48 +356,52 @@ local function SyncData()
     end
 end
 SyncData()
--- Listener untuk Masuk/Keluar Dungeon
--- Listener untuk Masuk/Keluar Dungeon
-ReplicatedStorage.Events.To_Client.OnClientEvent:Connect(function(data)
-    if type(data) == "table" and data.Action == "Dungeon" and data.Type == "Outlines" then
+-- [[ EVENT LISTENERS WITH DISCONNECT ]] --
+local DungeonEventConnection
+DungeonEventConnection = ReplicatedStorage.Events.To_Client.OnClientEvent:Connect(function(data)
+    if not IsWindowAlive() then
+        if DungeonEventConnection then DungeonEventConnection:Disconnect() end
+        return
+    end
+
+    if type(data) == "table" and data.Action == "Dungeon" then
+        if type(data) == "table" then
+            pcall(function()
+                local json = HttpService:JSONEncode(data)
+                print("DEBUG DATA: " .. json) 
+            end)
+        end
         local wasInDungeon = IsInDungeonEvent
         
-        -- Cek status dungeon
         if data.Players and table.find(data.Players, LocalUsername) then
             IsInDungeonEvent = true
         else
             IsInDungeonEvent = false
         end
 
-        -- Jika terjadi transisi (Masuk atau Keluar)
         if wasInDungeon ~= IsInDungeonEvent then
             IsTransitioning = true
             
-            -- RESET DROPDOWN: Hapus pilihan musuh sebelum jeda selesai
-            if EnemyDropdown then
-                EnemyDropdown:Set(nil) 
-                Config.SelectedEnemy = nil
+            if IsInDungeonEvent then
+                -- Simpan pilihan musuh sebelum dikosongkan untuk dungeon
+                EnemyBackup = Config.SelectedEnemy or {}
+                if EnemyDropdown then
+                    EnemyDropdown:Set(nil) 
+                    Config.SelectedEnemy = {}
+                end
+            else
+                -- Kembalikan pilihan musuh setelah keluar dungeon
+                if #EnemyBackup > 0 then
+                    Config.SelectedEnemy = EnemyBackup
+                    if EnemyDropdown then EnemyDropdown:Set(EnemyBackup) end
+                end
             end
             
-            -- Jeda 1 detik agar tidak auto farm saat loading
-            task.delay(1, function() 
-                IsTransitioning = false 
-            end)
+            task.delay(1, function() IsTransitioning = false end)
         end
     end
 end)
 
--- Listener untuk Perubahan Lokasi (Replica_ReplicaSetValue)
--- Menangani Log Arg 2: {"Players", "username", "Location"}
-ReplicatedStorage.ReplicaRemoteEvents.Replica_ReplicaSetValue.OnClientEvent:Connect(function(id, path, value)
-    if type(path) == "table" and path[1] == "Players" and path[2] == LocalUsername and path[3] == "Location" then
-        LocationChanging = true
-        LastMapName = "NONE" -- Paksa refresh list monster
-        
-        -- Jeda agar tidak memukul musuh di map sebelumnya
-        task.delay(1, function() LocationChanging = false end)
-    end
-end)
 ReplicatedStorage.Events.To_Server:FireServer({Value = state,Path = { "Settings", "AFK_MODE" },Action = "Settings"})
 -- Fungsi helper untuk mengecek apakah pemain sedang berada di dalam match dungeon
 local function IsInsideDungeon()
