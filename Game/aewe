@@ -695,9 +695,9 @@ function Optimizer.Update_Roll_Logic(pData)
     if not GeneralReplica or not pData.Inventory or not pData.InGame then return end
 
     pcall(function()
-        local inventory = pData.Inventory.Items
         local playerPityTable = pData.InGame.Statistics or {} 
         local generalPityTable = GeneralReplica.Data.Pity
+        local itemsDb = GeneralReplica.Data.Items -- Referensi database item
         
         local PityRarityNames = {
             [1] = "Common", [2] = "Uncommon", [3] = "Rare",
@@ -709,7 +709,7 @@ function Optimizer.Update_Roll_Logic(pData)
             local gInfo = GeneralReplica.Data.Gachas[gName]
             if not gInfo then continue end
 
-            -- [[ 1. IDENTIFIKASI INDEX & TIPE GACHA ]]
+            -- [[ 1. TENTUKAN KATEGORI INDEX ]]
             local powerIndex = pData.InGame.Index.Powers.Unlocked
             if gInfo.Name == "Stands" then powerIndex = pData.InGame.Index.Stands.Unlocked
             elseif gInfo.Name == "Titans" then powerIndex = pData.InGame.Index.Titans.Unlocked
@@ -725,12 +725,11 @@ function Optimizer.Update_Roll_Logic(pData)
                 continue
             else
                 if Optimizer.Cache["MapLock_"..gName] then 
-                    toggle:Unlock() 
-                    Optimizer.Cache["MapLock_"..gName] = nil 
+                    toggle:Unlock(); Optimizer.Cache["MapLock_"..gName] = nil 
                 end
             end
 
-            -- [[ 3. LOGIKA AUTO LOCK: SCAN RARITY TERTINGGI ]]
+            -- [[ 3. PERBAIKAN SCAN RARITY (Support String & Number ID) ]]
             local discoveredCount = 0
             local totalRewards = gInfo.Rewards and #gInfo.Rewards or 0
             local hasBestRarity = false
@@ -738,9 +737,10 @@ function Optimizer.Update_Roll_Logic(pData)
             local maxRarityInGacha = 0
 
             if gInfo.Rewards then
-                -- Cari Rarity tertinggi yang tersedia di mesin ini
+                -- Langkah A: Cari Rarity Tertinggi di Mesin Ini
                 for _, reward in ipairs(gInfo.Rewards) do
-                    local itemData = GeneralReplica.Data.Items[reward.Id]
+                    -- Proteksi: Cari item berdasarkan ID string atau angka
+                    local itemData = itemsDb[reward.Id] or itemsDb[tostring(reward.Id)]
                     if itemData and itemData.Rarity then
                         if itemData.Rarity > maxRarityInGacha then
                             maxRarityInGacha = itemData.Rarity
@@ -748,35 +748,37 @@ function Optimizer.Update_Roll_Logic(pData)
                     end
                 end
 
-                -- Cek apakah pemain sudah memiliki Rarity tertinggi tersebut
+                -- Langkah B: Cek Progres Pemain
                 for _, reward in ipairs(gInfo.Rewards) do
-                    local itemData = GeneralReplica.Data.Items[reward.Id]
-                    if itemData and itemData.Id then
-                        local isUnlocked = powerIndex[tostring(itemData.Id)]
+                    local itemData = itemsDb[reward.Id] or itemsDb[tostring(reward.Id)]
+                    if itemData then
+                        -- Gunakan ID asli dari Database Item untuk mengecek Index
+                        local actualId = tostring(itemData.Id or reward.Id)
+                        local isUnlocked = powerIndex[actualId]
+                        
                         if isUnlocked then
                             discoveredCount = discoveredCount + 1
-                            if itemData.Rarity and itemData.Rarity >= maxRarityInGacha then
+                            if itemData.Rarity and itemData.Rarity >= maxRarityInGacha and maxRarityInGacha > 0 then
                                 hasBestRarity = true
-                                if itemData.Rarity > highestRarityFound then
-                                    highestRarityFound = itemData.Rarity
-                                end
+                                highestRarityFound = math.max(highestRarityFound, itemData.Rarity)
                             end
                         end
                     end
                 end
             end
 
-            -- EKSEKUSI PENGUNCIAN JIKA SYARAT TERPENUHI
+            -- [[ 4. EKSEKUSI AUTO LOCK ]]
             if (discoveredCount == totalRewards and totalRewards > 0) or hasBestRarity then
                 if Optimizer.Cache["Lock_"..gName] ~= true then
                     toggle:Set(false) 
-                    local lockReason = hasBestRarity and "Got Max: " .. (PityRarityNames[highestRarityFound] or "Best") or "Index Complete"
+                    local rarityName = PityRarityNames[highestRarityFound] or "Max Rarity"
+                    local lockReason = hasBestRarity and "Got Max: "..rarityName or "Index Complete"
                     toggle:Lock(lockReason) 
                     Optimizer.Cache["Lock_"..gName] = true
                 end
             end
 
-            -- [[ 4. LOGIKA HARGA & SALDO ]]
+            -- [[ 5. LOGIKA HARGA & PITY (Tetap Sama dengan Perbaikan Sebelumnya) ]]
             local cost = math.abs(gInfo.Price.Amount) 
             local tokenName = gInfo.Price.Id
             local currentBalance = GetBalance(pData, tokenName)
@@ -784,37 +786,29 @@ function Optimizer.Update_Roll_Logic(pData)
             local balanceLine = string.format("%s: <font color='%s'>%s / %s</font>", 
                 tokenName:gsub("_", " "):gsub("Token", ""), balanceColor, NumberFormatter:Format(cost), NumberFormatter:Format(currentBalance))
 
-            -- [[ 5. LOGIKA PITY (DENGAN SAFETY CHECK) ]]
             local pityLine = ""
             if gInfo.Pity_Names then
                 local foundActive = false
-                local lastValidRarity = 1
+                local lastRarity = 1
                 local pProgress = playerPityTable["Gachas_"..gName] or 0
-
-                for i, pName in ipairs(gInfo.Pity_Names) do
+                for _, pName in ipairs(gInfo.Pity_Names) do
                     local pDef = generalPityTable[pName]
                     if pDef and pDef.List and pDef.List[1] then
-                        local targetRoll = math.abs(pDef.List[1].Amount)
-                        local rarityID = pDef.List[1].Rarity
-                        lastValidRarity = rarityID
-
-                        if pProgress < targetRoll then
-                            local rarityLabel = PityRarityNames[rarityID] or ("Pity " .. i)
+                        local target = math.abs(pDef.List[1].Amount)
+                        local rID = pDef.List[1].Rarity
+                        lastRarity = rID
+                        if pProgress < target then
                             pityLine = string.format("\n<font color='%s'>%s: %s / %s</font>", 
-                                GetRarityColor(rarityID), rarityLabel, NumberFormatter:Format(pProgress), NumberFormatter:Format(targetRoll))
-                            foundActive = true
-                            break 
+                                GetRarityColor(rID), PityRarityNames[rID] or "Pity", NumberFormatter:Format(pProgress), NumberFormatter:Format(target))
+                            foundActive = true; break
                         end
                     end
                 end
-                
                 if not foundActive and #gInfo.Pity_Names > 0 then
-                    pityLine = string.format("\n<font color='%s'>%s: READY</font>", 
-                        GetRarityColor(lastValidRarity), PityRarityNames[lastValidRarity] or "MAX")
+                    pityLine = string.format("\n<font color='%s'>%s: READY</font>", GetRarityColor(lastRarity), PityRarityNames[lastRarity] or "MAX")
                 end
             end
 
-            -- [[ 6. UPDATE UI & EKSEKUSI ]]
             local newDesc = balanceLine .. pityLine
             if Optimizer.Cache["Roll_"..gName] ~= newDesc then
                 toggle:SetDesc(newDesc)
@@ -822,11 +816,7 @@ function Optimizer.Update_Roll_Logic(pData)
             end
 
             if Config.AutoRoll[gName] and currentBalance >= cost and not Optimizer.Cache["Lock_"..gName] then
-                ReplicatedStorage.Events.To_Server:FireServer({
-                    ["Open_Amount"] = 100,
-                    ["Action"] = "_Gacha_Activate",
-                    ["Name"] = gName
-                })
+                ReplicatedStorage.Events.To_Server:FireServer({["Open_Amount"] = 100, ["Action"] = "_Gacha_Activate", ["Name"] = gName})
             end
         end
     end)
