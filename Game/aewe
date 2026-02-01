@@ -470,27 +470,26 @@ function Optimizer.Update_RankUp_Logic(pData)
         if rankDef and rankDef.Levels then
             local nextLevel = rankDef.Levels[currentRank + 1]
             
+            -- AMBIL DATA BUFF SAAT INI (Untuk ditampilkan di semua kondisi)
+            local currentBuffVal = 0
+            if currentRank > 0 and rankDef.Levels[currentRank] then
+                local stats = rankDef.Levels[currentRank].Stats
+                currentBuffVal = stats and stats[1] and stats[1].Value or 0
+            end
+            local buffStr = NumberFormatter:Format(currentBuffVal)
+
             if nextLevel then
+                -- [[ LOGIKA JIKA BELUM MAX ]] --
                 local price = nextLevel.Price[1]
                 local reqAmount = math.abs(price.Amount) 
-                local currencyName = price.Id -- "Energy"
-                
-                -- AMBIL SALDO MENGGUNAKAN HELPER
+                local currencyName = price.Id
                 local currentPower = GetBalance(pData, currencyName)
-
-                -- AMBIL DATA BUFF DARI TABEL 'Stats' (Bukan Price)
-                local currentBuffVal = 0
-                if currentRank > 0 and rankDef.Levels[currentRank] then
-                    local stats = rankDef.Levels[currentRank].Stats
-                    currentBuffVal = stats and stats[1] and stats[1].Value or 0
-                end
 
                 local pct = math.clamp(currentPower / reqAmount, 0, 1)
                 local bar = string.rep("█", math.floor(pct * 15)) .. string.rep("▒", 15 - math.floor(pct * 15))
 
                 local powerStr = NumberFormatter:Format(currentPower)
                 local reqStr = NumberFormatter:Format(reqAmount)
-                local buffStr = NumberFormatter:Format(currentBuffVal) 
                 
                 local finalDesc = string.format(
                     "<b>Current Buff: +%s Energy Multiplier</b>\n" ..
@@ -511,7 +510,25 @@ function Optimizer.Update_RankUp_Logic(pData)
                         ["Action"] = "_Upgrades",
                         ["Upgrade_Name"] = "Rank_Up"
                     })
-                    task.wait(3) 
+                    task.wait(1) 
+                end
+            else
+                -- [[ LOGIKA JIKA SUDAH MAX (PERBAIKAN DI SINI) ]] --
+                local maxDesc = string.format(
+                    "<b>Current Buff: +%s Energy Multiplier</b>\n" ..
+                    "<font color='#ffff00'>STATUS: MAX RANK REACHED</font>",
+                    buffStr
+                )
+
+                if Optimizer.Cache.LastRankDisplay ~= maxDesc then
+                    RankProgressUI:SetTitle("Rank " .. currentRank)
+                    RankProgressUI:SetDesc(maxDesc)
+                    Optimizer.Cache.LastRankDisplay = maxDesc
+                end
+                
+                -- Matikan AutoRankUp jika sudah max untuk menghemat resource
+                if Config.AutoRankUp then
+                    Config.AutoRankUp = false 
                 end
             end
         end
@@ -681,7 +698,6 @@ function Optimizer.Update_Roll_Logic(pData)
         local inventory = pData.Inventory.Items
         local playerPityTable = pData.InGame.Statistics or {} 
         local generalPityTable = GeneralReplica.Data.Pity
-        local powerIndex = nil
         
         local PityRarityNames = {
             [1] = "Common", [2] = "Uncommon", [3] = "Rare",
@@ -692,128 +708,72 @@ function Optimizer.Update_Roll_Logic(pData)
         for gName, toggle in pairs(GachaToggles) do
             local gInfo = GeneralReplica.Data.Gachas[gName]
             if not gInfo then continue end
-            if gInfo.Name == "Stands" then
-                powerIndex = pData.InGame.Index.Stands.Unlocked
-            elseif gInfo.Name == "Titans" then
-                powerIndex = pData.InGame.Index.Titans.Unlocked
-            elseif gInfo.Name == "Swords" then
-                powerIndex = pData.InGame.Index.Weapons.Unlocked
-            else
-                powerIndex = pData.InGame.Index.Powers.Unlocked
-            end
 
-            -- [[ LOGIKA MAP LOCK ]]
+            -- 1. LOGIKA INDEX & AUTO LOCK (Tetap sama)
+            local powerIndex = pData.InGame.Index.Powers.Unlocked -- Default
+            if gInfo.Name == "Stands" then powerIndex = pData.InGame.Index.Stands.Unlocked
+            elseif gInfo.Name == "Titans" then powerIndex = pData.InGame.Index.Titans.Unlocked
+            elseif gInfo.Name == "Swords" then powerIndex = pData.InGame.Index.Weapons.Unlocked end
+
+            -- 2. LOGIKA MAP LOCK (Tetap sama)
             local mapIdStr = tostring(gInfo.MapId or 1)
-            local isMapUnlocked = pData.InGame.Unlocked.Maps[mapIdStr]
-
-            if not isMapUnlocked and gInfo.MapId ~= 1 then
+            if not pData.InGame.Unlocked.Maps[mapIdStr] and gInfo.MapId ~= 1 then
                 if not Optimizer.Cache["MapLock_"..gName] then
-                    toggle:Lock("Need Map: ".. WorldMap[gInfo.MapId].Name:gsub("_", " "))
+                    toggle:Lock("Need Map: ".. (WorldMap[gInfo.MapId] and WorldMap[gInfo.MapId].Name:gsub("_", " ") or "Unknown"))
                     Optimizer.Cache["MapLock_"..gName] = true
                 end
+                continue
             else
-                if Optimizer.Cache["MapLock_"..gName] then
-                    toggle:Unlock()
-                    Optimizer.Cache["MapLock_"..gName] = nil
-                end
+                if Optimizer.Cache["MapLock_"..gName] then toggle:Unlock(); Optimizer.Cache["MapLock_"..gName] = nil end
             end
 
-            -- [[ LOGIKA INDEX & AUTO LOCK PERBAIKAN ]]
-            local discoveredCount = 0
-            local totalRewards = gInfo.Rewards and #gInfo.Rewards or 0
-            local hasBestRarity = false
-            local highestRarityFound = 0
-            local maxRarityInGacha = 0 -- Variabel baru untuk menampung rarity tertinggi mesin ini
-
-            if gInfo.Rewards then
-                -- 1. Scan dulu untuk mencari Rarity tertinggi yang tersedia di gacha ini
-                for _, reward in ipairs(gInfo.Rewards) do
-                    local itemData = GeneralReplica.Data.Items[reward.Id]
-                    if itemData and itemData.Rarity then
-                        if itemData.Rarity > maxRarityInGacha then
-                            maxRarityInGacha = itemData.Rarity
-                        end
-                    end
-                end
-
-                -- 2. Cek item mana saja yang sudah di-unlock
-                for _, reward in ipairs(gInfo.Rewards) do
-                    local itemData = GeneralReplica.Data.Items[reward.Id]
-                    if itemData and itemData.Id then
-                        local isUnlocked = powerIndex[tostring(itemData.Id)]
-                        if isUnlocked then
-                            discoveredCount = discoveredCount + 1
-                            
-                            -- Cek jika item yang di-unlock adalah Rarity tertinggi di gacha tersebut
-                            if itemData.Rarity and itemData.Rarity >= maxRarityInGacha then
-                                hasBestRarity = true
-                                if itemData.Rarity > highestRarityFound then
-                                    highestRarityFound = itemData.Rarity
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-
-            -- SEKARANG LOCK JIKA: Index Lengkap ATAU Sudah dapat Rarity tertinggi (maxRarityInGacha)
-            if (discoveredCount == totalRewards and totalRewards > 0) or hasBestRarity then
-                if Optimizer.Cache["Lock_"..gName] ~= true then
-                    toggle:Set(false) 
-                    local lockReason = hasBestRarity and "Got Max: " .. (PityRarityNames[highestRarityFound] or "Best") or "Index Complete"
-                    toggle:Lock(lockReason) 
-                    Optimizer.Cache["Lock_"..gName] = true
-                end
-            end
-
-            -- [[ LOGIKA HARGA & SALDO ]]
+            -- 3. LOGIKA HARGA & SALDO
             local cost = math.abs(gInfo.Price.Amount) 
             local tokenName = gInfo.Price.Id
             local currentBalance = GetBalance(pData, tokenName)
-
             local balanceColor = (currentBalance >= cost) and "#00ff00" or "#ff0000"
-            local cleanMatName = tokenName:gsub("_", " "):gsub("Token", "")
             local balanceLine = string.format("%s: <font color='%s'>%s / %s</font>", 
-                cleanMatName, balanceColor, NumberFormatter:Format(cost), NumberFormatter:Format(currentBalance))
+                tokenName:gsub("_", " "):gsub("Token", ""), balanceColor, NumberFormatter:Format(cost), NumberFormatter:Format(currentBalance))
 
-            -- [[ LOGIKA PITY DISPLAY ]]
+            -- 4. PERBAIKAN LOGIKA PITY (Anti-Crash)
             local pityLine = ""
             if gInfo.Pity_Names then
                 local foundActive = false
+                local lastValidRarity = 1
+                local pProgress = playerPityTable["Gachas_"..gName] or 0
+
                 for i, pName in ipairs(gInfo.Pity_Names) do
                     local pDef = generalPityTable[pName]
-                    local pProgress = playerPityTable["Gachas_"..gName]
-                    
-                    if pDef then
+                    -- Hanya proses jika data Pity terdaftar di database
+                    if pDef and pDef.List and pDef.List[1] then
                         local targetRoll = math.abs(pDef.List[1].Amount)
-                        local currentRoll = pProgress or 0
                         local rarityID = pDef.List[1].Rarity
-                        local rarityLabel = PityRarityNames[rarityID] or ("Pity " .. i)
-                        local rarityColor = GetRarityColor(rarityID)
+                        lastValidRarity = rarityID -- Simpan rarity terakhir yang valid untuk status READY
 
-                        if currentRoll < targetRoll then
+                        if pProgress < targetRoll then
+                            local rarityLabel = PityRarityNames[rarityID] or ("Pity " .. i)
                             pityLine = string.format("\n<font color='%s'>%s: %s / %s</font>", 
-                                rarityColor, rarityLabel, NumberFormatter:Format(currentRoll), NumberFormatter:Format(targetRoll))
+                                GetRarityColor(rarityID), rarityLabel, NumberFormatter:Format(pProgress), NumberFormatter:Format(targetRoll))
                             foundActive = true
                             break 
                         end
                     end
                 end
                 
+                -- Jika tidak ada pity aktif (Sudah selesai semua), tampilkan READY secara aman
                 if not foundActive and #gInfo.Pity_Names > 0 then
-                    local lastID = generalPityTable[gInfo.Pity_Names[#gInfo.Pity_Names]].List[1].Rarity
-                    pityLine = string.format("\n<font color='%s'>%s: READY</font>", GetRarityColor(lastID), PityRarityNames[lastID] or "MAX")
+                    pityLine = string.format("\n<font color='%s'>%s: READY</font>", 
+                        GetRarityColor(lastValidRarity), PityRarityNames[lastValidRarity] or "MAX")
                 end
             end
 
-            -- [[ UPDATE UI DESC ]]
+            -- 5. UPDATE UI DESC & EKSEKUSI
             local newDesc = balanceLine .. pityLine
             if Optimizer.Cache["Roll_"..gName] ~= newDesc then
                 toggle:SetDesc(newDesc)
                 Optimizer.Cache["Roll_"..gName] = newDesc
             end
 
-            -- [[ EXECUTE ROLL ]]
             if Config.AutoRoll[gName] and currentBalance >= cost and not Optimizer.Cache["Lock_"..gName] then
                 ReplicatedStorage.Events.To_Server:FireServer({
                     ["Open_Amount"] = 100,
@@ -882,25 +842,27 @@ local StarToggle = MainGachaGroup:Toggle({
     end
 })
 
--- Filter Star Options
 local starOptions = {}
-for starName, _ in pairs(GeneralReplica.Data.Stars) do
+for starName, starData in pairs(GeneralReplica.Data.Stars) do
+    -- Tetap menghapus yang mengandung kata "Exclusive" sesuai permintaanmu
     if not starName:find("Exclusive") then
-        -- Ambil string-nya saja tanpa menghiraukan jumlah penggantian
         local idString = starName:gsub("%D", "") 
         local idNumber = tonumber(idString)
 
-        -- Gunakan nilainya untuk mengakses tabel
         if idNumber then
-            local result = WorldMap[idNumber].Name:gsub("_", " ")
-            table.insert(starOptions, {Title = result,Value = starName})
+            -- Ambil nama dari WorldMap, jika nil gunakan nama asli starName
+            local mapData = WorldMap and WorldMap[idNumber]
+            local result = (mapData and mapData.Name) and mapData.Name:gsub("_", " ") or starName
+            
+            table.insert(starOptions, {Title = result, Value = starName})
         end
     end
 end
+
+-- Sortir berdasarkan nomor Map agar urutan di UI rapi
 table.sort(starOptions, function(a, b) 
     local numA = tonumber(a.Value:match("%d+")) or 0
     local numB = tonumber(b.Value:match("%d+")) or 0
-    
     return numA < numB
 end)
 
@@ -954,13 +916,11 @@ for i = 1, 9, 2 do
 end
 
 function Optimizer.Update_Gacha_Pet_Logic(pData)
-    -- Jika toggle mati atau mesin belum dipilih, jangan lanjut
+    -- Gatekeeping: Pastikan fitur aktif dan star sudah dipilih
     if not Config.AutoGachaPet or not Config.SelectedStar then return end
     
     local starName = Config.SelectedStar
     local starInfo = GeneralReplica.Data.Stars[starName]
-    
-    -- Validasi apakah data mesin ada di database game
     if not starInfo then return end
 
     pcall(function()
@@ -968,39 +928,38 @@ function Optimizer.Update_Gacha_Pet_Logic(pData)
         local generalPityTable = GeneralReplica.Data.Pity
         local petIndex = pData.InGame.Index.Pets.Unlocked
         
-        -- 1. Hitung progres Index Pets pada mesin yang dipilih
+        -- 1. Hitung progres Index Pets
         local discoveredCount = 0
         local totalInMachine = #starInfo.Rewards
         for _, reward in ipairs(starInfo.Rewards) do
-            if petIndex[tostring(reward.Id)] then 
+            if reward.Id and petIndex[tostring(reward.Id)] then 
                 discoveredCount = discoveredCount + 1 
             end
         end
 
-        -- 2. Ambil data harga dan saldo
+        -- 2. Kalkulasi Harga & Saldo
         local cost = math.abs(starInfo.Price.Amount)
         local currency = starInfo.Price.Id
         local currentBalance = GetBalance(pData, currency)
         local balColor = (currentBalance >= cost) and "#00ff00" or "#ff0000"
         
-        -- 3. Susun tampilan Deskripsi UI
         local balLine = string.format("%s: <font color='%s'>%s / %s</font>", 
             currency, balColor, NumberFormatter:Format(cost), NumberFormatter:Format(currentBalance))
         local indexLine = string.format("\nIndex: <font color='#ffffff'>%d/%d</font>", discoveredCount, totalInMachine)
 
+        -- 3. Logika Pity dengan Safety Check (Perbaikan untuk Star 11)
         local pityLine = ""
-        if starInfo.Pity_Names then
-            -- Ambil progres roll khusus untuk mesin star ini
+        if starInfo.Pity_Names and #starInfo.Pity_Names > 0 then
             local currentTotalRolls = playerStats["Stars_"..starName] or 0
             local foundActive = false
             
             for i, pName in ipairs(starInfo.Pity_Names) do
                 local pDef = generalPityTable[pName]
-                if pDef then
+                -- PENTING: Cek pDef DAN pDef.List agar tidak crash di Star 11
+                if pDef and pDef.List and pDef.List[1] then
                     local targetRoll = math.abs(pDef.List[1].Amount)
                     local rarityID = pDef.List[1].Rarity
                     
-                    -- Tampilkan Pity yang paling mendekati (belum tercapai)
                     if currentTotalRolls < targetRoll then
                         pityLine = string.format("\n<font color='%s'>%s: %s / %s</font>", 
                             GetRarityColor(rarityID), RarityMapping[rarityID] or "Pity", 
@@ -1011,27 +970,30 @@ function Optimizer.Update_Gacha_Pet_Logic(pData)
                 end
             end
             
-            -- Jika semua pity sudah tercapai (Ready)
-            if not foundActive and #starInfo.Pity_Names > 0 then
+            -- Jika semua Pity sudah tercapai (READY)
+            if not foundActive then
                 local lastPityName = starInfo.Pity_Names[#starInfo.Pity_Names]
-                local lastID = generalPityTable[lastPityName].List[1].Rarity
-                pityLine = string.format("\n<font color='%s'>%s: READY</font>", 
-                    GetRarityColor(lastID), RarityMapping[lastID] or "MAX")
+                local lastPityData = generalPityTable[lastPityName]
+                
+                if lastPityData and lastPityData.List and lastPityData.List[1] then
+                    local lastID = lastPityData.List[1].Rarity
+                    pityLine = string.format("\n<font color='%s'>%s: READY</font>", 
+                        GetRarityColor(lastID), RarityMapping[lastID] or "MAX")
+                end
             end
         end
 
-        -- 4. Update UI hanya jika ada perubahan data
+        -- 4. Update UI Deskripsi
         local finalDesc = balLine .. indexLine .. pityLine
         if Optimizer.Cache["GachaPet_Current"] ~= finalDesc then
             StarToggle:SetDesc(finalDesc)
             Optimizer.Cache["GachaPet_Current"] = finalDesc
         end
 
-        -- 5. Eksekusi Gacha (FireServer)
-        -- Pastikan Config masih aktif sebelum menembak remote
+        -- 5. Eksekusi Remote Gacha
         if Config.AutoGachaPet and currentBalance >= cost then
             ReplicatedStorage.Events.To_Server:FireServer({
-                ["Open_Amount"] = 1000, -- Gunakan jumlah roll maksimal yang diizinkan game
+                ["Open_Amount"] = 1000,
                 ["Action"] = "_Stars",
                 ["Name"] = starName
             })
@@ -1600,7 +1562,7 @@ function Optimizer.Update_KillAura_Logic(data)
     -- Berjalan hanya jika Toggle Kill Aura aktif
     if Config.AutoKillAura then
         -- Get_Monsters_InRange tanpa parameter akan mengambil semua monster yang terdeteksi
-        local nearbyMonsters = MouseModule.Get_Monsters_InRange()
+        local nearbyMonsters = MouseModule.Get_Monsters_InRange(100)
         local args = nil
         
         if nearbyMonsters and #nearbyMonsters > 1 then
@@ -1612,14 +1574,6 @@ function Optimizer.Update_KillAura_Logic(data)
                     Id = monsterModel.Name,
                     Action = "_Mouse_Click"
                 }
-            }
-            ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
-        else
-            -- Jika tidak ada monster sama sekali di Map/Radius deteksi game
-            local args = {{
-
-                Action = "_Mouse_Click"
-            }
             }
             ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
         end
