@@ -357,6 +357,18 @@ local function SyncData()
 end
 SyncData()
 -- [[ EVENT LISTENERS WITH DISCONNECT ]] --
+
+-- Listener untuk Perubahan Lokasi (Replica_ReplicaSetValue)
+-- Menangani Log Arg 2: {"Players", "username", "Location"}
+SEventConnection = ReplicatedStorage.ReplicaRemoteEvents.Replica_ReplicaSetValue.OnClientEvent:Connect(function(id, path, value)
+    if not IsWindowAlive() then
+        if SEventConnection then SEventConnection:Disconnect() end
+        return
+    end
+    if type(path) == "table" and path[1] == "Players" and path[2] == LocalUsername and path[3] == "Location" then
+        Optimizer.RefreshMonsterList(PlayerReplica.Data)
+    end
+end)
 local DungeonEventConnection
 DungeonEventConnection = ReplicatedStorage.Events.To_Client.OnClientEvent:Connect(function(data)
     if not IsWindowAlive() then
@@ -364,44 +376,56 @@ DungeonEventConnection = ReplicatedStorage.Events.To_Client.OnClientEvent:Connec
         return
     end
 
-    if type(data) == "table" and data.Action == "Dungeon" then
-        if type(data) == "table" then
-            pcall(function()
-                local json = HttpService:JSONEncode(data)
-                print("DEBUG DATA: " .. json) 
-            end)
-        end
+    -- Filter utama: Pastikan ini adalah Action Dungeon dan Type Outlines sesuai log debug
+    if type(data) == "table" and data.Action == "Dungeon" and data.Type == "Outlines" then
+        
+        -- Debug Console (Optional)
+        pcall(function()
+            local json = HttpService:JSONEncode(data)
+            print("LOG TRANSISI: " .. json) 
+        end)
+
         local wasInDungeon = IsInDungeonEvent
         
-        if data.Players and table.find(data.Players, LocalUsername) then
-            IsInDungeonEvent = true
-        else
-            IsInDungeonEvent = false
-        end
+        -- LOGIKA FILTER:
+        -- Jika ada data.Players (meskipun isinya null tapi fieldnya ada), berarti proses TELEPORT MASUK
+        -- Jika data.Players tidak ada dalam tabel, berarti proses KELUAR
+        local isTeleportingIn = data.Players ~= nil
 
-        if wasInDungeon ~= IsInDungeonEvent then
-            IsTransitioning = true
+        if isTeleportingIn then
+            IsInDungeonEvent = true
+            -- Aktifkan IsTransitioning agar AutoFarm BERHENTI sementara
+            IsTransitioning = true 
             
-            if IsInDungeonEvent then
-                -- Simpan pilihan musuh sebelum dikosongkan untuk dungeon
-                EnemyBackup = Config.SelectedEnemy or {}
-                if EnemyDropdown then
-                    EnemyDropdown:Set(nil) 
-                    Config.SelectedEnemy = {}
-                end
-            else
-                -- Kembalikan pilihan musuh setelah keluar dungeon
-                if #EnemyBackup > 0 then
-                    Config.SelectedEnemy = EnemyBackup
-                    if EnemyDropdown then EnemyDropdown:Set(EnemyBackup) end
-                end
+            -- Backup dan Bersihkan Pilihan
+            EnemyBackup = Config.SelectedEnemy or {}
+            if EnemyDropdown then
+                EnemyDropdown:Set(nil) 
+                Config.SelectedEnemy = {}
             end
             
-            task.delay(1, function() IsTransitioning = false end)
+            -- Beri jeda 5 detik (atau sesuaikan lama loading game) sebelum Autofarm dungeon mulai
+            task.delay(5, function() 
+                IsTransitioning = false 
+                print("Autofarm Dungeon Dimulai...")
+            end)
+
+        else
+            -- LOGIKA KELUAR: data.Players tidak ditemukan
+            IsInDungeonEvent = false
+            
+            -- Untuk KELUAR, kita buat IsTransitioning FALSE lebih cepat agar Autofarm langsung bekerja
+            IsTransitioning = false 
+
+            -- Kembalikan pilihan musuh
+            if #EnemyBackup > 0 then
+                Config.SelectedEnemy = EnemyBackup
+                if EnemyDropdown then EnemyDropdown:Set(EnemyBackup) end
+                print("Kembali ke Map, Autofarm bekerja...")
+            end
         end
     end
 end)
-
 ReplicatedStorage.Events.To_Server:FireServer({Value = state,Path = { "Settings", "AFK_MODE" },Action = "Settings"})
 -- Fungsi helper untuk mengecek apakah pemain sedang berada di dalam match dungeon
 local function IsInsideDungeon()
@@ -1693,31 +1717,42 @@ end
 local CurrentTargetIndex = 1 -- Melacak urutan musuh
 
 function Optimizer.Update_Farm_Logic(pData)
-    -- 1. Refresh list musuh di Dropdown
+    -- 1. PROTEKSI TRANSISI (Sangat Penting)
+    -- Jika sedang loading masuk dungeon (IsTransitioning = true), stop farm sementara.
+    -- Jika baru keluar dungeon, IsTransitioning sudah false, jadi farm langsung jalan.
+    if IsTransitioning then 
+        return 
+    end
+
+    -- 2. Refresh list musuh di Dropdown
     Optimizer.RefreshMonsterList(pData)
 
-    -- 2. Cek apakah Auto Farm aktif
+    -- 3. Cek apakah Auto Farm diaktifkan di UI
     if not Config.AutoFarm then return end
 
-    local inDungeon = IsInsideDungeon(pData)
+    local inDungeon = IsInDungeonEvent or false
     local selectedEnemies = Config.SelectedEnemy
     local hasSelection = type(selectedEnemies) == "table" and #selectedEnemies > 0
 
-    local character = game.Players.LocalPlayer.Character
+    local character = LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
 
     local targetMonster = nil
     
-    -- LOGIKA PRIORITAS: Jika di dalam Dungeon, abaikan hasSelection dan cari monster Dungeon
+    -- 4. LOGIKA PRIORITAS
     if inDungeon then
-        -- === LOGIKA DUNGEON ===
+        -- === LOGIKA DI DALAM DUNGEON ===
         local mapMonsterIds = {}
         local currentMapName = pData.InGame.Info.Map
         local currentMapId = nil
         
-        for id, data in pairs(WorldMap) do
-            if data.Name == currentMapName then currentMapId = id break end
+        -- Cari ID Map saat ini untuk memfilter mana monster map asli dan mana monster dungeon
+        for id, data in pairs(GeneralReplica.Data.Enums.World_Maps) do
+            if data.Name == currentMapName then 
+                currentMapId = id 
+                break 
+            end
         end
 
         if currentMapId then
@@ -1733,7 +1768,7 @@ function Optimizer.Update_Farm_Logic(pData)
             for _, monster in pairs(debrisMonsters:GetChildren()) do
                 if monster:IsA("Model") and monster.PrimaryPart then
                     local monsterTitle = monster:GetAttribute("Title") or ""
-                    -- Menyerang monster yang BUKAN bagian dari map normal (berarti monster dungeon)
+                    -- Target monster yang BUKAN bagian dari database map normal
                     if not mapMonsterIds[tostring(monsterTitle)] then
                         targetMonster = monster
                         break
@@ -1742,10 +1777,13 @@ function Optimizer.Update_Farm_Logic(pData)
             end
         end
     elseif hasSelection then
-        -- === LOGIKA MAP NORMAL (Hanya jalan jika TIDAK di Dungeon) ===
+        -- === LOGIKA MAP NORMAL (BERURUTAN) ===
         local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
         
-        if CurrentTargetIndex > #selectedEnemies then CurrentTargetIndex = 1 end
+        -- Reset index jika melebihi jumlah pilihan
+        if CurrentTargetIndex > #selectedEnemies then 
+            CurrentTargetIndex = 1 
+        end
         
         local currentChoice = selectedEnemies[CurrentTargetIndex]
         local targetName = (type(currentChoice) == "table" and currentChoice.Value) and currentChoice.Value.Name or nil
@@ -1761,41 +1799,21 @@ function Optimizer.Update_Farm_Logic(pData)
             end
         end
 
-        -- Fallback ke Island Pads
-        if not targetMonster and targetName then
-            local currentMapId = nil
-            local currentMapName = pData.InGame.Info.Map
-            for id, data in pairs(WorldMap) do
-                if data.Name == currentMapName then currentMapId = id break end
-            end
-            if currentMapId then
-                local islandFolderName = currentMapId .. ". " .. WorldMap[currentMapId].Name:gsub("_", " ")
-                local padFolder = workspace.Islands:FindFirstChild(islandFolderName) and workspace.Islands[islandFolderName]:FindFirstChild("Pads")
-                if padFolder then
-                    for _, monsterPart in pairs(padFolder:GetChildren()) do
-                        local targetId = currentChoice.Value and tonumber(currentChoice.Value.Id)
-                        if monsterPart:GetAttribute("Ids") == targetId then
-                            targetMonster = monsterPart
-                            break
-                        end
-                    end
-                end
-            end
-        end
-
-        -- Jika target urutan ini tidak ada, pindah ke urutan berikutnya
+        -- Jika target urutan ini tidak ditemukan, pindah ke index berikutnya
         if not targetMonster then
             CurrentTargetIndex = (CurrentTargetIndex % #selectedEnemies) + 1
         end
     end
 
-    -- 3. EKSEKUSI TELEPORT
+    -- 5. EKSEKUSI TELEPORT
     if targetMonster then
         local targetPos = targetMonster:IsA("Model") and targetMonster.PrimaryPart.Position or targetMonster.Position
         local distance = (rootPart.Position - targetPos).Magnitude
         
+        -- Jarak aman teleport 10 unit
         if distance > 10 then
             local targetCFrame = targetMonster:IsA("Model") and targetMonster.PrimaryPart.CFrame or targetMonster.CFrame
+            -- Teleport dengan sedikit offset (5 unit) agar tidak stuck di dalam model musuh
             rootPart.CFrame = targetCFrame * CFrame.new(0, 0, 5)
         end
     end
