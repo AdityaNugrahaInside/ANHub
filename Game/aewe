@@ -2,7 +2,7 @@ if game.PlaceId ~= 90462358603255 then return end
 repeat task.wait() until game:IsLoaded()
 
 getgenv().SLoading = getgenv().SLoading or {}
-getgenv().SLoading.SubTitle = "Anime Eternal"
+getgenv().SLoading.SubTitle = "Anime Eternals"
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -774,7 +774,7 @@ function Optimizer.Update_Roll_Logic(pData)
             end
 
             -- SEKARANG LOCK JIKA: Index Lengkap ATAU Sudah dapat Rarity tertinggi
-            if (discoveredCount == totalRewards and totalRewards > 0) or hasBestRarity then
+            if (discoveredCount == totalRewards and totalRewards > 0) or hasBestRarity and gName ~= "Demon_Fruits" then
                 if Optimizer.Cache["Lock_"..gName] ~= true then
                     toggle:Set(false) 
                     local lockReason = hasBestRarity and "Got Max: " .. (PityRarityNames[highestRarityFound] or "Best") or "Index Complete"
