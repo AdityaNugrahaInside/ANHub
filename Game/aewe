@@ -709,13 +709,13 @@ function Optimizer.Update_Roll_Logic(pData)
             local gInfo = GeneralReplica.Data.Gachas[gName]
             if not gInfo then continue end
 
-            -- 1. LOGIKA INDEX & AUTO LOCK (Tetap sama)
-            local powerIndex = pData.InGame.Index.Powers.Unlocked -- Default
+            -- [[ 1. IDENTIFIKASI INDEX & TIPE GACHA ]]
+            local powerIndex = pData.InGame.Index.Powers.Unlocked
             if gInfo.Name == "Stands" then powerIndex = pData.InGame.Index.Stands.Unlocked
             elseif gInfo.Name == "Titans" then powerIndex = pData.InGame.Index.Titans.Unlocked
             elseif gInfo.Name == "Swords" then powerIndex = pData.InGame.Index.Weapons.Unlocked end
 
-            -- 2. LOGIKA MAP LOCK (Tetap sama)
+            -- [[ 2. LOGIKA MAP LOCK ]]
             local mapIdStr = tostring(gInfo.MapId or 1)
             if not pData.InGame.Unlocked.Maps[mapIdStr] and gInfo.MapId ~= 1 then
                 if not Optimizer.Cache["MapLock_"..gName] then
@@ -724,10 +724,59 @@ function Optimizer.Update_Roll_Logic(pData)
                 end
                 continue
             else
-                if Optimizer.Cache["MapLock_"..gName] then toggle:Unlock(); Optimizer.Cache["MapLock_"..gName] = nil end
+                if Optimizer.Cache["MapLock_"..gName] then 
+                    toggle:Unlock() 
+                    Optimizer.Cache["MapLock_"..gName] = nil 
+                end
             end
 
-            -- 3. LOGIKA HARGA & SALDO
+            -- [[ 3. LOGIKA AUTO LOCK: SCAN RARITY TERTINGGI ]]
+            local discoveredCount = 0
+            local totalRewards = gInfo.Rewards and #gInfo.Rewards or 0
+            local hasBestRarity = false
+            local highestRarityFound = 0
+            local maxRarityInGacha = 0
+
+            if gInfo.Rewards then
+                -- Cari Rarity tertinggi yang tersedia di mesin ini
+                for _, reward in ipairs(gInfo.Rewards) do
+                    local itemData = GeneralReplica.Data.Items[reward.Id]
+                    if itemData and itemData.Rarity then
+                        if itemData.Rarity > maxRarityInGacha then
+                            maxRarityInGacha = itemData.Rarity
+                        end
+                    end
+                end
+
+                -- Cek apakah pemain sudah memiliki Rarity tertinggi tersebut
+                for _, reward in ipairs(gInfo.Rewards) do
+                    local itemData = GeneralReplica.Data.Items[reward.Id]
+                    if itemData and itemData.Id then
+                        local isUnlocked = powerIndex[tostring(itemData.Id)]
+                        if isUnlocked then
+                            discoveredCount = discoveredCount + 1
+                            if itemData.Rarity and itemData.Rarity >= maxRarityInGacha then
+                                hasBestRarity = true
+                                if itemData.Rarity > highestRarityFound then
+                                    highestRarityFound = itemData.Rarity
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- EKSEKUSI PENGUNCIAN JIKA SYARAT TERPENUHI
+            if (discoveredCount == totalRewards and totalRewards > 0) or hasBestRarity then
+                if Optimizer.Cache["Lock_"..gName] ~= true then
+                    toggle:Set(false) 
+                    local lockReason = hasBestRarity and "Got Max: " .. (PityRarityNames[highestRarityFound] or "Best") or "Index Complete"
+                    toggle:Lock(lockReason) 
+                    Optimizer.Cache["Lock_"..gName] = true
+                end
+            end
+
+            -- [[ 4. LOGIKA HARGA & SALDO ]]
             local cost = math.abs(gInfo.Price.Amount) 
             local tokenName = gInfo.Price.Id
             local currentBalance = GetBalance(pData, tokenName)
@@ -735,7 +784,7 @@ function Optimizer.Update_Roll_Logic(pData)
             local balanceLine = string.format("%s: <font color='%s'>%s / %s</font>", 
                 tokenName:gsub("_", " "):gsub("Token", ""), balanceColor, NumberFormatter:Format(cost), NumberFormatter:Format(currentBalance))
 
-            -- 4. PERBAIKAN LOGIKA PITY (Anti-Crash)
+            -- [[ 5. LOGIKA PITY (DENGAN SAFETY CHECK) ]]
             local pityLine = ""
             if gInfo.Pity_Names then
                 local foundActive = false
@@ -744,11 +793,10 @@ function Optimizer.Update_Roll_Logic(pData)
 
                 for i, pName in ipairs(gInfo.Pity_Names) do
                     local pDef = generalPityTable[pName]
-                    -- Hanya proses jika data Pity terdaftar di database
                     if pDef and pDef.List and pDef.List[1] then
                         local targetRoll = math.abs(pDef.List[1].Amount)
                         local rarityID = pDef.List[1].Rarity
-                        lastValidRarity = rarityID -- Simpan rarity terakhir yang valid untuk status READY
+                        lastValidRarity = rarityID
 
                         if pProgress < targetRoll then
                             local rarityLabel = PityRarityNames[rarityID] or ("Pity " .. i)
@@ -760,14 +808,13 @@ function Optimizer.Update_Roll_Logic(pData)
                     end
                 end
                 
-                -- Jika tidak ada pity aktif (Sudah selesai semua), tampilkan READY secara aman
                 if not foundActive and #gInfo.Pity_Names > 0 then
                     pityLine = string.format("\n<font color='%s'>%s: READY</font>", 
                         GetRarityColor(lastValidRarity), PityRarityNames[lastValidRarity] or "MAX")
                 end
             end
 
-            -- 5. UPDATE UI DESC & EKSEKUSI
+            -- [[ 6. UPDATE UI & EKSEKUSI ]]
             local newDesc = balanceLine .. pityLine
             if Optimizer.Cache["Roll_"..gName] ~= newDesc then
                 toggle:SetDesc(newDesc)
