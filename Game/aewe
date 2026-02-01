@@ -2198,7 +2198,6 @@ FM_Add("Merchants", FarmTab:Button({
                         task.wait(0.2) 
                     else
                         local pName = tostring(item.priceId or "Currency"):gsub("_", " ")
-                        Notify("Skipped", "Not enough " .. pName .. " for " .. tostring(item.name), "x")
                     end
                 end
             end
@@ -2448,7 +2447,6 @@ task.spawn(function()
         if pData then
             -- Jalankan logika Rank Up secara otomatis
             pcall(Optimizer.Update_GameMode_Logic, pData)
-            pcall(Optimizer.Update_Farm_Logic, pData)
         end
     end
 end)
@@ -2464,6 +2462,7 @@ task.spawn(function()
         
         if pData then
             pcall(Optimizer.Update_KillAura_Logic,pData)
+            pcall(Optimizer.Update_Farm_Logic, pData)
         end
     end
 end)
