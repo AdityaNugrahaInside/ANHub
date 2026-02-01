@@ -282,8 +282,7 @@ local function FM_OnChange(selected)
     end
     pcall(function() FM_UpdateTabProfile(selected) end)
 end
-
--- [[ FARM TAB ]] --
+-- Tambahkan ini 
 FarmTab = Window:Tab({
     Title = "Main Feature",
     Icon = "swords",
@@ -308,6 +307,7 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Leveling Items", Icon = "rbxassetid://122732639067510"}, -- Tambahkan ini
         {Title = "Leveling Prog Items", Icon = "rbxassetid://103501763167478"}, -- Tambahkan ini
         {Title = "Upgrade Chance", Icon = "rbxassetid://129764606489391"}, -- Tambahkan ini
+        {Title = "Merchants", Icon = "shopping-cart"}, -- Tambahkan Opsi Ini
     },
     Callback = FM_OnChange
 })
@@ -1619,12 +1619,12 @@ function Optimizer.Update_KillAura_Logic(data)
     -- Berjalan hanya jika Toggle Kill Aura aktif
     if Config.AutoKillAura then
         -- Get_Monsters_InRange tanpa parameter akan mengambil semua monster yang terdeteksi
-        local nearbyMonsters = MouseModule.Get_Monsters_InRange(100)
+        local nearbyMonsters = MouseModule.Get_Monsters_InRange()
         local args = nil
         
-        if nearbyMonsters and #nearbyMonsters > 1 then
+        if nearbyMonsters and #nearbyMonsters > 0 then
             -- Ambil data monster yang paling dekat (index 1)
-            local targetData = nearbyMonsters[2]
+            local targetData = nearbyMonsters[1]
             local monsterModel = targetData.Character
             local args = {
                 {
@@ -1875,12 +1875,12 @@ function Optimizer.Update_GameMode_Logic(pData)
     
     -- Tentukan target dungeon/raid dari dropdown
     local targets = {}
-    if Config.SelectedRaid then table.insert(targets, Config.SelectedRaid) end
     if type(Config.SelectedDungeon) == "table" then
         for _, v in ipairs(Config.SelectedDungeon) do
             table.insert(targets, type(v) == "table" and v.Value or v)
         end
     end
+    if Config.SelectedRaid then table.insert(targets, Config.SelectedRaid) end
 
     for _, modeName in ipairs(targets) do
         local dungeonDef = GeneralReplica.Data.Dungeons[modeName]
@@ -2070,6 +2070,149 @@ function Optimizer.Update_Upgrade_Chance_Logic(pData)
         end)
     end
 end
+-- [[ KONFIGURASI MERCHANTS ]] --
+Config.SelectedExchangeItems = {} 
+Config.SelectedTokenItems = {}    
+Config.ExchangeAmount = 1
+Config.TokenAmount = 1
+
+local MerchantGroup = FarmTab:Group({ Title = "Advanced Multi-Merchant (Fixed)" })
+FM_Add("Merchants", MerchantGroup)
+
+local MerchantGroup1 = FarmTab:Group({ Title = "Advanced Multi-Merchant (Fixed)" })
+FM_Add("Merchants", MerchantGroup1)
+
+-- 1. Scan Database Merchant
+local ExchangeOptions = {}
+local TokenOptions = {}
+local MerchantsDb = GeneralReplica and GeneralReplica.Data and GeneralReplica.Data.Merchants
+
+if MerchantsDb then
+    for mKey, mData in pairs(MerchantsDb) do
+        for pId, item in pairs(mData.List) do
+            local priceInfo = item.Price and item.Price[1]
+            local RewardsInfo = item.Rewards and item.Rewards[1]
+            if priceInfo and priceInfo.Id then
+                local pIdStr = tostring(priceInfo.Id)
+                local rIdStr = tostring(RewardsInfo.Id)
+                
+                -- [[ PEMBERSIHAN NAMA (Anti-Error gsub) ]] --
+                local rawName = tostring(item.Name or "Unknown")
+                local cleanItemName = rawName:gsub("Exchange_Coin_2_For_", "")
+                                             :gsub("Exchange_Coin_For_", "")
+                                             :gsub("_", " ")
+                
+                local shopLabel = (tostring(mKey):match("World_%d+")) or "Merchant"
+                
+                -- Data yang disimpan ke dalam Dropdown
+                local dataValue = {
+                    mKey = mKey,
+                    pId = pId,
+                    priceId = priceInfo.Id,
+                    priceAmount = math.abs(priceInfo.Amount or 0),
+                    name = cleanItemName
+                }
+
+                if pIdStr:find("Exchange_Coin") then
+                    table.insert(ExchangeOptions, { Title = string.format("%s", cleanItemName), Value = dataValue })
+                elseif rIdStr:find("Exchange_Coin") then
+                    table.insert(TokenOptions, { Title = string.format("%s", cleanItemName), Value = dataValue })
+                end
+            end
+        end
+    end
+end
+
+-- Sortir
+local function sortByTitle(a, b) return a.Title < b.Title end
+table.sort(ExchangeOptions, sortByTitle)
+table.sort(TokenOptions, sortByTitle)
+
+-- [[ UI ELEMENTS ]] --
+MerchantGroup:Dropdown({
+    Title = "Select Items (Exchange Coin)",
+    Values = ExchangeOptions,
+    Multi = true,
+    AllowNone = true,
+    Flag = "ExchangeMulti_Cfg",
+    Callback = function(val) Config.SelectedExchangeItems = val end
+})
+
+MerchantGroup:Input({
+    Title = "Amount (Exchange Coin)",
+    Value = "1",
+    Numeric = true,
+    Flag = "ExchAmt_Cfg",
+    Callback = function(txt) Config.ExchangeAmount = tonumber(txt) or 1 end
+})
+
+MerchantGroup1:Dropdown({
+    Title = "Select Items (Tokens)",
+    Values = TokenOptions,
+    Multi = true,
+    AllowNone = true,
+    Flag = "TokenMulti_Cfg",
+    Callback = function(val) Config.SelectedTokenItems = val end
+})
+
+MerchantGroup1:Input({
+    Title = "Amount (Tokens)",
+    Value = "1",
+    Numeric = true,
+    Flag = "TokAmt_Cfg",
+    Callback = function(txt) Config.TokenAmount = tonumber(txt) or 1 end
+})
+
+-- [[ TOMBOL EKSEKUSI (FIXED LOOP) ]] --
+FM_Add("Merchants", FarmTab:Button({
+    Title = "Execute All Purchases",
+    Icon = "shopping-cart",
+    Callback = function()
+        local pData = PlayerReplica and PlayerReplica.Data
+        if not pData then return end
+
+        -- Fungsi Helper dengan perbaikan ekstraksi data
+        local function ProcessPurchase(selectedTable, inputAmount)
+            if not selectedTable or type(selectedTable) ~= "table" then return end
+            
+            for _, itemData in pairs(selectedTable) do
+                -- PERBAIKAN: Mengambil data murni (Value) dari tabel pilihan
+                local item = (type(itemData) == "table" and itemData.Value) or itemData
+                
+                if item and item.mKey then
+                    local currentBalance = GetBalance(pData, item.priceId)
+                    local pricePerItem = item.priceAmount
+                    
+                    -- Logika Auto-Max
+                    local maxAffordable = math.floor(currentBalance / pricePerItem)
+                    local finalAmount = math.min(inputAmount, maxAffordable)
+
+                    if finalAmount > 0 then
+                        -- Kirim Remote
+                        ReplicatedStorage.Events.To_Server:FireServer({
+                            Bench_Name = item.mKey,
+                            Product_Id = item.pId,
+                            Action = "Merchant_Purchase",
+                            Amount = finalAmount
+                        })
+                        -- Jeda 0.2 detik agar server sempat memproses sebelum request selanjutnya
+                        task.wait(0.2) 
+                    else
+                        local pName = tostring(item.priceId or "Currency"):gsub("_", " ")
+                        Notify("Skipped", "Not enough " .. pName .. " for " .. tostring(item.name), "x")
+                    end
+                end
+            end
+        end
+
+        -- Jalankan proses pembelian dalam thread terpisah agar task.wait tidak membekukan UI
+        task.spawn(function()
+            ProcessPurchase(Config.SelectedExchangeItems, Config.ExchangeAmount)
+            ProcessPurchase(Config.SelectedTokenItems, Config.TokenAmount)
+            Notify("Complete", "All purchase requests processed.", "check")
+        end)
+    end
+}))
 -- [[ Settings Tab ]] --
 SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings-2" });
 SettingsTab:Section({ Title = "Config Manager", Icon = "save", Opened = true });
