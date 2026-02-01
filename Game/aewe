@@ -758,10 +758,14 @@ function Optimizer.Update_Roll_Logic(pData)
                             discoveredCount = discoveredCount + 1
                             
                             -- Cek jika item yang di-unlock adalah Rarity tertinggi di gacha tersebut
-                            if itemData.Rarity and itemData.Rarity >= maxRarityInGacha then
-                                hasBestRarity = true
-                                if itemData.Rarity > highestRarityFound then
-                                    highestRarityFound = itemData.Rarity
+                            if isUnlocked.Rarity then
+                                for angkaRarity, status in pairs(isUnlocked.Rarity) do
+                                    if tonumber(angkaRarity) >= maxRarityInGacha then
+                                        hasBestRarity = true
+                                        if itemData.Rarity > highestRarityFound then
+                                            highestRarityFound = itemData.Rarity
+                                        end
+                                    end
                                 end
                             end
                         end
