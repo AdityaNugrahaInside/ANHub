@@ -694,133 +694,139 @@ function Optimizer.Update_Roll_Logic(pData)
 
     if not GeneralReplica or not pData.Inventory or not pData.InGame then return end
 
-    -- Pindahkan pcall ke dalam loop agar satu gacha error tidak merusak semuanya
-    local playerPityTable = pData.InGame.Statistics or {} 
-    local generalPityTable = GeneralReplica.Data.Pity
-    local itemsDb = GeneralReplica.Data.Items
-    
-    local PityRarityNames = {
-        [1] = "Common", [2] = "Uncommon", [3] = "Rare",
-        [4] = "Epic", [5] = "Legend", [6] = "Mythical",
-        [7] = "Phantom", [8] = "Supreme", [9] = "Exotic"
-    }
+    pcall(function()
+        local inventory = pData.Inventory.Items
+        local playerPityTable = pData.InGame.Statistics or {} 
+        local generalPityTable = GeneralReplica.Data.Pity
+        
+        local PityRarityNames = {
+            [1] = "Common", [2] = "Uncommon", [3] = "Rare",
+            [4] = "Epic", [5] = "Legend", [6] = "Mythical",
+            [7] = "Phantom", [8] = "Supreme", [9] = "Exotic"
+        }
 
-    for gName, toggle in pairs(GachaToggles) do
-        local success, err = pcall(function()
+        for gName, toggle in pairs(GachaToggles) do
             local gInfo = GeneralReplica.Data.Gachas[gName]
-            if not gInfo then return end
+            if not gInfo then continue end
 
-            -- 1. Tentukan Kategori Index
+            -- [[ 1. IDENTIFIKASI INDEX & TIPE GACHA (Dari Code 2) ]]
             local powerIndex = pData.InGame.Index.Powers.Unlocked
             if gInfo.Name == "Stands" then powerIndex = pData.InGame.Index.Stands.Unlocked
             elseif gInfo.Name == "Titans" then powerIndex = pData.InGame.Index.Titans.Unlocked
             elseif gInfo.Name == "Swords" then powerIndex = pData.InGame.Index.Weapons.Unlocked end
 
-            -- 2. Logika Map Lock dengan Safety Check (Fix Loading Balance)
-            local mapId = gInfo.MapId or 1
-            local mapIdStr = tostring(mapId)
-            local isMapUnlocked = pData.InGame.Unlocked.Maps[mapIdStr]
-
-            if not isMapUnlocked and mapId ~= 1 then
+            -- [[ 2. LOGIKA MAP LOCK (Dari Code 2 - Lebih Aman) ]]
+            local mapIdStr = tostring(gInfo.MapId or 1)
+            if not pData.InGame.Unlocked.Maps[mapIdStr] and gInfo.MapId ~= 1 then
                 if not Optimizer.Cache["MapLock_"..gName] then
-                    local mapName = (WorldMap[mapId] and WorldMap[mapId].Name) and WorldMap[mapId].Name:gsub("_", " ") or "Unknown Map"
-                    toggle:Lock("Need Map: ".. mapName)
+                    toggle:Lock("Need Map: ".. (WorldMap[gInfo.MapId] and WorldMap[gInfo.MapId].Name:gsub("_", " ") or "Unknown"))
                     Optimizer.Cache["MapLock_"..gName] = true
                 end
-                return -- Lanjut ke gacha berikutnya
+                continue -- Skip loop jika map terkunci
             else
-                if Optimizer.Cache["MapLock_"..gName] then
-                    toggle:Unlock()
-                    Optimizer.Cache["MapLock_"..gName] = nil
+                if Optimizer.Cache["MapLock_"..gName] then 
+                    toggle:Unlock() 
+                    Optimizer.Cache["MapLock_"..gName] = nil 
                 end
             end
 
-            -- 3. Logika Auto Lock & Scan Rarity (Fix Dragon Race)
+            -- [[ 3. LOGIKA AUTO LOCK & SCAN RARITY (FULL DARI CODE 1) ]]
+            -- Bagian ini diambil dari code pertama karena logic lock rarity-nya sudah benar
             local discoveredCount = 0
             local totalRewards = gInfo.Rewards and #gInfo.Rewards or 0
             local hasBestRarity = false
             local highestRarityFound = 0
-            local maxRarityInGacha = 0
+            local maxRarityInGacha = 0 -- Variabel penentu rarity tertinggi mesin ini
 
             if gInfo.Rewards then
-                -- Cari Rarity tertinggi (Support ID String & Number)
-                for i, reward in ipairs(gInfo.Rewards) do
-                    local itemData = itemsDb[reward.Id] or itemsDb[tostring(reward.Id)]
-                    local rarityVal = (itemData and itemData.Rarity) or i -- Fallback ke index jika database kosong
-                    if rarityVal > maxRarityInGacha then
-                        maxRarityInGacha = rarityVal
+                -- 3a. Scan dulu untuk mencari Rarity tertinggi yang tersedia di gacha ini
+                for _, reward in ipairs(gInfo.Rewards) do
+                    local itemData = GeneralReplica.Data.Items[reward.Id]
+                    if itemData and itemData.Rarity then
+                        if itemData.Rarity > maxRarityInGacha then
+                            maxRarityInGacha = itemData.Rarity
+                        end
                     end
                 end
 
-                -- Cek kepemilikan di Index
+                -- 3b. Cek item mana saja yang sudah di-unlock player
                 for _, reward in ipairs(gInfo.Rewards) do
-                    local itemData = itemsDb[reward.Id] or itemsDb[tostring(reward.Id)]
-                    if itemData then
-                        local actualId = tostring(itemData.Id or reward.Id)
-                        if powerIndex[actualId] then
+                    local itemData = GeneralReplica.Data.Items[reward.Id]
+                    if itemData and itemData.Id then
+                        local isUnlocked = powerIndex[tostring(itemData.Id)]
+                        if isUnlocked then
                             discoveredCount = discoveredCount + 1
-                            local rVal = itemData.Rarity or 0
-                            if rVal >= maxRarityInGacha and maxRarityInGacha > 0 then
+                            
+                            -- Cek jika item yang di-unlock adalah Rarity tertinggi di gacha tersebut
+                            if itemData.Rarity and itemData.Rarity >= maxRarityInGacha then
                                 hasBestRarity = true
-                                highestRarityFound = math.max(highestRarityFound, rVal)
+                                if itemData.Rarity > highestRarityFound then
+                                    highestRarityFound = itemData.Rarity
+                                end
                             end
                         end
                     end
                 end
             end
 
-            -- Eksekusi Lock
+            -- SEKARANG LOCK JIKA: Index Lengkap ATAU Sudah dapat Rarity tertinggi
             if (discoveredCount == totalRewards and totalRewards > 0) or hasBestRarity then
                 if Optimizer.Cache["Lock_"..gName] ~= true then
                     toggle:Set(false) 
-                    local rarityLabel = PityRarityNames[highestRarityFound] or "Max Rarity"
-                    toggle:Lock(hasBestRarity and "Got Max: "..rarityLabel or "Index Complete")
+                    local lockReason = hasBestRarity and "Got Max: " .. (PityRarityNames[highestRarityFound] or "Best") or "Index Complete"
+                    toggle:Lock(lockReason) 
                     Optimizer.Cache["Lock_"..gName] = true
                 end
             end
+            -- [[ END LOGIKA CODE 1 ]]
 
-            -- 4. Logika Harga & Saldo
+            -- [[ 4. LOGIKA HARGA & SALDO (Dari Code 2) ]]
             local cost = math.abs(gInfo.Price.Amount) 
             local tokenName = gInfo.Price.Id
             local currentBalance = GetBalance(pData, tokenName)
             local balanceColor = (currentBalance >= cost) and "#00ff00" or "#ff0000"
+            local cleanMatName = tokenName:gsub("_", " "):gsub("Token", "")
             local balanceLine = string.format("%s: <font color='%s'>%s / %s</font>", 
-                tokenName:gsub("_", " "):gsub("Token", ""), balanceColor, NumberFormatter:Format(cost), NumberFormatter:Format(currentBalance))
+                cleanMatName, balanceColor, NumberFormatter:Format(cost), NumberFormatter:Format(currentBalance))
 
-            -- 5. Logika Pity dengan Safety Check
+            -- [[ 5. LOGIKA PITY (Dari Code 2 - Dengan Safety Check Anti Bug) ]]
             local pityLine = ""
             if gInfo.Pity_Names then
                 local foundActive = false
                 local lastValidRarity = 1
-                local pProgress = playerStats["Gachas_"..gName] or 0
+                local pProgress = playerPityTable["Gachas_"..gName] or 0
 
-                for _, pName in ipairs(gInfo.Pity_Names) do
+                for i, pName in ipairs(gInfo.Pity_Names) do
                     local pDef = generalPityTable[pName]
+                    -- Safety check: pastikan pDef dan List ada agar tidak error loading
                     if pDef and pDef.List and pDef.List[1] then
                         local targetRoll = math.abs(pDef.List[1].Amount)
                         local rarityID = pDef.List[1].Rarity
                         lastValidRarity = rarityID
+
                         if pProgress < targetRoll then
+                            local rarityLabel = PityRarityNames[rarityID] or ("Pity " .. i)
                             pityLine = string.format("\n<font color='%s'>%s: %s / %s</font>", 
-                                GetRarityColor(rarityID), PityRarityNames[rarityID] or "Pity", NumberFormatter:Format(pProgress), NumberFormatter:Format(targetRoll))
-                            foundActive = true; break
+                                GetRarityColor(rarityID), rarityLabel, NumberFormatter:Format(pProgress), NumberFormatter:Format(targetRoll))
+                            foundActive = true
+                            break 
                         end
                     end
                 end
+                
                 if not foundActive and #gInfo.Pity_Names > 0 then
                     pityLine = string.format("\n<font color='%s'>%s: READY</font>", 
                         GetRarityColor(lastValidRarity), PityRarityNames[lastValidRarity] or "MAX")
                 end
             end
 
-            -- 6. Update UI
+            -- [[ 6. UPDATE UI & EKSEKUSI ]]
             local newDesc = balanceLine .. pityLine
             if Optimizer.Cache["Roll_"..gName] ~= newDesc then
                 toggle:SetDesc(newDesc)
                 Optimizer.Cache["Roll_"..gName] = newDesc
             end
 
-            -- 7. Execute Roll
             if Config.AutoRoll[gName] and currentBalance >= cost and not Optimizer.Cache["Lock_"..gName] then
                 ReplicatedStorage.Events.To_Server:FireServer({
                     ["Open_Amount"] = 100,
@@ -828,9 +834,8 @@ function Optimizer.Update_Roll_Logic(pData)
                     ["Name"] = gName
                 })
             end
-        end)
-        if not success then warn("[Roll Error at " .. gName .. "]: " .. tostring(err)) end
-    end
+        end
+    end)
 end
 -- [[ DATA MAPPING & UI REFERENCES ]] --
 local RarityMapping = {
