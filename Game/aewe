@@ -1795,15 +1795,22 @@ end
 -- [[ GAME MODE CATEGORY ]] --
 local GameModeGroup = FarmTab:Group({ Title = "Game Mode / Dungeons" })
 FM_Add("Farm", GameModeGroup)
+local GameModeGroups = FarmTab:Group({ Title = "Game Mode / Dungeons" })
+FM_Add("Farm", GameModeGroups)
 
--- Toggle Auto Enter
-FM_Add("Farm", FarmTab:Toggle({
-    Title = "Auto Game Mode",
-    Flag = "AutoEnter_Cfg",
-    Callback = function(val)
-        Config.AutoEnter = val
-    end
+FM_Add("Farm", GameModeGroups:Toggle({
+    Title = "Auto Join (Search Room)",
+    Desc = "Mencari room aktif di Dungeons_Shared.",
+    Flag = "AutoJoin_Cfg",
+    Callback = function(val) Config.AutoEnter = val end
 }))
+
+-- FM_Add("Farm", GameModeGroups:Toggle({
+--     Title = "Auto Create (New Room)",
+--     Desc = "Membuat room baru jika tidak ada party.",
+--     Flag = "AutoCreate_Cfg",
+--     Callback = function(val) Config.AutoCreate = val end
+-- }))
 
 -- Prosedur Pemisahan Data
 local DungeonList = {}
@@ -1861,56 +1868,55 @@ local function GetCleanStatus(text)
 end
 
 function Optimizer.Update_GameMode_Logic(pData)
-    if not Config.AutoEnter then return end
+    -- Master check agar tidak spam saat loading atau sudah di dalam
+    if not Config.AutoEnter or IsInsideDungeon() then return end
     
-    -- 1. CEK STATUS: Jangan kirim remote jika sudah di dalam match
-    if IsInsideDungeon() then return end
+    local SharedDungeons = GeneralReplica.Data.Dungeons_Shared or {}
+    
+    -- Tentukan target dungeon/raid dari dropdown
+    local targets = {}
+    if Config.SelectedRaid then table.insert(targets, Config.SelectedRaid) end
+    if type(Config.SelectedDungeon) == "table" then
+        for _, v in ipairs(Config.SelectedDungeon) do
+            table.insert(targets, type(v) == "table" and v.Value or v)
+        end
+    end
 
-    -- 2. LOGIKA PENGECEKAN TARGET
-    local function TryJoin(modeName)
-        local data = GeneralReplica.Data.Dungeons[modeName]
-        if not data then return false end
+    for _, modeName in ipairs(targets) do
+        local dungeonDef = GeneralReplica.Data.Dungeons[modeName]
+        if not dungeonDef then continue end
 
-        -- Ambil status murni (kecil semua)
-        local status = GetCleanStatus(data.Portal_Text)
+        -- Cek Saldo untuk Raid
+        if dungeonDef.Price then
+            local req = math.abs(dungeonDef.Price.Amount)
+            if GetBalance(pData, dungeonDef.Price.Id) < req then continue end
+        end
 
-        -- PERBAIKAN: Boleh masuk jika status mengandung 'open' atau 'closing'
-        local isAvailable = string.find(status, "open") or string.find(status, "closing")
-        if not isAvailable then return false end
-
-        -- CEK SALDO (Jika ada harga tiket)
-        local canEnter = true
-        if data.Price then
-            local reqAmount = math.abs(data.Price.Amount)
-            if GetBalance(pData, data.Price.Id) < reqAmount then
-                canEnter = false
+        -- 1. LOGIKA AUTO JOIN (Cek Dungeons_Shared)
+        local entryIdFound = nil
+        for entryId, roomData in pairs(SharedDungeons) do
+            if roomData.Name == modeName and roomData.Players_Amount < roomData.Players_Max then
+                entryIdFound = entryId
+                break
             end
         end
 
-        if canEnter then
-            game:GetService("ReplicatedStorage").Events.To_Server:FireServer({
-                Action = "_Enter_Dungeon",
-                Name = modeName
-            })
-            task.wait(2) -- Jeda proteksi agar tidak spam
-            return true 
-        end
-        return false
-    end
-
-    -- PRIORITAS 1: Cek Raid
-    if Config.SelectedRaid then
-        if TryJoin(Config.SelectedRaid) then return end
-    end
-
-    -- PRIORITAS 2: Cek semua Dungeon yang dipilih (Sesuai nama variabel dropdown Anda)
-    local selected = Config.SelectedDungeon 
-    if type(selected) == "table" and #selected > 0 then
-        for _, item in ipairs(selected) do
-            local dungeonName = type(item) == "table" and item.Value or item
-            if TryJoin(dungeonName) then 
-                break 
-            end
+        -- 2. EKSEKUSI (JOIN jika ada, CREATE jika tidak ada)
+        local status = GetCleanStatus(dungeonDef.Portal_Text)
+        if string.find(status, "open") or string.find(status, "closing") then
+            local args = {
+                {
+                    ["Name"] = modeName,
+                    ["Action"] = "_Enter_Dungeon",
+                    ["DoNotCreate_If_Failed"] = entryIdFound and true or nil,
+                    ["Entry_Id"] = entryIdFound -- Jika nil, otomatis Create
+                }
+            }
+            
+            -- Pastikan menggunakan unpack agar argumen terbaca sebagai satu tabel
+            ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
+            task.wait(2) -- Proteksi agar tidak double join
+            return -- Keluar setelah satu aksi berhasil
         end
     end
 end
@@ -2289,7 +2295,7 @@ task.spawn(function()
 end)
 task.spawn(function()
     while true do
-        task.wait(0.05) -- Update setiap 0.5 detik (Real-time)
+        task.wait(1) -- Update setiap 0.5 detik (Real-time)
         
         -- Pastikan Window masih ada
         if not IsWindowAlive() then break end
