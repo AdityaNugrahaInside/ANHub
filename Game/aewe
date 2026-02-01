@@ -1916,7 +1916,6 @@ function Optimizer.Update_GameMode_Logic(pData)
             -- Pastikan menggunakan unpack agar argumen terbaca sebagai satu tabel
             ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
             task.wait(2) -- Proteksi agar tidak double join
-            return -- Keluar setelah satu aksi berhasil
         end
     end
 end
