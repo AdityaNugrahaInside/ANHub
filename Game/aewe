@@ -2,7 +2,7 @@ if game.PlaceId ~= 90462358603255 then return end
 repeat task.wait() until game:IsLoaded()
 
 getgenv().SLoading = getgenv().SLoading or {}
-getgenv().SLoading.SubTitle = "Anime Eternals"
+getgenv().SLoading.SubTitle = "Anime Eternal"
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -50,7 +50,7 @@ local ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 local MapDBFile = "Map_Database.json"
 -- Tambahkan ini di bagian variabel Config Anda
 local Config = {
-    SelectedEnemy = nil,
+    SelectedEnemy = {},
     SelectedDungeon = {}, -- Gunakan tabel kosong karena Multi = true
     SelectedRaid = nil,    -- Tetap nil karena single select
     AutoEnter = false,
@@ -1587,21 +1587,16 @@ FarmGroup:Toggle({
     end
 })
 
-
--- Dropdown Select Enemy
+-- Dropdown Select Enemy (Multi-Select)
 EnemyDropdown = FarmGroup:Dropdown({
-    Title = "Select Enemy",
+    Title = "Select Enemy (Multi)",
     Values = {},
-    AllowNone = true, -- Ini memungkinkan pilihan kosong
+    Multi = true, -- Mengaktifkan pemilihan banyak musuh
+    AllowNone = true,
     Flag = "EnemyDropdown_Cfg",
     Callback = function(val)
-        -- Jika val adalah tabel dan memiliki Value, maka set musuh
-        if type(val) == "table" and val.Value then
-            Config.SelectedEnemy = val.Value
-        else
-            -- Jika tidak memilih apa pun (Clear), set jadi nil
-            Config.SelectedEnemy = nil
-        end
+        -- val sekarang akan berupa tabel berisi pilihan-pilihan kamu
+        Config.SelectedEnemy = val or {}
     end
 })
 -- Toggle untuk Auto Kill Aura (Tanpa Dropdown)
@@ -1691,6 +1686,8 @@ function Optimizer.RefreshMonsterList(pData)
         EnemyDropdown:SetValues({ {Title = "Searching Monsters...", Value = nil} })
     end
 end
+local CurrentTargetIndex = 1 -- Melacak urutan musuh
+
 function Optimizer.Update_Farm_Logic(pData)
     -- 1. Refresh list musuh di Dropdown
     Optimizer.RefreshMonsterList(pData)
@@ -1698,14 +1695,9 @@ function Optimizer.Update_Farm_Logic(pData)
     -- 2. Cek apakah Auto Farm aktif
     if not Config.AutoFarm then return end
 
-    -- Deteksi status
     local inDungeon = IsInsideDungeon(pData)
-    local isEnemySelected = Config.SelectedEnemy and type(Config.SelectedEnemy) == "table" and Config.SelectedEnemy.Name ~= nil and Config.SelectedEnemy.Name ~= ""
-
-    -- PROTEKSI: Jika tidak di Dungeon DAN tidak ada musuh dipilih, BERHENTI
-    if not inDungeon and not isEnemySelected then 
-        return 
-    end
+    local selectedEnemies = Config.SelectedEnemy
+    local hasSelection = type(selectedEnemies) == "table" and #selectedEnemies > 0
 
     local character = game.Players.LocalPlayer.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
@@ -1713,7 +1705,8 @@ function Optimizer.Update_Farm_Logic(pData)
 
     local targetMonster = nil
     
-    if inDungeon and not isEnemySelected then
+    -- LOGIKA PRIORITAS: Jika di dalam Dungeon, abaikan hasSelection dan cari monster Dungeon
+    if inDungeon then
         -- === LOGIKA DUNGEON ===
         local mapMonsterIds = {}
         local currentMapName = pData.InGame.Info.Map
@@ -1723,7 +1716,6 @@ function Optimizer.Update_Farm_Logic(pData)
             if data.Name == currentMapName then currentMapId = id break end
         end
 
-        -- Isi daftar pengecualian jika Map ID ditemukan
         if currentMapId then
             for _, mData in pairs(GeneralReplica.Data.Monsters) do
                 if mData.MapId == currentMapId then 
@@ -1737,7 +1729,7 @@ function Optimizer.Update_Farm_Logic(pData)
             for _, monster in pairs(debrisMonsters:GetChildren()) do
                 if monster:IsA("Model") and monster.PrimaryPart then
                     local monsterTitle = monster:GetAttribute("Title") or ""
-                    -- Nyerang apapun yang BUKAN musuh map normal
+                    -- Menyerang monster yang BUKAN bagian dari map normal (berarti monster dungeon)
                     if not mapMonsterIds[tostring(monsterTitle)] then
                         targetMonster = monster
                         break
@@ -1745,13 +1737,19 @@ function Optimizer.Update_Farm_Logic(pData)
                 end
             end
         end
-    elseif isEnemySelected then
-        -- === LOGIKA MAP NORMAL ===
+    elseif hasSelection then
+        -- === LOGIKA MAP NORMAL (Hanya jalan jika TIDAK di Dungeon) ===
         local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
-        if debrisMonsters then
+        
+        if CurrentTargetIndex > #selectedEnemies then CurrentTargetIndex = 1 end
+        
+        local currentChoice = selectedEnemies[CurrentTargetIndex]
+        local targetName = (type(currentChoice) == "table" and currentChoice.Value) and currentChoice.Value.Name or nil
+
+        if targetName and debrisMonsters then
             for _, monster in pairs(debrisMonsters:GetChildren()) do
                 if monster:IsA("Model") and monster.PrimaryPart then
-                    if monster:GetAttribute("Title") == Config.SelectedEnemy.Name then
+                    if monster:GetAttribute("Title") == targetName then
                         targetMonster = monster
                         break 
                     end
@@ -1759,8 +1757,8 @@ function Optimizer.Update_Farm_Logic(pData)
             end
         end
 
-        -- Cari di Island Pads jika di Debris tidak ada
-        if not targetMonster then
+        -- Fallback ke Island Pads
+        if not targetMonster and targetName then
             local currentMapId = nil
             local currentMapName = pData.InGame.Info.Map
             for id, data in pairs(WorldMap) do
@@ -1771,13 +1769,19 @@ function Optimizer.Update_Farm_Logic(pData)
                 local padFolder = workspace.Islands:FindFirstChild(islandFolderName) and workspace.Islands[islandFolderName]:FindFirstChild("Pads")
                 if padFolder then
                     for _, monsterPart in pairs(padFolder:GetChildren()) do
-                        if monsterPart:GetAttribute("Ids") == tonumber(Config.SelectedEnemy.Id) then
+                        local targetId = currentChoice.Value and tonumber(currentChoice.Value.Id)
+                        if monsterPart:GetAttribute("Ids") == targetId then
                             targetMonster = monsterPart
                             break
                         end
                     end
                 end
             end
+        end
+
+        -- Jika target urutan ini tidak ada, pindah ke urutan berikutnya
+        if not targetMonster then
+            CurrentTargetIndex = (CurrentTargetIndex % #selectedEnemies) + 1
         end
     end
 
