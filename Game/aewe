@@ -1711,8 +1711,6 @@ function Optimizer.RefreshMonsterList(pData)
         LastMapName = currentMapName 
         -- Memanggil SetValues pada instance element Dropdown
         EnemyDropdown:Refresh(filteredOptions)
-    else
-        EnemyDropdown:SetValues({ {Title = "Searching Monsters...", Value = nil} })
     end
 end
 local CurrentTargetIndex = 1 -- Melacak urutan musuh
