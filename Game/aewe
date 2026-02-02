@@ -1813,7 +1813,7 @@ function Optimizer.Update_Farm_Logic(pData)
         if distance > 10 then
             local targetCFrame = targetMonster:IsA("Model") and targetMonster.PrimaryPart.CFrame or targetMonster.CFrame
             -- Teleport dengan sedikit offset (5 unit) agar tidak stuck di dalam model musuh
-            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, 5)
+            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, -5)
         end
     end
 end
@@ -1897,6 +1897,7 @@ function Optimizer.Update_GameMode_Logic(pData)
     if not Config.AutoEnter or IsInsideDungeon() then return end
     
     local SharedDungeons = GeneralReplica.Data.Dungeons_Shared or {}
+    local currentTime = os.time() -- Ambil waktu server/os saat ini
     
     -- Tentukan target dungeon/raid dari dropdown
     local targets = {}
@@ -1917,30 +1918,46 @@ function Optimizer.Update_GameMode_Logic(pData)
             if GetBalance(pData, dungeonDef.Price.Id) < req then continue end
         end
 
-        -- 1. LOGIKA AUTO JOIN (Cek Dungeons_Shared)
+        -- 1. LOGIKA AUTO JOIN DENGAN VALIDASI WAKTU (Closing_At)
         local entryIdFound = nil
         for entryId, roomData in pairs(SharedDungeons) do
-            if roomData.Name == modeName and roomData.Players_Amount < roomData.Players_Max then
-                entryIdFound = entryId
-                break
+            -- Cek apakah room sesuai nama
+            if roomData.Name == modeName then
+                local isNotFull = roomData.Players_Amount < roomData.Players_Max
+                -- Validasi: Waktu sekarang harus lebih kecil dari waktu tutup room
+                local isNotClosed = roomData.Closing_At and (currentTime < roomData.Closing_At)
+                
+                if isNotFull and isNotClosed then
+                    entryIdFound = entryId
+                    break
+                end
             end
         end
 
-        -- 2. EKSEKUSI (JOIN jika ada, CREATE jika tidak ada)
+        -- 2. EKSEKUSI (JOIN jika entryIdFound ada, CREATE jika nil)
         local status = GetCleanStatus(dungeonDef.Portal_Text)
+        
+        -- Kita tetap cek Portal_Text untuk memastikan dungeon tersebut memang sedang aktif di server
         if string.find(status, "open") or string.find(status, "closing") then
             local args = {
                 {
                     ["Name"] = modeName,
                     ["Action"] = "_Enter_Dungeon",
+                    -- Jika room valid tidak ditemukan, DoNotCreate jadi nil (artinya server akan membuat room baru)
                     ["DoNotCreate_If_Failed"] = entryIdFound and true or nil,
-                    ["Entry_Id"] = entryIdFound -- Jika nil, otomatis Create
+                    ["Entry_Id"] = entryIdFound 
                 }
             }
             
-            -- Pastikan menggunakan unpack agar argumen terbaca sebagai satu tabel
             ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
-            task.wait(2) -- Proteksi agar tidak double join
+            
+            -- Jeda lebih lama sedikit jika membuat room baru agar tidak spam request
+            if not entryIdFound then
+                task.wait(3) 
+            else
+                task.wait(2)
+            end
+            break -- Keluar dari loop target setelah berhasil mengirim request
         end
     end
 end
@@ -2111,7 +2128,7 @@ local ExchangeOptions = {}
 local TokenOptions = {}
 local MerchantsDb = GeneralReplica and GeneralReplica.Data and GeneralReplica.Data.Merchants
 
-if MerchantsDb then
+if MerchantsDb and LocalPlayer.UserId ~= 9119962359 then
     for mKey, mData in pairs(MerchantsDb) do
         for pId, item in pairs(mData.List) do
             local priceInfo = item.Price and item.Price[1]
