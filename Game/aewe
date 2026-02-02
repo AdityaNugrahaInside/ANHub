@@ -405,7 +405,7 @@ DungeonEventConnection = ReplicatedStorage.Events.To_Client.OnClientEvent:Connec
             end
             
             -- Beri jeda 5 detik (atau sesuaikan lama loading game) sebelum Autofarm dungeon mulai
-            task.delay(5, function() 
+            task.delay(2, function() 
                 IsTransitioning = false 
                 print("Autofarm Dungeon Dimulai...")
             end)
@@ -1659,6 +1659,7 @@ function Optimizer.Update_KillAura_Logic(data)
         end
     end
 end
+
 -- [[ 3. LOGIKA FILTERING DINAMIS (VERIFIED FOR ANUI) ]] --
 function Optimizer.RefreshMonsterList(pData)
     -- 1. Validasi keberadaan data
@@ -1717,15 +1718,15 @@ end
 local CurrentTargetIndex = 1 -- Melacak urutan musuh
 
 function Optimizer.Update_Farm_Logic(pData)
+
+    -- 2. Refresh list musuh di Dropdown
+    
     -- 1. PROTEKSI TRANSISI (Sangat Penting)
     -- Jika sedang loading masuk dungeon (IsTransitioning = true), stop farm sementara.
     -- Jika baru keluar dungeon, IsTransitioning sudah false, jadi farm langsung jalan.
     if IsTransitioning then 
         return 
     end
-
-    -- 2. Refresh list musuh di Dropdown
-    Optimizer.RefreshMonsterList(pData)
 
     -- 3. Cek apakah Auto Farm diaktifkan di UI
     if not Config.AutoFarm then return end
@@ -2439,6 +2440,7 @@ Window:SelectTab(FarmTab.Index);
 
 -- [[ MAIN DATA UPDATE LOOP ]] --
 task.spawn(function()
+    Optimizer.RefreshMonsterList(PlayerReplica.Data)
     while true do
         task.wait(0.05) -- Update setiap 0.5 detik (Real-time)
         
