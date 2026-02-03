@@ -544,7 +544,7 @@ if not IsPremium then return end
 UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
 
 Window = UI:CreateWindow({
-    Title = "AN Hub - Anime Weapon",
+    Title = "ANHub - Anime Weapon",
     Icon = "rbxassetid://84366761557806",
     Author = "Aditya Nugraha",
     Folder = "AnimeWeapons",
@@ -1142,9 +1142,10 @@ function LogicAutoFarm()
         if currentTargetObj and currentTargetObj.Root then
             pcall(function()
                 local enemyRoot = currentTargetObj.Root
-                local enemyPos = enemyRoot.Position
                 
-                -- Deteksi Scale Musuh
+                local enemyPos = enemyRoot.Position
+                local enemyLook = enemyRoot.CFrame.LookVector
+                
                 local enemyScale = 1
                 if currentTargetObj.DifficultConfig and currentTargetObj.DifficultConfig.Scale then
                     enemyScale = currentTargetObj.DifficultConfig.Scale
@@ -1152,18 +1153,19 @@ function LogicAutoFarm()
                     enemyScale = currentTargetObj.Config.Scale
                 end
                 
-                -- [LOGIKA DIATAS KEPALA]
-                -- Kita hitung tinggi berdasarkan hip height dan scale, lalu tambah 5-7 stud ke atas
-                local heightOffset = (3.0 * enemyScale) + 5 
+                local baseHipHeight = 3.0 
+                local feetY = enemyPos.Y - (baseHipHeight * enemyScale)
+                local myTargetY = feetY + baseHipHeight
                 
-                -- Posisi kita adalah posisi musuh + offset ke atas (Sumbu Y)
-                local finalPos = enemyPos + Vector3.new(0, heightOffset, 0)
+                local dirVector = Vector3.new(enemyLook.X, 0, enemyLook.Z).Unit 
+                local attackPos = enemyPos + (dirVector * 5)
                 
-                -- Karakter menghadap ke bawah (ke arah musuh)
-                -- Gunakan CFrame.lookAt(posisi_kita, posisi_musuh)
-                hrp.CFrame = CFrame.lookAt(finalPos, enemyPos)
+                local finalPos = Vector3.new(attackPos.X, myTargetY, attackPos.Z)
                 
-                -- Reset Velocity agar tidak terlempar karena gaya gravitasi/fisika
+                local lookAtPos = Vector3.new(enemyPos.X, myTargetY, enemyPos.Z)
+                
+                hrp.CFrame = CFrame.lookAt(finalPos, lookAtPos)
+                
                 if hrp.AssemblyLinearVelocity.Magnitude > 0 then
                     hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
                 end
