@@ -1142,10 +1142,9 @@ function LogicAutoFarm()
         if currentTargetObj and currentTargetObj.Root then
             pcall(function()
                 local enemyRoot = currentTargetObj.Root
-                
                 local enemyPos = enemyRoot.Position
-                local enemyLook = enemyRoot.CFrame.LookVector
                 
+                -- Deteksi Scale Musuh
                 local enemyScale = 1
                 if currentTargetObj.DifficultConfig and currentTargetObj.DifficultConfig.Scale then
                     enemyScale = currentTargetObj.DifficultConfig.Scale
@@ -1153,19 +1152,18 @@ function LogicAutoFarm()
                     enemyScale = currentTargetObj.Config.Scale
                 end
                 
-                local baseHipHeight = 3.0 
-                local feetY = enemyPos.Y - (baseHipHeight * enemyScale)
-                local myTargetY = feetY + baseHipHeight
+                -- [LOGIKA DIATAS KEPALA]
+                -- Kita hitung tinggi berdasarkan hip height dan scale, lalu tambah 5-7 stud ke atas
+                local heightOffset = (3.0 * enemyScale) + 5 
                 
-                local dirVector = Vector3.new(enemyLook.X, 0, enemyLook.Z).Unit 
-                local attackPos = enemyPos + (dirVector * 6)
+                -- Posisi kita adalah posisi musuh + offset ke atas (Sumbu Y)
+                local finalPos = enemyPos + Vector3.new(0, heightOffset, 0)
                 
-                local finalPos = Vector3.new(attackPos.X, myTargetY, attackPos.Z)
+                -- Karakter menghadap ke bawah (ke arah musuh)
+                -- Gunakan CFrame.lookAt(posisi_kita, posisi_musuh)
+                hrp.CFrame = CFrame.lookAt(finalPos, enemyPos)
                 
-                local lookAtPos = Vector3.new(enemyPos.X, myTargetY, enemyPos.Z)
-                
-                hrp.CFrame = CFrame.lookAt(finalPos, lookAtPos)
-                
+                -- Reset Velocity agar tidak terlempar karena gaya gravitasi/fisika
                 if hrp.AssemblyLinearVelocity.Magnitude > 0 then
                     hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
                 end
@@ -4179,23 +4177,6 @@ SettingsTab:Button({
         end
     end
 })
-SettingsTab:Toggle({
-    Title = "Anti Water / Swimming",
-    Desc = "Prevents character from entering Swimming state (Anti-Respawn).",
-    Flag = "AntiWater_Cfg",
-    Callback = function(val)
-        Config.AntiWater = val
-    end
-})
-
-SettingsTab:Toggle({
-    Title = "Anti Void / Fall",
-    Desc = "Teleports you up if you fall below the map floor.",
-    Flag = "AntiVoid_Cfg",
-    Callback = function(val)
-        Config.AntiVoid = val
-    end
-})
 ConfigSection = SettingsTab:Section({
     Title = "Config Manager",
     Icon = "save",
@@ -6507,49 +6488,6 @@ function Optimizer.Update_YenUpgrade2_Logic(pData)
 end
 -- MAIN GLOBAL LOOP TRIGGER
 -- // OPTIMIZED MAIN LOOP //
-task.spawn(function()
-    while task.wait(0.1) do
-        if not Window or Window.Destroyed then break end
-        
-        pcall(function()
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-
-            if char and hum and root then
-                -- [LOGIKA ANTI WATER]
-                if Config.AntiWater then
-                    -- Menonaktifkan kemampuan berenang agar server tidak mendeteksi status "Swimming"
-                    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, false)
-                    
-                    -- Jika terlanjur masuk state swimming, paksa kembali ke running
-                    if hum:GetState() == Enum.HumanoidStateType.Swimming then
-                        hum:ChangeState(Enum.HumanoidStateType.Running)
-                        root.CFrame = root.CFrame * CFrame.new(0, 5, 0) -- Dorong sedikit ke atas
-                    end
-                else
-                    -- Kembalikan fungsi berenang jika fitur dimatikan
-                    hum:SetStateEnabled(Enum.HumanoidStateType.Swimming, true)
-                end
-
-                -- [LOGIKA ANTI VOID]
-                -- Jika posisi Y terlalu rendah (jatuh), teleport kembali ke LastZone atau spawn
-                if Config.AntiVoid and root.Position.Y < Config.MinimumYLevel then
-                    root.Velocity = Vector3.new(0, 0, 0)
-                    
-                    -- Teleport ke atas sedikit atau ke posisi musuh jika sedang farm
-                    if Config.AutoFarm and Config.SelectedEnemy then
-                        -- Biarkan logika farm yang melakukan teleport ulang
-                    else
-                        root.CFrame = root.CFrame * CFrame.new(0, 50, 0)
-                    end
-                    
-                    Notify("Safety", "Anti-Void Triggered! Saving you from falling.", "shield")
-                end
-            end
-        end)
-    end
-end)
 task.spawn(function()
     local heavyTaskTick = 0
     
