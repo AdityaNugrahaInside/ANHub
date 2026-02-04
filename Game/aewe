@@ -2154,7 +2154,7 @@ if MerchantsDb and LocalPlayer.UserId ~= 9119962359 then
                     name = cleanItemName
                 }
 
-                if pIdStr:find("Exchange_Coin") then
+                if pIdStr:find("Exchange_Coin") or rIdStr:find("_Macaron") then
                     table.insert(ExchangeOptions, { Title = string.format("%s", cleanItemName), Value = dataValue })
                 elseif rIdStr:find("Exchange_Coin") then
                     table.insert(TokenOptions, { Title = string.format("%s", cleanItemName), Value = dataValue })
@@ -2247,8 +2247,8 @@ FM_Add("Merchants", FarmTab:Button({
 
         -- Jalankan proses pembelian dalam thread terpisah agar task.wait tidak membekukan UI
         task.spawn(function()
-            ProcessPurchase(Config.SelectedExchangeItems, Config.ExchangeAmount)
             ProcessPurchase(Config.SelectedTokenItems, Config.TokenAmount)
+            ProcessPurchase(Config.SelectedExchangeItems, Config.ExchangeAmount)
             Notify("Complete", "All purchase requests processed.", "check")
         end)
     end
