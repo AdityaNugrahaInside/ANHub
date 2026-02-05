@@ -302,12 +302,12 @@ FM_CategorySelector = FarmTab:Category({
         {Title = "Farm", Icon = "sword"},
         {Title = "Rank Up", Icon = "rbxassetid://89121312061972"}, -- Tambahkan ini
         {Title = "Roll", Icon = "rbxassetid://15602591315"}, -- Tambahkan ini
+        {Title = "Merchants", Icon = "shopping-cart"}, -- Tambahkan Opsi Ini
         {Title = "Gacha Pet", Icon = "rbxassetid://15625074556"}, -- Tambahkan iniProgression
         {Title = "Progression", Icon = "rbxassetid://17378852767"}, -- Tambahkan ini
         {Title = "Leveling Items", Icon = "rbxassetid://122732639067510"}, -- Tambahkan ini
         {Title = "Leveling Prog Items", Icon = "rbxassetid://103501763167478"}, -- Tambahkan ini
         {Title = "Upgrade Chance", Icon = "rbxassetid://129764606489391"}, -- Tambahkan ini
-        {Title = "Merchants", Icon = "shopping-cart"}, -- Tambahkan Opsi Ini
     },
     Callback = FM_OnChange
 })
@@ -739,9 +739,10 @@ function Optimizer.Update_Roll_Logic(pData)
 
             -- [[ 1. IDENTIFIKASI INDEX & TIPE GACHA (Dari Code 2) ]]
             local powerIndex = pData.InGame.Index.Powers.Unlocked
-            if gInfo.Name == "Stands" then powerIndex = pData.InGame.Index.Stands.Unlocked
-            elseif gInfo.Name == "Titans" then powerIndex = pData.InGame.Index.Titans.Unlocked
-            elseif gInfo.Name == "Swords" then powerIndex = pData.InGame.Index.Weapons.Unlocked end
+            -- if gInfo.Name == "Stands" then powerIndex = pData.InGame.Index.Stands.Unlocked
+            -- elseif gInfo.Name == "Titans" then powerIndex = pData.InGame.Index.Titans.Unlocked
+            -- else
+            if gInfo.Name == "Swords" then powerIndex = pData.InGame.Index.Weapons.Unlocked end
 
             -- [[ 2. LOGIKA MAP LOCK (Dari Code 2 - Lebih Aman) ]]
             local mapIdStr = tostring(gInfo.MapId or 1)
@@ -2132,6 +2133,7 @@ if MerchantsDb and LocalPlayer.UserId ~= 9119962359 then
     for mKey, mData in pairs(MerchantsDb) do
         for pId, item in pairs(mData.List) do
             local priceInfo = item.Price and item.Price[1]
+            local stockAvailable = item.Stock_Limit or 0
             local RewardsInfo = item.Rewards and item.Rewards[1]
             if priceInfo and priceInfo.Id then
                 local pIdStr = tostring(priceInfo.Id)
@@ -2149,6 +2151,7 @@ if MerchantsDb and LocalPlayer.UserId ~= 9119962359 then
                 local dataValue = {
                     mKey = mKey,
                     pId = pId,
+                    stockAvailable = stockAvailable,
                     priceId = priceInfo.Id,
                     priceAmount = math.abs(priceInfo.Amount or 0),
                     name = cleanItemName
@@ -2227,7 +2230,8 @@ FM_Add("Merchants", FarmTab:Button({
                     -- Logika Auto-Max
                     local maxAffordable = math.floor(currentBalance / pricePerItem)
                     local finalAmount = math.min(inputAmount, maxAffordable)
-
+                    if finalAmount > item.stockAvailable and item.stockAvailable ~= 0 then
+                        finalAmount = item.stockAvailable
                     if finalAmount > 0 then
                         -- Kirim Remote
                         ReplicatedStorage.Events.To_Server:FireServer({
