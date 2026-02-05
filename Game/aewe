@@ -2230,9 +2230,9 @@ FM_Add("Merchants", FarmTab:Button({
                     -- Logika Auto-Max
                     local maxAffordable = math.floor(currentBalance / pricePerItem)
                     local finalAmount = math.min(inputAmount, maxAffordable)
-                    if finalAmount > item.stockAvailable and item.stockAvailable > 0 then
-                        finalAmount = item.stockAvailable
-                    end
+                    -- if finalAmount > item.stockAvailable and item.stockAvailable > 0 then
+                    --     finalAmount = item.stockAvailable
+                    -- end
                     if finalAmount > 0 then
                         -- Kirim Remote
                         ReplicatedStorage.Events.To_Server:FireServer({
