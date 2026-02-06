@@ -1907,127 +1907,32 @@ function LogicGamemodes()
     end;
 end;
 
-pirateTowerList = {}
-function LoadPirateTowerData()
+local function LoadSingleGamemodeData(configModule, displayFallback, valueName, maxKey, maxLabel)
     local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.PirateTower);
-    end);
-    if success and module then
-        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
-        local floors = module.MAX_FLOOR or 100
-        local desc = "Max Floors: " .. floors .. " | HP Base: " .. UtilsModule.ToText(hpBase);
-        local rewardCards = GenerateCardRewards(module.ChanceReward)
-
-        pirateTowerList = {{
-            Title = module.Display or "Pirate Tower",
-            Value = "PirateTower",
-            Desc = desc,
-            Images = rewardCards
-        }}
-    end;
-end;
-LoadPirateTowerData();
-
-shadowGateList = {}
-function LoadShadowGateData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.ShadowGate);
-    end);
-    if success and module then
-        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
-        local waves = module.MAX_WAVE or 500
-        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
-        local rewardCards = GenerateCardRewards(module.ChanceReward)
-
-        shadowGateList = {{
-            Title = module.Display or "Shadow Gate",
-            Value = "ShadowGate",
-            Desc = desc,
-            Images = rewardCards
-        }}
-    end;
-end;
-LoadShadowGateData();
-capitalRaidList = {}
-function LoadCapitalRaidData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.CapitalRaid); -- Pastikan path ini benar di game
-    end);
-    if success and module then
-        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
-        local waves = module.MAX_WAVE or 500
-        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
-        local rewardCards = GenerateCardRewards(module.ChanceReward)
-
-        capitalRaidList = {{
-            Title = module.Display or "Capital Raid",
-            Value = "CapitalRaid",
-            Desc = desc,
-            Images = rewardCards
-        }}
-    end;
-end;
-LoadCapitalRaidData();
-magicRaidList = {}
-function LoadMagicRaidData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.MagicRaid); 
-    end);
-    if success and module then
-        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
-        local waves = module.MAX_WAVE or 500
-        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
-        local rewardCards = GenerateCardRewards(module.ChanceReward)
-
-        magicRaidList = {{
-            Title = module.Display or "Magic Raid",
-            Value = "MagicRaid",
-            Desc = desc,
-            Images = rewardCards
-        }}
-    end;
-end;
-LoadMagicRaidData();
-ignitionRaidList = {}
-function LoadIgnitionRaidData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.IgnitionRaid) 
+        return require(configModule)
     end)
     if success and module then
         local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
-        local waves = module.MAX_WAVE or 500
-        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase)
+        local maxValue = module[maxKey] or 0
+        local desc = maxLabel .. ": " .. maxValue .. " | HP Base: " .. UtilsModule.ToText(hpBase)
         local rewardCards = GenerateCardRewards(module.ChanceReward)
 
-        ignitionRaidList = {{
-            Title = module.Display or "Ignition Raid",
-            Value = "IgnitionRaid",
+        return {{
+            Title = module.Display or displayFallback,
+            Value = valueName,
             Desc = desc,
             Images = rewardCards
         }}
     end
+    return {}
 end
-LoadIgnitionRaidData()
-sorcerersDefenseList = {}
-function LoadSorcerersDefenseData()
-    local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.SorcerersDefense);
-    end);
-    if success and module then
-        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
-        local waves = module.MAX_WAVE or 500
-        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase);
-        local rewardCards = GenerateCardRewards(module.ChanceReward)
 
-        sorcerersDefenseList = {{
-            Title = module.Display or "Sorcerers Defense",
-            Value = "SorcerersDefense",
-            Desc = desc,
-            Images = rewardCards
-        }}
-    end;
-end;
-LoadSorcerersDefenseData();
+pirateTowerList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.PirateTower, "Pirate Tower", "PirateTower", "MAX_FLOOR", "Max Floors")
+shadowGateList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.ShadowGate, "Shadow Gate", "ShadowGate", "MAX_WAVE", "Max Waves")
+capitalRaidList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.CapitalRaid, "Capital Raid", "CapitalRaid", "MAX_WAVE", "Max Waves")
+magicRaidList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.MagicRaid, "Magic Raid", "MagicRaid", "MAX_WAVE", "Max Waves")
+ignitionRaidList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.IgnitionRaid, "Ignition Raid", "IgnitionRaid", "MAX_WAVE", "Max Waves")
+sorcerersDefenseList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.SorcerersDefense, "Sorcerers Defense", "SorcerersDefense", "MAX_WAVE", "Max Waves")
 
 -- [3. DUNGEON DATA]
 function LoadDungeonData()
