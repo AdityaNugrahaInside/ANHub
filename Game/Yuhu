@@ -934,7 +934,8 @@ function GetCurrentMapStatus()
 end
 function CheckIsFightingZone()
     local mapName = GetCurrentMapStatus()
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid", "MagicRaid", "SkullRaid"} -- Tambahkan MagicRaid
+    -- Tambahkan IgnitionRaid ke dalam list keywords
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid", "MagicRaid", "SkullRaid", "IgnitionRaid"} 
 
     for _, keyword in ipairs(fightingKeywords) do
         if string.find(mapName, keyword) then 
@@ -1701,6 +1702,7 @@ function LogicGamemodes()
                 SorcerersDefense = true,
                 CapitalRaid = true,
                 MagicRaid = true,
+                IgnitionRaid = true,
                 SkullRaid = true,                
                 Raid = true
             }
@@ -1883,6 +1885,7 @@ function LogicGamemodes()
                     {ID="CapitalRaid", DB=nil, Cfg=Config.TargetCapitalRaid, Key="CapitalRaidModeKey", CanOpen=true, SelName="CapitalRaid"},
                     {ID="Defense",          DB=defenseDB, Cfg=Config.TargetDefense,     Key="DefenseModeKey",          CanOpen=true},
                     {ID="MagicRaid", DB=nil, Cfg=Config.TargetMagicRaid, Key="MagicRaidModeKey", CanOpen=true, SelName="MagicRaid"},
+                    {ID="IgnitionRaid",     DB=nil,       Cfg=Config.TargetIgnitionRaid,Key="IgnitionRaidModeKey",     CanOpen=true,  SelName="IgnitionRaid"},
                     {ID="Dungeon",          DB=dungeonDB, Cfg=Config.TargetDungeon,     Key=nil,                       CanOpen=false}
                 }
 
@@ -1985,6 +1988,26 @@ function LoadMagicRaidData()
     end;
 end;
 LoadMagicRaidData();
+ignitionRaidList = {}
+function LoadIgnitionRaidData()
+    local success, module = pcall(function()
+        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.IgnitionRaid) 
+    end)
+    if success and module then
+        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
+        local waves = module.MAX_WAVE or 500
+        local desc = "Max Waves: " .. waves .. " | HP Base: " .. UtilsModule.ToText(hpBase)
+        local rewardCards = GenerateCardRewards(module.ChanceReward)
+
+        ignitionRaidList = {{
+            Title = module.Display or "Ignition Raid",
+            Value = "IgnitionRaid",
+            Desc = desc,
+            Images = rewardCards
+        }}
+    end
+end
+LoadIgnitionRaidData()
 sorcerersDefenseList = {}
 function LoadSorcerersDefenseData()
     local success, module = pcall(function()
@@ -2138,7 +2161,7 @@ function BuildGameModesDropdownValues()
     AddList("Dungeon", dungeonList, true)
     AddList("Raid", raidList, true)
     AddList("Defense", defenseList, true)
-    local singleLists = {pirateTowerList, shadowGateList, sorcerersDefenseList, capitalRaidList, magicRaidList}
+    local singleLists = {pirateTowerList, shadowGateList, sorcerersDefenseList, capitalRaidList, magicRaidList, ignitionRaidList}
     for _, list in ipairs(singleLists) do
         AddList("", list, false)
     end
@@ -2155,13 +2178,15 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Callback = function(val)
-        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT, capitalRaidT, magicRaidT = {}, {}, {}, {}, {}, {}, {}, {}
+        -- Tambahkan ignitionRaidT di baris variabel local
+        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT, capitalRaidT, magicRaidT, ignitionRaidT = {}, {}, {}, {}, {}, {}, {}, {}, {}
         local singleTargetMap = {
             PirateTower = pirateT,
             ShadowGate = shadowT,
             SorcerersDefense = sorcerersT,
             CapitalRaid = capitalRaidT,
-            MagicRaid = magicRaidT
+            MagicRaid = magicRaidT,
+            IgnitionRaid = ignitionRaidT -- Tambahkan ini
         }
 
         for _, v in pairs(val) do
@@ -2183,6 +2208,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
                 end
             end
         end
+
         Config.TargetDungeon = dungeonT
         Config.TargetRaid = raidT
         Config.TargetDefense = defenseT
@@ -2191,6 +2217,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetSorcerersDefense = sorcerersT
         Config.TargetCapitalRaid = capitalRaidT
         Config.TargetMagicRaid = magicRaidT
+        Config.TargetIgnitionRaid = ignitionRaidT
         
         -- Kita panggil optimizer manual sekali agar deskripsi langsung berubah saat diklik
         pcall(Optimizer.Update_Gamemode_Dropdowns)
@@ -2261,13 +2288,14 @@ LeaveMasterGroup:Toggle({
 
 -- 2. Logika Pembagian 2 Input per Group
 local leaveConfigs = {
-    {Title = "Dungeon (Room)", Key = "AutoLeave_Dungeon", Default = 50, Flag = "Leave_Dungeon_Cfg"},
-    {Title = "Raid (Wave)", Key = "AutoLeave_Raid", Default = 25, Flag = "Leave_Raid_Cfg"},
-    {Title = "Defense (Wave)", Key = "AutoLeave_Defense", Default = 30, Flag = "Leave_Defense_Cfg"},
+    {Title = "Dungeon (Room)", Key = "AutoLeave_Dungeon", Default = 200, Flag = "Leave_Dungeon_Cfg"},
+    {Title = "Raid (Wave)", Key = "AutoLeave_Raid", Default = 500, Flag = "Leave_Raid_Cfg"},
+    {Title = "Defense (Wave)", Key = "AutoLeave_Defense", Default = 100, Flag = "Leave_Defense_Cfg"},
     {Title = "Pirate Tower (Floor)", Key = "AutoLeave_PirateTower", Default = 100, Flag = "Leave_Pirate_Cfg"},
-    {Title = "Shadow Gate (Wave)", Key = "AutoLeave_ShadowGate", Default = 50, Flag = "Leave_Shadow_Cfg"},
-    {Title = "Capital Raid (Wave)", Key = "AutoLeave_CapitalRaid", Default = 50, Flag = "Leave_Capital_Cfg"},
-    {Title = "Magic Raid (Wave)", Key = "AutoLeave_MagicRaid", Default = 50, Flag = "Leave_MagicRaid_Cfg"}
+    {Title = "Shadow Gate (Wave)", Key = "AutoLeave_ShadowGate", Default = 500, Flag = "Leave_Shadow_Cfg"},
+    {Title = "Capital Raid (Wave)", Key = "AutoLeave_CapitalRaid", Default = 1000, Flag = "Leave_Capital_Cfg"},
+    {Title = "Magic Raid (Wave)", Key = "AutoLeave_MagicRaid", Default = 500, Flag = "Leave_MagicRaid_Cfg"},
+    {Title = "Ignition Raid (Wave)", Key = "AutoLeave_IgnitionRaid", Default = 500, Flag = "Leave_IgnitionRaid_Cfg"}
 }
 
 local currentLeaveGroup = nil
@@ -2394,25 +2422,35 @@ task.spawn(function()
                     end
                 end
                 if not modeActive then
-    local magicUI = HudGamemode:FindFirstChild("MagicRaid")
-    if magicUI and magicUI.Visible then
-        local txt = magicUI.wave.amount.Text -- Sesuaikan nama objek 'wave' atau 'room'
-        currentVal = tonumber(string.match(txt, "%d+")) or 0
-        targetLimit = Config.AutoLeave_MagicRaid
-        modeActive = true
-    end
-end
-                
+                    local magicUI = HudGamemode:FindFirstChild("MagicRaid")
+                    if magicUI and magicUI.Visible then
+                        local txt = magicUI.wave.amount.Text -- Sesuaikan nama objek 'wave' atau 'room'
+                        currentVal = tonumber(string.match(txt, "%d+")) or 0
+                        targetLimit = Config.AutoLeave_MagicRaid
+                        modeActive = true
+                    end
+                end
+                -- Letakkan di bawah pengecekan MagicRaid
+                if not modeActive then
+                    local ignitionUI = HudGamemode:FindFirstChild("IgnitionRaid")
+                    if ignitionUI and ignitionUI.Visible then
+                        local txt = ignitionUI.wave.amount.Text 
+                        currentVal = tonumber(string.match(txt, "%d+")) or 0
+                        targetLimit = Config.AutoLeave_IgnitionRaid
+                        modeActive = true
+                    end
+                end
+
                 -- F. Cek CAPITAL RAID
-if not modeActive then
-    local capitalUI = HudGamemode:FindFirstChild("CapitalRaid")
-    if capitalUI and capitalUI.Visible then
-        local txt = capitalUI.wave.amount.Text -- Sesuaikan jika UI game menggunakan istilah 'room' atau 'floor'
-        currentVal = tonumber(string.match(txt, "%d+")) or 0
-        targetLimit = Config.AutoLeave_CapitalRaid
-        modeActive = true
-    end
-end
+                if not modeActive then
+                    local capitalUI = HudGamemode:FindFirstChild("CapitalRaid")
+                    if capitalUI and capitalUI.Visible then
+                        local txt = capitalUI.wave.amount.Text -- Sesuaikan jika UI game menggunakan istilah 'room' atau 'floor'
+                        currentVal = tonumber(string.match(txt, "%d+")) or 0
+                        targetLimit = Config.AutoLeave_CapitalRaid
+                        modeActive = true
+                    end
+                end
 
                 -- E. Cek SHADOW GATE
                 if not modeActive then
@@ -2745,7 +2783,7 @@ local Yen2Separator = FarmTab:Paragraph({
 FM_Add("Upgrade: Yen", Yen2Separator)
 
 -- Membuat UI Toggle untuk Tier 2 di kategori yang sama
-upgradeOrder2 = {"Damage", "Mastery", "Yen","Drop Rate","Critical","Run Speed"} -- Sesuai urutan di config YenUpgrades2
+upgradeOrder2 = {"Damage", "Mastery", "Yen","Drop","Critical","Run Speed"} -- Sesuai urutan di config YenUpgrades2
 CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrade2Module.Config, "AutoYen2_", YenUpgrade2ToggleUI, upgradeOrder2)
 if TokenUpgradeConfig then
     CreateUpgradeSection(FarmTab, "Upgrade: Token", TokenUpgradeConfig, "AutoToken_", TokenUpgradeToggleUI, nil)
@@ -4693,7 +4731,10 @@ function Optimizer.Update_Gamemode_Dropdowns()
     end
     if Config.TargetMagicRaid and #Config.TargetMagicRaid > 0 then
             table.insert(summaryItems, "• Magic Raid")
-        end
+    end
+    if Config.TargetIgnitionRaid and #Config.TargetIgnitionRaid > 0 then
+        table.insert(summaryItems, "• Ignition Raid")
+    end
 
     -- [LOGIKA FORMAT BARU DISINI]
     pcall(function()
