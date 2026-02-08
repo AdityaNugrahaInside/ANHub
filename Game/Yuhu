@@ -34,8 +34,17 @@ MegaBossUpgradeConfig = MegaBoss.Upgrades
 Enchantments = shared.Enchantments
 RarityPower = shared.RarityPower
 AvatarCurses = shared.AvatarCurses
+Potions = shared.Potions
+Accessories = shared.Accessories
+Enemies = shared.Enemies
+Weapons = shared.Weapons
+HiddenQuests = shared.HiddenQuests.List
 Utils = shared.Utils
 Reply = shared.Reply
+UpgradeModules = {
+    DemonArt = shared.DemonArt,
+    MagicEyes = shared.MagicEyes,
+}
 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
@@ -149,66 +158,6 @@ local function JSONPretty(val, indent)
         end
     end;
 end;
-function LoadDatabasesAndConfigs()
-    local Cfg = RS.Scripts.Configs
-    local MZ = Cfg:FindFirstChild("MultipleZones") or Cfg:FindFirstChild("Multiple Zones")
-
-    -- [A] LIST MODULE TUNGGAL
-    -- Script akan mencoba load. Jika GAGAL, otomatis diisi table kosong {}
-    local LoadList = {
-        {Var = "HiddenQuestsData", Path = Cfg.CustomQuests.HiddenQuests, SubKey = "List"},
-        {Var = "MegaBossConfig",   Path = Cfg.Machines.MegaBoss},
-        {Var = "PotionsData",      Path = Cfg.General.Potions},
-        {Var = "AccessoriesConfig",Path = MZ and MZ:FindFirstChild("Accessories")},
-        {Var = "EnemiesConfig",    Path = MZ and MZ:FindFirstChild("Enemies")}
-    }
-
-    for _, item in ipairs(LoadList) do
-        -- Default value adalah tabel kosong (Anti-Error jika gagal load/path tidak ketemu)
-        local loadedContent = {} 
-
-        if item.Path then
-            local s, res = pcall(require, item.Path)
-            if s and res then
-                if item.SubKey and res[item.SubKey] then
-                    loadedContent = res[item.SubKey]
-                else
-                    loadedContent = res
-                end
-            end
-        end
-        
-        -- Masukkan ke variable global (Entah itu isi Config asli ATAU tabel kosong)
-        getfenv()[item.Var] = loadedContent
-    end
-
-    -- [B] LIST FOLDER (WEAPONS & UPGRADES)
-    -- Kita inisialisasi wadahnya dulu di sini agar bersih
-    WeaponsModule = {}
-    UpgradeModules = {}
-
-    local function LoadFolder(folderObj, destinationTable, unpackContent)
-        if not folderObj then return end
-        for _, m in pairs(folderObj:GetChildren()) do
-            if m:IsA("ModuleScript") then
-                local s, d = pcall(require, m)
-                if s and type(d) == "table" then
-                    if unpackContent then
-                        for k, v in pairs(d) do destinationTable[k] = v end
-                    else
-                        destinationTable[m.Name] = d
-                    end
-                end
-            end
-        end
-    end
-
-    -- Jalankan loader folder
-    LoadFolder(MZ and MZ:FindFirstChild("Weapons"), WeaponsModule, true)
-    LoadFolder(Cfg:FindFirstChild("RollGachaUpgrades"), UpgradeModules, false)
-end
-
-LoadDatabasesAndConfigs() -- Jalankan fungsi
 function GetNextTime(startTimes)
     if not startTimes or #startTimes == 0 then return nil end
     local currentMin = os.date("*t").min
@@ -327,8 +276,8 @@ end)
 
 -- Helper: Get Display Name for Enemy
 function GetEnemyDisplayName(enemyId)
-    if EnemiesConfig and EnemiesConfig[enemyId] and EnemiesConfig[enemyId].Display then
-        return EnemiesConfig[enemyId].Display
+    if Enemies and Enemies[enemyId] and Enemies[enemyId].Display then
+        return Enemies[enemyId].Display
     end
     return enemyId -- Fallback ke ID jika tidak ketemu
 end
@@ -386,23 +335,24 @@ end
 
 function HookTimerVariable()
     task.spawn(function()
-        local targetFound = false
+        -- Tunda 5 detik agar Script & UI selesai loading dulu baru scan memori
+        task.wait(5) 
         
+        local targetFound = false
         while not targetFound do
+            -- Cek dulu apakah game sudah close/script mati
+            if Window and Window.Destroyed then break end
+
             local gcList = getgc() 
 
             for _, func in pairs(gcList) do
                 if type(func) == "function" and islclosure(func) then
                     local info = debug.getinfo(func)
-
                     if info.source and string.find(info.source, "AutoReconnect.c") then
-                        
                         local upvalues = debug.getupvalues(func)
                         for index, value in pairs(upvalues) do
-
                             if type(value) == "number" then
                                 targetFound = true
-
                                 local connection
                                 connection = RunService.Heartbeat:Connect(function()
                                     if func then
@@ -412,7 +362,6 @@ function HookTimerVariable()
                                     end
                                 end)
                             end
-
                             if typeof(value) == "Instance" and (value:IsA("TextLabel") or value:IsA("Frame")) then
                                 value.Visible = false
                                 value:GetPropertyChangedSignal("Visible"):Connect(function()
@@ -667,12 +616,12 @@ function GenerateCardRewards(chanceRewardData)
         local itemData = nil
         if category == "Materials" and Materials[itemId] then
             itemData = Materials[itemId]
-        elseif category == "Weapons" and WeaponsModule[itemId] then
-            itemData = WeaponsModule[itemId]
-        elseif category == "Accessories" and AccessoriesConfig[itemId] then
-            itemData = AccessoriesConfig[itemId]
-        elseif category == "Potions" and PotionsData[itemId] then
-            itemData = PotionsData[itemId]
+        elseif category == "Weapons" and Weapons[itemId] then
+            itemData = Weapons[itemId]
+        elseif category == "Accessories" and Accessories[itemId] then
+            itemData = Accessories[itemId]
+        elseif category == "Potions" and Potions[itemId] then
+            itemData = Potions[itemId]
         end
 
         if itemData then
@@ -759,13 +708,13 @@ function RefreshEnemyData()
 
                         local maxHp = 0
                         if enemyObj.Data.MaxHealth then maxHp = enemyObj.Data.MaxHealth
-                        elseif enemyObj.Data.Class == "MegaBoss" and MegaBossConfig.BossConfig then maxHp = MegaBossConfig.BossConfig.MaxHealth
+                        elseif enemyObj.Data.Class == "MegaBoss" and MegaBoss.BossConfig then maxHp = MegaBoss.BossConfig.MaxHealth
                         elseif enemyObj.Config.MaxHealth then maxHp = enemyObj.Config.MaxHealth end
 
                         local rewards = {}
-                        if enemyObj.Data.Class == "MegaBoss" and MegaBossConfig then
-                            if MegaBossConfig.ChanceRewards then for k, v in pairs(MegaBossConfig.ChanceRewards) do rewards[k] = v end end
-                            if MegaBossConfig.Rewards then for _, itemStr in ipairs(MegaBossConfig.Rewards) do rewards[itemStr] = 100 end end
+                        if enemyObj.Data.Class == "MegaBoss" and MegaBoss then
+                            if MegaBoss.ChanceRewards then for k, v in pairs(MegaBoss.ChanceRewards) do rewards[k] = v end end
+                            if MegaBoss.Rewards then for _, itemStr in ipairs(MegaBoss.Rewards) do rewards[itemStr] = 100 end end
                         else
                             if enemyObj.Config.ChanceReward then for k, v in pairs(enemyObj.Config.ChanceReward) do rewards[k] = v end end
                             rewards["Materials.AvatarToken"] = 5
@@ -2914,6 +2863,7 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
             if val then
                 task.spawn(function()
                     while Config[flagName] and not Window.Destroyed do
+                        task.wait()
                         local pData = getgenv().PlayerData
                         if pData and pData.Materials then
                             local currentLvl = 0
@@ -2950,9 +2900,7 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                                         end
                                     end)
 
-                                    if s then
-                                        task.wait(1.0)
-                                        
+                                    if s then                                        
                                         local newData = getgenv().PlayerData
                                         local newLevel = 0
                                         
@@ -2980,19 +2928,9 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                                                 LastWebhookTime[hookKey] = now
                                             end
                                         end
-                                        
-                                        task.wait(0.5) 
-                                    else
-                                        task.wait(1.5)
                                     end
-                                else
-                                    task.wait(1.5)
                                 end
-                            else
-                                task.wait(1)
                             end
-                        else
-                            task.wait(1)
                         end
                     end
                 end)
@@ -3237,8 +3175,8 @@ function RefreshVaultUI()
         local equipID = pData.Attributes.Weapon
         local weaponInstance = pData.Weapons[equipID]
         
-        if weaponInstance and weaponInstance.Index and WeaponsModule[weaponInstance.Index] then
-            local staticInfo = WeaponsModule[weaponInstance.Index]
+        if weaponInstance and weaponInstance.Index and Weapons[weaponInstance.Index] then
+            local staticInfo = Weapons[weaponInstance.Index]
             
             Count = Count + 1
             local rarity = staticInfo.Rarity or "Common"
@@ -3307,7 +3245,7 @@ function RefreshVaultUI()
     -- [2] DATA ACCESSORY
     if pData.Attributes.Accessory and pData.Attributes.Accessory ~= "None" then
         local accID = pData.Attributes.Accessory
-        local info = AccessoriesConfig[accID]
+        local info = Accessories[accID]
         if info then
             Count = Count + 1
             local rarity = info.Rarity or "Common"
@@ -3434,9 +3372,7 @@ MegaBossToggle = FarmTab:Toggle({
 })
 FM_Add("Upgrade: Mega Boss", MegaBossToggle)
 MegaBossToggles = {}
-if MegaBossUpgradeConfig then
-    CreateUpgradeSection(FarmTab, "Upgrade: Mega Boss", MegaBossUpgradeConfig, "AutoMegaBossUp_", MegaBossToggles, nil)
-end
+CreateUpgradeSection(FarmTab, "Upgrade: Mega Boss", MegaBossUpgradeConfig, "AutoMegaBossUp_", MegaBossToggles, nil)
 
 if not IsPremium then
     pcall(function() MegaBossFilterDrop:Lock("Need Premium User") end)
@@ -3477,8 +3413,8 @@ ManualUpgradeGroup:Button({
                 local currentAvatar = pData and pData.Attributes and pData.Attributes.Avatar
                 local avatarDisplayName = currentAvatar
                 
-                if currentAvatar and EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
-                    avatarDisplayName = EnemiesConfig[currentAvatar].Display
+                if currentAvatar and Enemies and Enemies[currentAvatar] and Enemies[currentAvatar].Display then
+                    avatarDisplayName = Enemies[currentAvatar].Display
                 end
 
                 Reply.To("Avatar Upgrade") 
@@ -3498,8 +3434,8 @@ ManualUpgradeGroup:Button({
                 local currentAvatar = pData and pData.Attributes and pData.Attributes.Avatar
                 local avatarDisplayName = currentAvatar
 
-                if currentAvatar and EnemiesConfig and EnemiesConfig[currentAvatar] and EnemiesConfig[currentAvatar].Display then
-                    avatarDisplayName = EnemiesConfig[currentAvatar].Display
+                if currentAvatar and Enemies and Enemies[currentAvatar] and Enemies[currentAvatar].Display then
+                    avatarDisplayName = Enemies[currentAvatar].Display
                 end
                 
                 Reply.To("Avatar Max Upgrade")
@@ -3803,7 +3739,7 @@ function RefreshReforgeDropdown()
         for uid, wData in pairs(pData.Weapons) do
             -- Logika decompile: Harus Tier 3, tidak Locked, tidak Reforged
             if wData.Tier == 3 and not wData.Locked and not wData.Reforged then
-                local staticInfo = WeaponsModule[wData.Index]
+                local staticInfo = Weapons[wData.Index]
                 if staticInfo then
                     table.insert(list, {
                         Title = staticInfo.Display or uid,
@@ -4333,18 +4269,13 @@ task.spawn(function()
     local prevZone = ""
     
     while not Window.Destroyed do
-        task.wait(1) -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
+        task.wait() -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
         
         if not IsTeleporting then
             local detectedZone = GetCurrentMapStatus()
             
             -- Hanya update jika zone BENAR-BENAR berubah
             if detectedZone and detectedZone ~= "Unknown" and detectedZone ~= prevZone then
-                
-                -- [PERBAIKAN 1: WAKTU TUNGGU]
-                -- Tunggu 2 detik agar Roblox selesai loading asset map & folder Enemies.
-                -- Jika terlalu cepat, folder Enemies masih kosong atau berisi data zone lama.
-                task.wait(2.0) 
                 
                 prevZone = detectedZone
                 CurrentZoneName = detectedZone
@@ -4447,92 +4378,6 @@ Optimizer = {
         LastAvatarID = nil
     }
 }
-
-function Optimizer.MarkUIStale()
-    Optimizer.Cache.LastGamemodeUpdate = nil
-    Optimizer.Cache.LastGamemodeDesc = nil
-    Optimizer.Cache.LastAscensionDesc = nil
-    Optimizer.Cache.LastMatExDesc = nil
-    Optimizer.Cache.LastTradeExDesc = nil
-    Optimizer.Cache.LastExMainImageHash = nil
-    Optimizer.Cache.LastAvatarTitle = nil
-    Optimizer.Cache.LastAvatarDesc = nil
-    Optimizer.Cache.LastHeroTitle = nil
-    Optimizer.Cache.LastHeroDesc = nil
-    Optimizer.Cache.LastHiddenQuestString = nil
-
-    for k in pairs(Optimizer.Cache) do
-        if type(k) == "string" and string.sub(k, 1, 3) == "RP_" then
-            Optimizer.Cache[k] = nil
-        end
-    end
-
-    for _, state in pairs(Optimizer.Cache.Roll) do
-        if type(state) == "table" then
-            state.Image = nil
-            state.Rarity = nil
-            state.ItemName = nil
-            state.Count = nil
-            state.PendingMainImage = state.PendingMainImage or {}
-        end
-    end
-
-    for _, state in pairs(Optimizer.Cache.Craft) do
-        if type(state) == "table" then
-            state.Title = nil
-            state.Desc = nil
-        end
-    end
-
-    for _, state in pairs(Optimizer.Cache.Upgrade) do
-        if type(state) == "table" then
-            state.Title = nil
-            state.Desc = nil
-            state.Image = nil
-            state.Rarity = nil
-        end
-    end
-
-    _UIDescCache = {}
-end
-
-do
-    local function markUIStale()
-        pcall(function()
-            if Optimizer and Optimizer.MarkUIStale then
-                Optimizer.MarkUIStale()
-            end
-        end)
-    end
-
-    if type(Window) == "table" and Window.OnOpen and Window.OnClose then
-        local wasClosed = Window.Closed == true
-
-        Window:OnOpen(function()
-            if wasClosed then
-                markUIStale()
-            end
-            wasClosed = false
-        end)
-
-        Window:OnClose(function()
-            wasClosed = true
-        end)
-    else
-        task.spawn(function()
-            local wasClosed = Window and Window.Closed == true
-            while Window and not Window.Destroyed do
-                local isClosed = Window.Closed == true
-                if wasClosed and not isClosed then
-                    markUIStale()
-                end
-                wasClosed = isClosed
-                task.wait(0.5)
-            end
-        end)
-    end
-end
-
 function Optimizer.Update_Gamemode_Dropdowns()
     -- Update setiap 1 detik
     local now = os.time()
@@ -4714,8 +4559,8 @@ function Optimizer.Update_Enchantments_Logic(pData)
             
             if weaponInstance and weaponInstance.Index then
                 local configID = weaponInstance.Index
-                if WeaponsModule and WeaponsModule[configID] then
-                    local staticData = WeaponsModule[configID]
+                if Weapons and Weapons[configID] then
+                    local staticData = Weapons[configID]
                     if staticData.Display then weaponDisplayName = staticData.Display end
                     if staticData.Template then weaponIcon = GetIcon(staticData.Template) end
                     if staticData.Rarity then weaponRarity = staticData.Rarity end
@@ -5279,8 +5124,8 @@ function Optimizer.Update_Avatar_Logic(pData)
         local newDesc = "Select an avatar in the game's interface to begin."
 
         if isAvatarSelected then
-            if EnemiesConfig[currentAvatar] then
-                avatarDisplayName = EnemiesConfig[currentAvatar].Display
+            if Enemies[currentAvatar] then
+                avatarDisplayName = Enemies[currentAvatar].Display
             end
 
             local nextLevel = currentLevel + 1
@@ -5845,7 +5690,7 @@ FM_Add("Secret Quests", HQ_Group)
 function Optimizer.Update_HiddenQuests_Logic(pData)
     if CheckIsFightingZone() then return end
     if Config.AutoMegaBoss and MegaBossState.IsActive then return end
-    if not HiddenQuestsData or not pData.HiddenQuests then return end
+    if not HiddenQuests or not pData.HiddenQuests then return end
     if not pData.Quests then pData.Quests = {} end 
     
     local isAuto = Config.AutoHiddenQuests
@@ -5854,7 +5699,7 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
     -- Table untuk menampung baris-baris teks UI
     local uiReportLines = {} 
 
-    for id, questData in ipairs(HiddenQuestsData) do
+    for id, questData in ipairs(HiddenQuests) do
         local strID = tostring(id)
         local myStage = pData.HiddenQuests[strID] or 0 
         local currentStageIndex = myStage + 1
