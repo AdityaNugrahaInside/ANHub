@@ -5,13 +5,42 @@ end
 repeat
     task.wait()
 until game:IsLoaded()
+-- [[ 1. INITIALIZATION & SERVICE SYNC ]] --
+local game_G = getrenv()._G
+local shared = getrenv().shared
+
+-- Mengambil service langsung dari memori game agar performa maksimal
+local RF = game_G.RF or game:GetService("ReplicatedFirst")
+local RS = game_G.RS or game:GetService("ReplicatedStorage")
+ReplicatedFirst = RF
+local RC = game_G.RC or game:GetService("RunService")
+
+-- Pastikan game sudah selesai loading modul penting
+repeat task.wait() until shared.Essential and shared.Reply
+
+-- Referensi lokal ke modul game
+local Essential = shared.Essential
+EnergyUpgrade = shared.EnergyUpgrade
+Materials = shared.Materials
+UnlocksPrices = shared.Unlocks
+YenUpgrades = shared.YenUpgrades
+YenUpgrades2 = shared.YenUpgrades2
+TokenUpgrades = shared.TokenUpgrades
+RankUp = shared.RankUp
+AvatarLevels = shared.AvatarLevels
+LevelUp = shared.LevelUp
+MegaBoss = shared.MegaBoss
+MegaBossUpgradeConfig = MegaBoss.Upgrades
+Enchantments = shared.Enchantments
+RarityPower = shared.RarityPower
+AvatarCurses = shared.AvatarCurses
+Utils = shared.Utils
+Reply = shared.Reply
 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 
 Players = game:GetService("Players")
 Workspace = game:GetService("Workspace")
-ReplicatedStorage = game:GetService("ReplicatedStorage")
-ReplicatedFirst = game:GetService("ReplicatedFirst")
 HttpService = game:GetService("HttpService")
 RunService = game:GetService("RunService")
 VirtualUser = game:GetService("VirtualUser")
@@ -19,30 +48,11 @@ LocalPlayer = Players.LocalPlayer
 FolderPath = "ANUI/AnimeWeapons"
 ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 ZoneDBFile = "Zone_Database.json"
-Reliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Reliable")
-UnReliable = ReplicatedStorage:WaitForChild("Reply"):WaitForChild("Unreliable")
-ConfigsPath = ReplicatedStorage.Scripts.Configs
-UtilsModule = require(ConfigsPath.Utility.Utils)
-MaterialsModule = require(ConfigsPath.General.Materials)
-EnergyUpgradeConfig = require(ConfigsPath.BasicUpgrades.EnergyUpgrade)
-UnlocksPrices = require(ConfigsPath.General.Unlocks)
-YenModule = require(ConfigsPath.Machines.YenUpgrades)
-YenUpgrade2Module = require(ConfigsPath.Machines.YenUpgrades2)
+Reliable = RS:WaitForChild("Reply"):WaitForChild("Reliable")
+UnReliable = RS:WaitForChild("Reply"):WaitForChild("Unreliable")
+ConfigsPath = RS.Scripts.Configs
 YenUpgrade2ToggleUI = {}
-TokenModule = require(ConfigsPath.Machines.TokenUpgrades)
-RankModule = require(ConfigsPath.Machines.RankUp)
-AvatarLevelsModule = require(ConfigsPath.Machines.AvatarLevels)
-LevelUpModule = require(ConfigsPath.General.LevelUp)
-MegaBossUpgradeModule = require(ReplicatedStorage.Scripts.Configs.Machines.MegaBoss)
-MegaBossUpgradeConfig = MegaBossUpgradeModule.Upgrades
-EnchantmentsConfig = require(ReplicatedStorage.Scripts.Configs.Machines.Enchantments)
-TradeTokenInfo = MaterialsModule.TradeToken
-YenUpgradeConfig = YenModule.Config
-TokenUpgradeConfig = TokenModule.Config
-RarityPowerConfig = require(ReplicatedStorage.Scripts.Configs.RarityPower)
 RarityPowerUI = {}
-AvatarCursesPath = ReplicatedStorage.Scripts.Configs.Machines.AvatarCurses
-AvatarCursesConfig = require(AvatarCursesPath)
 
 hrp = nil
 humanoid = nil
@@ -140,7 +150,7 @@ local function JSONPretty(val, indent)
     end;
 end;
 function LoadDatabasesAndConfigs()
-    local Cfg = ReplicatedStorage.Scripts.Configs
+    local Cfg = RS.Scripts.Configs
     local MZ = Cfg:FindFirstChild("MultipleZones") or Cfg:FindFirstChild("Multiple Zones")
 
     -- [A] LIST MODULE TUNGGAL
@@ -213,7 +223,7 @@ function GetNextTime(startTimes)
     return minDiff
 end
 pcall(function()
-    local ZoneCfg = require(ReplicatedStorage.Scripts.Configs.Zones)
+    local ZoneCfg = require(RS.Scripts.Configs.Zones)
     for id, data in pairs(ZoneCfg) do
         if data.Name then
             ZoneDisplayToID[data.Name] = id
@@ -265,14 +275,11 @@ if not isfolder("ANUI") then makefolder("ANUI") end
 if not isfolder(FolderPath) then makefolder(FolderPath) end
 
 MainController = nil
-ReplyPath = ReplicatedFirst.Scripts:WaitForChild("Reply.client")
-success, ReplyModule = pcall(require, ReplyPath)
-
-if success and ReplyModule and ReplyModule.Connect then
-    local Listeners = debug.getupvalue(ReplyModule.Connect, 1)
+if Reply and Reply.Connect then
+    local Listeners = debug.getupvalue(Reply.Connect, 1)
 
     if type(Listeners) ~= "table" or not Listeners["Data Sync Setup"] then
-        for _, uv in pairs(debug.getupvalues(ReplyModule.Connect)) do
+        for _, uv in pairs(debug.getupvalues(Reply.Connect)) do
             if type(uv) == "table" and uv["Data Sync Setup"] then
                 Listeners = uv
                 break
@@ -298,13 +305,23 @@ end
 if MainController then
     getgenv().EnemiesData = MainController.Enemies
 end
-
+-- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
+task.spawn(function()
+    local originalTo
+    originalTo = hookfunction(shared.Reply.To, function(...)
+        local args = {...}
+        if args[1] == "Return Teleport" then
+            return
+        end
+        return originalTo(...)
+    end)
+end)
 
 -- [1] Load Config Tambahan (Zone & Enemies) untuk Display Name
 ZonesConfig = ZonesConfig or {}
 
 pcall(function()
-    local ZonesMod = ReplicatedStorage.Scripts.Configs.Zones
+    local ZonesMod = RS.Scripts.Configs.Zones
     if ZonesMod then ZonesConfig = require(ZonesMod) end
 end)
 
@@ -560,15 +577,15 @@ Window = UI:CreateWindow({
         Title = "ANHub Access",
         Description = "Free Key: ANHUB-2025",
         Key = ValidKeys,
-        URL = "https://discord.gg/bUkCZvmrpH",
+        URL = "https://discord.gg/RvT7Av93nr",
         Note = "Premium Users are auto-verified!",
         SaveKey = true
     }
 })
 
 function GetAvatarTokenIcon()
-    local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
-    local config = MaterialsModule[tokenKey]
+    local tokenKey = AvatarLevels.Token or "AvatarToken"
+    local config = Materials[tokenKey]
     if config and config.Template then
         return GetIcon(config.Template)
     end
@@ -648,8 +665,8 @@ function GenerateCardRewards(chanceRewardData)
         local itemId = parts[2]
         
         local itemData = nil
-        if category == "Materials" and MaterialsModule[itemId] then
-            itemData = MaterialsModule[itemId]
+        if category == "Materials" and Materials[itemId] then
+            itemData = Materials[itemId]
         elseif category == "Weapons" and WeaponsModule[itemId] then
             itemData = WeaponsModule[itemId]
         elseif category == "Accessories" and AccessoriesConfig[itemId] then
@@ -759,7 +776,7 @@ function RefreshEnemyData()
                         table.insert(uiList, {
                             Title = displayName .. " (" .. diff .. ")",
                             Value = displayName,
-                            Desc = "HP: " .. UtilsModule.ToText(maxHp),
+                            Desc = "HP: " .. Utils.ToText(maxHp),
                             HP = maxHp,
                             Images = rewardImages
                         })
@@ -798,7 +815,7 @@ BaseProfile = {
     Badges = {
         {
             Icon = "geist:logo-discord", Title = "Discord", Desc = "Join ANHUB Discord",
-            Callback = function() setclipboard("https://discord.gg/bUkCZvmrpH") Notify("Discord", "Invite link copied to clipboard!", "geist:logo-discord") end
+            Callback = function() setclipboard("https://discord.gg/RvT7Av93nr") Notify("Discord", "Invite link copied to clipboard!", "geist:logo-discord") end
         },
         {
             Icon = "youtube", Desc = "Subscribe to YouTube",
@@ -818,7 +835,7 @@ Window:Tab({
     Badges = {
         {
             Icon = "geist:logo-discord", Desc = "Join ANHUB Discord",
-            Callback = function() setclipboard("https://discord.gg/bUkCZvmrpH") Notify("Discord", "Invite link copied to clipboard!", "geist:logo-discord") end
+            Callback = function() setclipboard("https://discord.gg/RvT7Av93nr") Notify("Discord", "Invite link copied to clipboard!", "geist:logo-discord") end
         },
         {
             Icon = "youtube", Desc = "Subscribe to YouTube",
@@ -879,24 +896,18 @@ function MaintainAutoStatus()
                 
                 local Data = (getgenv()).PlayerData;
                 
-                if Data and Data.Settings and Reliable then
+                if Data and Data.Settings and Reply and Reply.To then
                     -- 1. Cek Setting Auto Click
                     if Data.Settings.AutoClick == false then
                         pcall(function()
-                            Reliable:FireServer("Settings", {
-                                "AutoClick",
-                                true
-                            });
+                            Reply.To("Settings","AutoClick",true);
                         end);
                     end;
 
                     -- 2. Cek Setting Auto Attack
                     if Data.Settings.AutoAttack == false then
                         pcall(function()
-                            Reliable:FireServer("Settings", {
-                                "AutoAttack",
-                                true
-                            });
+                            Reply.To("Settings","AutoAttack",true);
                         end);
                     end;
                 end;
@@ -967,29 +978,37 @@ function LogicAutoFarm()
     local currentTargetObj = nil
     local cycleIndex = 1
     local lastSelectionSignature = ""
+    -- Variabel Cooldown Hit (Berdasarkan Click.c)
+    local lastHitTick = 0
+    local hitCooldown = 0.005
     
     while Config.AutoFarm do
         if Window.Destroyed then break end
         
         local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
         local selectionSignature = ""
+        
         if #selectedList > 0 then
             selectionSignature = table.concat(selectedList, "\n")
         end
+
         if selectionSignature ~= lastSelectionSignature then
             lastSelectionSignature = selectionSignature
             cycleIndex = 1
         end
 
+        -- [LOGIKA TARGETING & TELEPORTASI LAMA ANDA]
         if currentTargetObj and currentTargetObj.Config and not MegaBossState.IsActive then
             local selected = Config.SelectedEnemy
             local currentName = currentTargetObj.Config.Display
             local keep = false
+            
             if type(selected) == "table" then
                 keep = EnemySelectionHas(selected, currentName)
             else
                 keep = (selected == currentName)
             end
+
             if not keep then
                 currentTargetObj = nil
             end
@@ -1010,22 +1029,22 @@ function LogicAutoFarm()
                         end
                     end
                 end
-                
+
                 if bossFound then
                     currentTargetObj = bossFound
                     MegaBossState.BossDeadCheck = 0
                 else
                     MegaBossState.BossDeadCheck = MegaBossState.BossDeadCheck + 1
-                    
                     if MegaBossState.BossDeadCheck > 50 then 
                         Notify("Mega Boss", "Boss Defeated Returning...", "corner-up-left")
-                        
                         MegaBossState.IsActive = false
                         currentTargetObj = nil
                         
                         if MegaBossState.ReturnZone and MegaBossState.ReturnZone ~= currentMap then
-                            if Reliable then
-                                pcall(function() Reliable:FireServer("Zone Teleport", { MegaBossState.ReturnZone }) end)
+                            if Reply and Reply.To then
+                                pcall(function() 
+                                    Reply.To("Zone Teleport", MegaBossState.ReturnZone) 
+                                end)
                             end
                             MegaBossState.ReturnZone = nil
                         end
@@ -1035,13 +1054,6 @@ function LogicAutoFarm()
                 currentTargetObj = nil
                 task.wait()
                 continue 
-            end
-        
-        elseif Config.AutoMeteor and MeteorState.IsActive and MeteorState.Position then
-            if not CheckIsFightingZone() then
-                currentTargetObj = nil 
-                task.wait()
-                continue
             end
         end
         
@@ -1058,6 +1070,7 @@ function LogicAutoFarm()
 
         local isTargetStillAlive = false
         local deadTargetName = nil
+        
         if currentTargetObj then
             if currentTargetObj.Alive and currentTargetObj.Root and currentTargetObj.Root.Parent then
                 local data = currentTargetObj.Data
@@ -1072,6 +1085,7 @@ function LogicAutoFarm()
             if currentTargetObj and currentTargetObj.Config and currentTargetObj.Config.Display then
                 deadTargetName = currentTargetObj.Config.Display
             end
+            
             currentTargetObj = nil
             
             if deadTargetName and (not MegaBossState.IsActive) and #selectedList > 1 then
@@ -1082,6 +1096,7 @@ function LogicAutoFarm()
                         break
                     end
                 end
+                
                 if deadIndex then
                     cycleIndex = (deadIndex % #selectedList) + 1
                 else
@@ -1092,7 +1107,6 @@ function LogicAutoFarm()
 
         if not currentTargetObj and not MegaBossState.IsActive then
             local liveData = getgenv().EnemiesData
-            
             if liveData and #selectedList > 0 then
                 local myPos = hrp.Position
                 local potentialTarget = nil
@@ -1101,6 +1115,7 @@ function LogicAutoFarm()
                     if not name or name == "" then return nil end
                     local minDistance = math.huge
                     local best = nil
+                    
                     for _, enemyObj in pairs(liveData) do
                         if enemyObj.Alive and enemyObj.Data and enemyObj.Config then
                             if enemyObj.Config.Display == name and (enemyObj.Data.Class == "Islands" or enemyObj.Data.Class == "MegaBoss") then
@@ -1118,13 +1133,14 @@ function LogicAutoFarm()
                     end
                     return best
                 end
-                
+
                 if #selectedList == 1 then
                     potentialTarget = findNearestByName(selectedList[1])
                 else
                     if cycleIndex < 1 or cycleIndex > #selectedList then
                         cycleIndex = 1
                     end
+                    
                     for _ = 1, #selectedList do
                         potentialTarget = findNearestByName(selectedList[cycleIndex])
                         if potentialTarget then
@@ -1133,7 +1149,7 @@ function LogicAutoFarm()
                         cycleIndex = (cycleIndex % #selectedList) + 1
                     end
                 end
-                
+
                 if potentialTarget then
                     currentTargetObj = potentialTarget
                 end
@@ -1143,41 +1159,77 @@ function LogicAutoFarm()
         if currentTargetObj and currentTargetObj.Root then
             pcall(function()
                 local enemyRoot = currentTargetObj.Root
-                
                 local enemyPos = enemyRoot.Position
                 local enemyLook = enemyRoot.CFrame.LookVector
-                
                 local enemyScale = 1
+                
                 if currentTargetObj.DifficultConfig and currentTargetObj.DifficultConfig.Scale then
                     enemyScale = currentTargetObj.DifficultConfig.Scale
                 elseif currentTargetObj.Config and currentTargetObj.Config.Scale then
                     enemyScale = currentTargetObj.Config.Scale
                 end
-                
+
                 local baseHipHeight = 3.0 
                 local feetY = enemyPos.Y - (baseHipHeight * enemyScale)
                 local myTargetY = feetY + baseHipHeight
-                
                 local dirVector = Vector3.new(enemyLook.X, 0, enemyLook.Z).Unit 
                 local attackPos = enemyPos + (dirVector * 5)
-                
                 local finalPos = Vector3.new(attackPos.X, myTargetY, attackPos.Z)
-                
                 local lookAtPos = Vector3.new(enemyPos.X, myTargetY, enemyPos.Z)
                 
                 hrp.CFrame = CFrame.lookAt(finalPos, lookAtPos)
                 
                 if hrp.AssemblyLinearVelocity.Magnitude > 0 then
-                    hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 end
             end)
         end
-        -- KODE BARU (OPTIMIZED)
-        if currentTargetObj then
-            task.wait() -- Jika sedang lock musuh, butuh cepat (setiap frame) biar nempel
-        else
-            task.wait() -- Jika sedang MENCARI musuh, jangan spam loop. Cukup 10x per detik.
+        
+        local pData = getgenv().PlayerData
+        local liveEnemies = getgenv().EnemiesData
+        local Controller = getgenv().Controller -- arg1 pada decompile
+        
+        if pData and liveEnemies and shared.Reply and shared.Multiplier and Controller then
+            local inRangeEnemies = {}
+            
+            -- 1. Scan semua musuh yang berada dalam radius (Jalur Area)
+            for _, enemy in pairs(liveEnemies) do
+                if enemy.Alive and enemy.Root then
+                    local magnitude = (hrp.Position - enemy.Root.Position).Magnitude
+                    -- Logika Decompile: Jarak <= Max(Range Musuh, Attack Area Player)
+                    local attackArea = Controller.AttackArea or 0
+                    local enemyRange = (enemy.Config and enemy.Config.Range) or 0
+                    
+                    if math.max(enemyRange, attackArea) >= magnitude then
+                        table.insert(inRangeEnemies, {
+                            Enemy = enemy,
+                            Distance = magnitude
+                        })
+                    end
+                end
+            end
+
+            -- 2. Sort berdasarkan yang terdekat (Agar Hit tepat sasaran)
+            table.sort(inRangeEnemies, function(a, b) 
+                return a.Distance < b.Distance 
+            end)
+
+            -- 3. Ambil UID sesuai batas MaxAttackTargets
+            local targetsToSend = {}
+            local maxTargets = shared.Multiplier.Total.MaxAttackTargets(pData)
+            
+            for i = 1, math.min(maxTargets, #inRangeEnemies) do
+                table.insert(targetsToSend, inRangeEnemies[i].Enemy.Uid)
+            end
+
+            -- 4. Kirim serangan jika ada target dalam area
+            if #targetsToSend > 0 then
+                Reply.UnTo("Hit", targetsToSend)
+                lastHitTick = now -- Catatan: Pastikan variabel 'now' didefinisikan di lingkungan Anda
+            end
         end
+
+        task.wait() 
     end
 end
 
@@ -1209,7 +1261,6 @@ task.spawn(function()
             -- Hooking: Memaksa fungsi debounce selalu mengembalikan 'false' (tidak cooldown)
             local oldDb = debounceFunc
             hookfunction(debounceFunc, function() return false end)
-            warn("ANHub: Debounce.c hooked (No Cooldown)")
         end
 
         if clickFunc then
@@ -1244,15 +1295,12 @@ task.spawn(function()
                     local currentCount = pData.Materials[tokenKey] or 0
                     
                     if currentCount >= cost then
-                        if Reliable then
+                        if Reply and Reply.To then
                             pcall(function()
-                                Reliable:FireServer("Crate Roll Start", {
-                                    rollType,
-                                    false
-                                })
+                                Reply.To("Crate Roll Start",rollType,false)
                             end)
                         end
-                        task.wait(1.5) 
+                        task.wait(1.5)
                     end
                 end
             end
@@ -1374,13 +1422,13 @@ DiscordInfo = InfoTab:Paragraph({
             Title = "Copy Discord",
             Icon = "copy",
             Callback = function()
-                setclipboard("https://discord.gg/bUkCZvmrpH");
+                setclipboard("https://discord.gg/RvT7Av93nr");
             end
         }
     }
 });
 task.spawn(function()
-    local API = "https://discord.com/api/v10/invites/cy6uMRmeZ?with_counts=true&with_expiration=true";
+    local API = "https://discord.com/api/v10/invites/RvT7Av93nr?with_counts=true&with_expiration=true";
     local s, r = pcall(function()
         return HttpService:JSONDecode((UI.Creator.Request({
             Url = API,
@@ -1599,67 +1647,6 @@ FarmToggle = FarmTab:Toggle({
     end
 });
 FM_Add("Farm", FarmToggle);
-
--- [REVISI LOOP METEOR] - Tambahkan Logika Auto Hit
-task.spawn(function()
-    while not Window.Destroyed do
-        if Config.AutoMeteor and MeteorState.IsActive and MeteorState.Position then
-            if not CheckIsFightingZone() then
-                local currentMap = GetCurrentMapStatus()
-                
-                if currentMap ~= MeteorState.Zone then
-                    -- Teleport ke Zone Meteor
-                    if not IsTeleporting then
-                        if Reliable then
-                            pcall(function() Reliable:FireServer("Zone Teleport", { MeteorState.Zone }) end)
-                        end
-                        IsTeleporting = true
-                        task.wait(3)
-                        IsTeleporting = false
-                    end
-                else
-                    -- Sudah di Zone, cek apakah sudah mendarat
-                    local timeLeft = MeteorState.LandTime - tick()
-                    
-                    if timeLeft <= 0 then
-                        if hrp then
-                            -- Teleport ke posisi meteor
-                            local targetPos = MeteorState.Position + Vector3.new(0, 4, 0)
-                            if (hrp.Position - targetPos).Magnitude > 5 then
-                                hrp.CFrame = CFrame.new(targetPos)
-                                hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                            end
-                            
-                            -- AUTO HIT METEOR (Mencari objek di Terrain)
-                            for _, obj in pairs(workspace.Terrain:GetChildren()) do
-                                -- Berdasarkan decompile, meteor adalah model/part yang baru muncul
-                                if obj:IsA("BasePart") or obj:IsA("Model") then
-                                    if (obj:GetPivot().Position - MeteorState.Position).Magnitude < 10 then
-                                        -- Kirim Remote Hit (Gunakan Remote yang biasa dipakai farm)
-                                        if UnReliable then
-                                            UnReliable:FireServer("Hit", {obj}) 
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        task.wait(0.1)
-    end
-end)
-
-MeteorToggle = FarmTab:Toggle({
-    Title = "Auto Farm Meteor",
-    Desc = "Auto teleport & wait for Meteor Event. Pauses normal farm.",
-    Flag = "AutoMeteor_Cfg",
-    Callback = function(val)
-        Config.AutoMeteor = val
-    end
-});
-FM_Add("Farm", MeteorToggle);
 function LogicGamemodes()
     local wasInGamemode = false;
     local currentTargetObj = nil;
@@ -1846,7 +1833,7 @@ function LogicGamemodes()
                         -- LOGIC JOIN
                         if allowJoin and isJoinable and (isOpened or not requiredKey) then
                             Notify("Auto Join", "Joining " .. modeData.Name, "swords")
-                            if Reliable then Reliable:FireServer("Join Gamemode", { modeID }) end
+                            if Reply and Reply.To then Reply.To("Join Gamemode",modeID) end
                             return true
                         end
 
@@ -1857,11 +1844,11 @@ function LogicGamemodes()
                             
                             if keyCount > 0 then
                                 Notify("Auto Open", "Creating " .. modeData.Name .. " (Using Key)", "key")
-                                if Reliable then 
+                                if Reply and Reply.To then 
                                     if modeData.Phase then
-                                        Reliable:FireServer("Open Gamemode", { modeData.RawPrefix, modeData.Phase }) 
+                                        Reply.To("Open Gamemode", modeData.RawPrefix, modeData.Phase) 
                                     else
-                                        Reliable:FireServer("Open Gamemode", { modeID }) 
+                                        Reply.To("Open Gamemode", modeID) 
                                     end
                                 end
                                 return true
@@ -1914,7 +1901,7 @@ local function LoadSingleGamemodeData(configModule, displayFallback, valueName, 
     if success and module then
         local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
         local maxValue = module[maxKey] or 0
-        local desc = maxLabel .. ": " .. maxValue .. " | HP Base: " .. UtilsModule.ToText(hpBase)
+        local desc = maxLabel .. ": " .. maxValue .. " | HP Base: " .. Utils.ToText(hpBase)
         local rewardCards = GenerateCardRewards(module.ChanceReward)
 
         return {{
@@ -1927,17 +1914,17 @@ local function LoadSingleGamemodeData(configModule, displayFallback, valueName, 
     return {}
 end
 
-pirateTowerList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.PirateTower, "Pirate Tower", "PirateTower", "MAX_FLOOR", "Max Floors")
-shadowGateList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.ShadowGate, "Shadow Gate", "ShadowGate", "MAX_WAVE", "Max Waves")
-capitalRaidList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.CapitalRaid, "Capital Raid", "CapitalRaid", "MAX_WAVE", "Max Waves")
-magicRaidList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.MagicRaid, "Magic Raid", "MagicRaid", "MAX_WAVE", "Max Waves")
-ignitionRaidList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.IgnitionRaid, "Ignition Raid", "IgnitionRaid", "MAX_WAVE", "Max Waves")
-sorcerersDefenseList = LoadSingleGamemodeData(ReplicatedStorage.Scripts.Configs.Gamemodes.SorcerersDefense, "Sorcerers Defense", "SorcerersDefense", "MAX_WAVE", "Max Waves")
+pirateTowerList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.PirateTower, "Pirate Tower", "PirateTower", "MAX_FLOOR", "Max Floors")
+shadowGateList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.ShadowGate, "Shadow Gate", "ShadowGate", "MAX_WAVE", "Max Waves")
+capitalRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.CapitalRaid, "Capital Raid", "CapitalRaid", "MAX_WAVE", "Max Waves")
+magicRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.MagicRaid, "Magic Raid", "MagicRaid", "MAX_WAVE", "Max Waves")
+ignitionRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.IgnitionRaid, "Ignition Raid", "IgnitionRaid", "MAX_WAVE", "Max Waves")
+sorcerersDefenseList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SorcerersDefense, "Sorcerers Defense", "SorcerersDefense", "MAX_WAVE", "Max Waves")
 
 -- [3. DUNGEON DATA]
 function LoadDungeonData()
     local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Dungeon);
+        return require(RS.Scripts.Configs.Gamemodes.Dungeon);
     end);
     if success and module and module.PHASES then
         dungeonList, dungeonDB = {}, {};
@@ -1947,7 +1934,7 @@ function LoadDungeonData()
             
             local times = phase.START_TIMES or {}
             table.sort(times)
-            local desc = "HP: " .. UtilsModule.ToText(hpCalc);
+            local desc = "HP: " .. Utils.ToText(hpCalc);
             
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
@@ -1970,7 +1957,7 @@ LoadDungeonData();
 -- [4. RAID DATA]
 function LoadRaidData()
     local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Raid);
+        return require(RS.Scripts.Configs.Gamemodes.Raid);
     end);
     if success and module and module.PHASES then
         raidList, raidDB = {}, {};
@@ -1981,7 +1968,7 @@ function LoadRaidData()
             local times = phase.START_TIMES or {}
             table.sort(times)
             local timeStr = table.concat(times, ", ")
-            local desc = "HP: " .. UtilsModule.ToText(hpCalc);
+            local desc = "HP: " .. Utils.ToText(hpCalc);
             
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
@@ -2003,7 +1990,7 @@ LoadRaidData();
 
 function LoadDefenseData()
     local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Gamemodes.Defense);
+        return require(RS.Scripts.Configs.Gamemodes.Defense);
     end);
     if success and module and module.PHASES then
         defenseList, defenseDB = {}, {};
@@ -2014,7 +2001,7 @@ function LoadDefenseData()
             local times = phase.START_TIMES or {}
             table.sort(times)
             local timeStr = table.concat(times, ", ")
-            local desc = "HP: " .. UtilsModule.ToText(hpCalc);
+            local desc = "HP: " .. Utils.ToText(hpCalc);
 
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
@@ -2373,9 +2360,9 @@ task.spawn(function()
                     local pData = getgenv().PlayerData
                     local returnZone = GetSafeReturnZone(pData)
 
-                    if Reliable then
+                    if Reply and Reply.To then
                         pcall(function()
-                            Reliable:FireServer("Zone Teleport", { returnZone })
+                            Reply.To("Zone Teleport", returnZone)
                         end)
                         
                         if Notify then 
@@ -2400,7 +2387,7 @@ GeneralManagerSection = FarmTab
 ExchangeList = {}
 
 -- Membangun list item yang bisa ditukar (Exchangeable)
-for k, v in pairs(MaterialsModule) do
+for k, v in pairs(Materials) do
     if v.Exchangeable and k ~= "TradeToken" then
         table.insert(ExchangeList, {Title = v.Display, Value = k})
     end
@@ -2416,10 +2403,10 @@ ExchangeIsBuying = false
 -- Fungsi Helper untuk mengambil Ratio Harga
 function GetExchangeRatio(tokenKey)
     local val = 0.1
-    if not tokenKey or not MaterialsModule[tokenKey] then return 0.1 end
-    if MaterialsModule[tokenKey].ExchangeRatio then
-        val = MaterialsModule[tokenKey].ExchangeRatio
-    elseif MaterialsModule[tokenKey].Display == "Trade Token" then
+    if not tokenKey or not Materials[tokenKey] then return 0.1 end
+    if Materials[tokenKey].ExchangeRatio then
+        val = Materials[tokenKey].ExchangeRatio
+    elseif Materials[tokenKey].Display == "Trade Token" then
         val = 1
     else
         val = 0.1
@@ -2445,7 +2432,7 @@ function BuildExchangeValues()
     
     for _, item in ipairs(ExchangeList) do
         local key = item.Value
-        local info = MaterialsModule[key]
+        local info = Materials[key]
         
         -- [TAMBAHAN] Ambil stok material saat ini dari PlayerData
         local currentAmount = 0
@@ -2464,7 +2451,7 @@ function BuildExchangeValues()
             Icon = img,
             Value = key,
             -- [TAMBAHAN] Menampilkan jumlah stok di deskripsi dropdown
-            Desc = "Stock: " .. UtilsModule.ToText(currentAmount)
+            Desc = "Stock: " .. Utils.ToText(currentAmount)
         })
     end
     return mats
@@ -2485,7 +2472,7 @@ MatPreview = PreviewGroup:Dropdown({
         SelectedExIcon = type(val) == "table" and val.Icon or nil
         
         -- Update Tampilan Dropdown Instan
-        local info = SelectedExToken and MaterialsModule[SelectedExToken] or nil
+        local info = SelectedExToken and Materials[SelectedExToken] or nil
         if info then
             local rarity = info.Rarity or "Common"
             local gradient = GetGameGradient(rarity)
@@ -2508,9 +2495,9 @@ MatPreview = PreviewGroup:Dropdown({
 MatPreview:Refresh(BuildExchangeValues())
 
 TradePreview = PreviewGroup:Paragraph({
-    Title = TradeTokenInfo.Display or "Trade Token",
+    Title = Materials.TradeToken.Display or "Trade Token",
     Desc = "Waiting...",
-    Image = TradeTokenInfo.Template and GetIcon(TradeTokenInfo.Template) or "rbxassetid://128675466010249", -- Default Trade Token ID
+    Image = Materials.TradeToken.Template and GetIcon(Materials.TradeToken.Template) or "rbxassetid://128675466010249", -- Default Trade Token ID
     ImageSize = 50
 })
 
@@ -2542,18 +2529,9 @@ ExchangeButton = GeneralManagerSection:Button({
             Notify("Error", "Select a token first!")
             return
         end
-        local args = {
-            "Convert Tokens",
-            {
-                SelectedExToken,    -- var6_upvw
-                ExchangeIsBuying,   -- var8_upvw
-                ExchangePercent     -- var9_upvw (Slider value)
-            }
-        }
-
-        if Reliable then
+        if Reply and Reply.To then
             pcall(function()
-                Reliable:FireServer(unpack(args))
+                Reply.To("Convert Tokens",SelectedExToken,ExchangeIsBuying,ExchangePercent)
             end)
             Notify("Exchange", "Request Sent!")
         end
@@ -2577,13 +2555,13 @@ for _, rollType in ipairs(AllRollTypes) do
         FM_Add("Rolls", _rollGroup)
     end;
     local tokenKey = (RollConfigs[rollType] and RollConfigs[rollType].MaterialKey) or (rollType .. "Token");
-    local displayName = (MaterialsModule[tokenKey] and MaterialsModule[tokenKey].Display) or rollType;
+    local displayName = (Materials[tokenKey] and Materials[tokenKey].Display) or rollType;
     local currentCount = (((getgenv()).PlayerData and (getgenv()).PlayerData.Materials) and (getgenv()).PlayerData.Materials[tokenKey]) or 0;
     local configFlag = "AutoRoll" .. rollType;
     local myToggle = _rollGroup:Toggle({
         Title = rollType,
         Flag = configFlag .. "_Cfg",
-        Desc = displayName .. ": " .. UtilsModule.ToText(currentCount),
+        Desc = displayName .. ": " .. Utils.ToText(currentCount),
         Image = GetRollIconAsset(rollType),
         ImageSize = 24,
         Callback = function(val)
@@ -2618,12 +2596,12 @@ GeneralTab:Toggle({
                     if Window.Destroyed then
                         break;
                     end;
-                    if Reliable then
+                    if Reply and Reply.To then
                         pcall(function()
-                            Reliable:FireServer("Weapon Fuse All");
+                            Reply.To("Weapon Fuse All");
                         end);
                     end;
-                    task.wait(5);
+                    task.wait(10);
                 end;
             end);
         end;
@@ -2676,23 +2654,17 @@ function CreateUpgradeSection(parentTab, categoryName, configData, flagPrefix, u
         end
     end
 end
--- Kode asli Anda untuk Tier 1
-upgradeOrder = {"Luck", "Damage", "Yen", "Mastery", "Critical"}
-CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgradeConfig, "AutoYen_", YenUpgradeToggleUI, upgradeOrder)
+-- [[ UPGRADE YEN TIER 1 ]] --
+-- Kita tidak mengirim 'upgradeOrder', jadi dia akan mengambil 100% isi YenUpgradeConfig
+CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrades.Config, "AutoYen_", YenUpgradeToggleUI)
 
--- [TAMBAHKAN KODE INI DI BAWAHNYA]
--- Pemisah visual agar user tahu ini adalah Tier 2
+-- Pemisah visual
 local Yen2Separator = FarmTab:Paragraph({
     Title = "--- Yen Upgrades Tier 2 ---",
 })
 FM_Add("Upgrade: Yen", Yen2Separator)
-
--- Membuat UI Toggle untuk Tier 2 di kategori yang sama
-upgradeOrder2 = {"Damage", "Mastery", "Yen","Drop","Critical","Run Speed"} -- Sesuai urutan di config YenUpgrades2
-CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrade2Module.Config, "AutoYen2_", YenUpgrade2ToggleUI, upgradeOrder2)
-if TokenUpgradeConfig then
-    CreateUpgradeSection(FarmTab, "Upgrade: Token", TokenUpgradeConfig, "AutoToken_", TokenUpgradeToggleUI, nil)
-end
+CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrades2.Config, "AutoYen2_", YenUpgrade2ToggleUI)
+CreateUpgradeSection(FarmTab, "Upgrade: Token", TokenUpgrades.Config, "AutoToken_", TokenUpgradeToggleUI, nil)
 
 RankProgressUI = FarmTab:Paragraph({ Title = "Rank Progress", Desc = "Waiting for data...", Image = GetIcon(111262536381336), ImageSize = 40 })
 FM_Add("Rankup", RankProgressUI)
@@ -2767,7 +2739,7 @@ function SendUpgradeWebhook(category, upgradeName, level, cost)
                 ["fields"] = {
                     { ["name"] = "Type", ["value"] = upgradeName, ["inline"] = true },
                     { ["name"] = "New Level", ["value"] = tostring(level), ["inline"] = true },
-                    { ["name"] = currencyName, ["value"] = UtilsModule.ToText(cost), ["inline"] = true },
+                    { ["name"] = currencyName, ["value"] = Utils.ToText(cost), ["inline"] = true },
                     { ["name"] = "Player Info", ["value"] = "Name: ||" .. censoredName .. "||\nID: ||" .. censoredID .. "||", ["inline"] = false }
                 },
                 ["footer"] = { ["text"] = "ANHub Script • " .. os.date("%H:%M:%S") }
@@ -2787,7 +2759,7 @@ CraftsConfig = {}
 
 function LoadCraftsModule()
     local success, module = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.Crafts)
+        return require(RS.Scripts.Configs.Crafts)
     end)
     
     if success and type(module) == "table" then
@@ -2877,7 +2849,7 @@ for _, id in ipairs(SortedCraftIDs) do
 end
 
 function LoadAllUpgradeModules()
-    local path1 = ReplicatedStorage.Scripts.Configs:FindFirstChild("Trainers")
+    local path1 = RS.Scripts.Configs:FindFirstChild("Trainers")
     if path1 then
         for _, m in pairs(path1:GetChildren()) do
             if m:IsA("ModuleScript") then
@@ -2891,7 +2863,7 @@ function LoadAllUpgradeModules()
     end
     table.sort(ChanceSortedNames)
 
-    local path2 = ReplicatedStorage.Scripts.Configs:FindFirstChild("RollGachaUpgrades")
+    local path2 = RS.Scripts.Configs:FindFirstChild("RollGachaUpgrades")
     if path2 then
         for _, m in pairs(path2:GetChildren()) do
             if m:IsA("ModuleScript") then
@@ -2967,14 +2939,14 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                             local cost = mod.GetCost(currentLvl)
 
                             if myTokens >= cost then
-                                if Reliable then
+                                if Reply and Reply.To then
                                     local oldLevel = currentLvl 
 
                                     local s = pcall(function()
                                         if isGachaUpgrade then
-                                            Reliable:FireServer("Crate Upgrade", { name })
+                                            Reply.To("Crate Upgrade", name)
                                         else
-                                            Reliable:FireServer("Chance Upgrade", {name})
+                                            Reply.To("Chance Upgrade", name)
                                         end
                                     end)
 
@@ -3025,8 +2997,8 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                     end
                 end)
             else
-                if not isGachaUpgrade and Reliable then
-                    pcall(function() Reliable:FireServer("Chance Upgrade", name, false) end)
+                if not isGachaUpgrade and Reply and Reply.To then
+                    pcall(function() Reply.To("Chance Upgrade", name, false) end)
                 end
             end
         end
@@ -3208,9 +3180,9 @@ task.spawn(function()
             -- Jika Mega Boss Aktif (via Auto Mega Boss) DAN config equip Mega Boss dipilih
             if Config.AutoMegaBoss and MegaBossState.IsActive and Config.AutoEquipVaultMegaBoss then
                 if LastVaultState ~= "MegaBoss" then
-                    if Reliable then
+                    if Reply and Reply.To then
                         pcall(function()
-                            Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultMegaBoss })
+                            Reply.To("Vault Equip Best", Config.AutoEquipVaultMegaBoss)
                         end)
                         if Notify then Notify("Vault Auto", "Equip (MegaBoss): " .. tostring(Config.AutoEquipVaultMegaBoss)) end
                     end
@@ -3221,9 +3193,9 @@ task.spawn(function()
             elseif isFightingZone then
                 if Config.AutoEquipVaultMode then
                     if LastVaultState ~= "GameMode" or LastGameModeMap ~= currentMap then
-                        if Reliable then
+                        if Reply and Reply.To then
                             pcall(function()
-                                Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultMode })
+                                Reply.To("Vault Equip Best", Config.AutoEquipVaultMode)
                             end)
                             if Notify then Notify("Vault Auto", "Equip (GameMode): " .. tostring(Config.AutoEquipVaultMode)) end
                         end
@@ -3237,9 +3209,9 @@ task.spawn(function()
             else
                 if Config.AutoEquipVaultFarm then
                     if LastVaultState ~= "Farm" then
-                        if Reliable then
+                        if Reply and Reply.To then
                             pcall(function()
-                                Reliable:FireServer("Vault Equip Best", { Config.AutoEquipVaultFarm })
+                                Reply.To("Vault Equip Best", Config.AutoEquipVaultFarm)
                             end)
                             if Notify then Notify("Vault Auto", "Equip (Farm): " .. tostring(Config.AutoEquipVaultFarm)) end
                         end
@@ -3283,20 +3255,20 @@ function RefreshVaultUI()
                 local rawEnchant = weaponInstance.Enchantment
                 local niceEnchant = rawEnchant
                 
-                if EnchantmentsConfig and EnchantmentsConfig.Table then
+                if Enchantments and Enchantments.Table then
                     local parts = string.split(rawEnchant, "_")
                     if #parts == 2 then
                         local eType = parts[1]
                         local eTier = tonumber(parts[2])
                         local roman = {"I", "II", "III", "IV", "V"}
-                        if EnchantmentsConfig.Table[eType] then
-                            local typeDisplay = EnchantmentsConfig.Table[eType].Display or eType
+                        if Enchantments.Table[eType] then
+                            local typeDisplay = Enchantments.Table[eType].Display or eType
                             local tierDisplay = roman[eTier] or eTier
                             niceEnchant = string.format("%s %s", typeDisplay, tierDisplay)
                             
-                            if EnchantmentsConfig.Table[eType].List and EnchantmentsConfig.Table[eType].List[eTier] then
-                                local tierData = EnchantmentsConfig.Table[eType].List[eTier]
-                                local desc = EnchantmentsConfig.Table[eType].Description
+                            if Enchantments.Table[eType].List and Enchantments.Table[eType].List[eTier] then
+                                local tierData = Enchantments.Table[eType].List[eTier]
+                                local desc = Enchantments.Table[eType].Description
                                 if desc and tierData.Bonus then
                                     pcall(function()
                                         local formattedDesc = desc:format(tierData.Bonus)
@@ -3499,7 +3471,7 @@ ManualUpgradeGroup:Button({
     Desc = "Send server request to upgrade the current avatar by 1 level.",
     Icon = "arrow-up",
     Callback = function()
-        if Reliable then
+        if Reply and Reply.To then
             pcall(function()
                 local pData = (getgenv()).PlayerData
                 local currentAvatar = pData and pData.Attributes and pData.Attributes.Avatar
@@ -3509,7 +3481,7 @@ ManualUpgradeGroup:Button({
                     avatarDisplayName = EnemiesConfig[currentAvatar].Display
                 end
 
-                Reliable:FireServer("Avatar Upgrade") 
+                Reply.To("Avatar Upgrade") 
                 Notify("Avatar", string.format("Sending 'Avatar Upgrade' request for %s.", avatarDisplayName))
             end)
         end
@@ -3520,7 +3492,7 @@ ManualUpgradeGroup:Button({
     Desc = "Send server request to upgrade the current avatar to Max Level.",
     Icon = "chevrons-up",
     Callback = function()
-        if Reliable then
+        if Reply and Reply.To then
             pcall(function()
                 local pData = (getgenv()).PlayerData
                 local currentAvatar = pData and pData.Attributes and pData.Attributes.Avatar
@@ -3530,7 +3502,7 @@ ManualUpgradeGroup:Button({
                     avatarDisplayName = EnemiesConfig[currentAvatar].Display
                 end
                 
-                Reliable:FireServer("Avatar Max Upgrade")
+                Reply.To("Avatar Max Upgrade")
                 Notify("Avatar", string.format("Sending 'Avatar Max Upgrade' request for %s.", avatarDisplayName))
             end)
         end
@@ -3589,7 +3561,7 @@ ValidStatsList = {}
 
 function LoadHeroesStatsData()
     local successStats, moduleStats = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.MultipleZones.HeroesStats)
+        return require(RS.Scripts.Configs.MultipleZones.HeroesStats)
     end)
     if successStats and moduleStats then
         HeroesStatsModule = moduleStats
@@ -3615,7 +3587,7 @@ function LoadHeroesStatsData()
     end
 
     local successHero, moduleHero = pcall(function()
-        return require(ReplicatedStorage.Scripts.Configs.MultipleZones.Heroes)
+        return require(RS.Scripts.Configs.MultipleZones.Heroes)
     end)
     if successHero and moduleHero then
         HeroesConfigModule = moduleHero
@@ -3724,7 +3696,7 @@ do
                     while Config.Enchant_Master_Toggle and not Window.Destroyed do
                         local pData = (getgenv()).PlayerData
                         
-                        if pData and pData.Attributes and pData.Weapons and pData.Materials and Reliable then
+                        if pData and pData.Attributes and pData.Weapons and pData.Materials and Reply and Reply.To then
                             local currentEquipID = pData.Attributes.Weapon
                             local weaponData = pData.Weapons[currentEquipID]
 
@@ -3742,13 +3714,13 @@ do
                                 end
                             end
 
-                            local tokenKey = (EnchantmentsConfig and EnchantmentsConfig.TokenName) or "EnchantmentToken"
-                            local tokenCost = (EnchantmentsConfig and EnchantmentsConfig.TokenCost) or 10
+                            local tokenKey = (Enchantments and Enchantments.TokenName) or "EnchantmentToken"
+                            local tokenCost = (Enchantments and Enchantments.TokenCost) or 10
                             local myTokens = pData.Materials[tokenKey] or 0
                             
                             if myTokens >= tokenCost then
                                 pcall(function()
-                                    Reliable:FireServer("Enchantments Roll") 
+                                    Reply.To("Enchantments Roll") 
                                 end)
                             else
                                 if Notify then Notify("Enchantments", "Out of Tokens") end
@@ -3771,10 +3743,10 @@ do
     local DropdownValues = {}
 
     -- Membangun list opsi enchant
-    if EnchantmentsConfig and EnchantmentsConfig.Table then
+    if Enchantments and Enchantments.Table then
         local RomanNumerals = {"I", "II", "III", "IV", "V"} 
 
-        for typeName, typeData in pairs(EnchantmentsConfig.Table) do
+        for typeName, typeData in pairs(Enchantments.Table) do
             if typeData.List then
                 for tierIndex, tierData in ipairs(typeData.List) do
                     local configId = string.format("%s_%d", typeName, tierIndex)
@@ -3928,7 +3900,7 @@ if #RarityOptions > 0 then
             TargetLockTier = val
             
             local pData = (getgenv()).PlayerData
-            if not pData or not HeroesStatsModule or not Reliable or not SelectedHeroUID then return end
+            if not pData or not HeroesStatsModule or not Reply or not SelectedHeroUID then return end
             
             local newTargetIndex = RarityMap[TargetLockTier] or 999
             
@@ -3941,7 +3913,7 @@ if #RarityOptions > 0 then
                     local isLocked = lockedStats[statName] == true
                     
                     if isLocked and currentIndex < newTargetIndex then
-                        Reliable:FireServer("Lock Hero Stats", {statName})
+                        Reply.To("Lock Hero Stats", statName)
                         if Notify then Notify("Auto Unlock", "Unlocking " .. statName .. " (Below target)") end
                         task.wait(0.1)
                     end
@@ -3979,8 +3951,8 @@ FM_Add("Heroes Stats", AutoRollToggle)
 local RP_Group = nil
 local RP_Count = 0
 
--- Kita ambil list dari RarityPowerConfig.List
-for powerName, powerData in pairs(RarityPowerConfig.List) do
+-- Kita ambil list dari RarityPower.List
+for powerName, powerData in pairs(RarityPower.List) do
     if RP_Count % 2 == 0 then
         RP_Group = FarmTab:Group({Title = (RP_Count == 0 and "Auto Rarity Upgrades" or "")})
         FM_Add("Rarity Powers", RP_Group)
@@ -4021,7 +3993,7 @@ FM_Add("Avatar Curses", CurseStatusPara)
 
 -- Membangun opsi dropdown dengan info Buff & Debuff
 local curseOptions = {}
-for i, v in ipairs(AvatarCursesConfig.Table) do
+for i, v in ipairs(AvatarCurses.Table) do
     local buffs = {}
     local debuffs = {}
 
@@ -4228,29 +4200,6 @@ if Reliable then
                 IsLoadingConfig = false;
                 IsTeleporting = false;
             end);
-        
-        -- [B] Logika Meteor Event (BARU)
-        elseif msg == "Meteor Shower Started" then
-            -- Server kirim nama Zone sebagai argumen (cek MeteorEvent.c Baris 136)
-            local zone = args
-            MeteorState.Zone = zone
-            MeteorState.IsActive = true
-            Notify("Meteor Event", "Shower Started in: " .. tostring(zone))
-            
-        -- [REVISI LISTENER] - Gunakan tick() untuk presisi
-        elseif msg == "Meteor Spawn" then
-            local pos = args
-            if typeof(pos) == "Vector3" then
-                MeteorState.Position = pos
-                -- Menggunakan tick() agar sinkron dengan METEOR_FALL_DURATION (5 detik)
-                MeteorState.LandTime = tick() + 5 
-                MeteorState.IsActive = true
-            end
-
-        elseif msg == "Meteor Shower Ended" then
-            MeteorState.IsActive = false
-            MeteorState.Position = nil
-            MeteorState.Zone = nil
         end
     end)
 end
@@ -4320,7 +4269,7 @@ task.spawn(function()
                 if Notify then Notify("Mega Boss", "Spawned at " .. zoneDisplayName .. "! Teleporting...") end
                 
                 if Reliable and targetZoneID ~= currentZone then
-                    pcall(function() Reliable:FireServer("Zone Teleport", { targetZoneID }) end)
+                    pcall(function() Reply.To("Zone Teleport", targetZoneID) end)
                 end
             end
         end
@@ -4368,7 +4317,7 @@ task.spawn(function()
                 if Notify then Notify("Mega Boss", "Spawned at " .. displayName .. "! Teleporting...") end
 
                 if Reliable and pendingZone ~= currentZone then
-                    pcall(function() Reliable:FireServer("Zone Teleport", { pendingZone }) end)
+                    pcall(function() Reply.To("Zone Teleport", pendingZone) end)
                 end
 
                 MegaBossState.PendingTargetZone = nil
@@ -4676,18 +4625,18 @@ end
 
 function Optimizer.Update_Ascension_Logic(pData)
     -- Pastikan data atribut dan modul LevelUp tersedia
-    if not pData.Attributes or not LevelUpModule then return end
+    if not pData.Attributes or not LevelUp then return end
     
     local currentLevel = pData.Attributes.Level or 1
     local currentAsc = pData.Attributes.Ascension or 0
     
     -- Mengambil batas maksimal level dan ascension dari konfigurasi
-    local maxLevel = LevelUpModule.GetMaxLevel(currentAsc)
-    local maxAscensionLimit = LevelUpModule.MAX_ASCENSION or #LevelUpModule.AscensionXpBoost
+    local maxLevel = LevelUp.GetMaxLevel(currentAsc)
+    local maxAscensionLimit = LevelUp.MAX_ASCENSION or #LevelUp.AscensionXpBoost
 
     -- 1. SISTEM CACHE UI
     if AscUI and AscUI.Status then
-        local currentExpBonus = LevelUpModule.GetExpWithBonus(10, pData)
+        local currentExpBonus = LevelUp.GetExpWithBonus(10, pData)
         local expMultiplier = currentExpBonus / 10
         local pct = math.clamp(currentLevel / maxLevel, 0, 1)
         local bar = string.rep("█", math.floor(pct * 10)) .. string.rep("▒", 10 - math.floor(pct * 10))
@@ -4712,7 +4661,7 @@ function Optimizer.Update_Ascension_Logic(pData)
     end
 
     -- [FEATURE] Auto Distribute Stat Point
-    local availablePoints = LevelUpModule.CountPoints(pData)
+    local availablePoints = LevelUp.CountPoints(pData)
     if availablePoints > 0 then
         for statName, isEnabled in pairs(Config.AutoStat) do
             if isEnabled then
@@ -4721,7 +4670,7 @@ function Optimizer.Update_Ascension_Logic(pData)
                 if Reliable then
                     pcall(function()
                         -- Kita kirim request distribusi ke server
-                        Reliable:FireServer("Distribute Stat Point", {statName})
+                        Reply.To("Distribute Stat Point", statName)
                     end)
                 end
             end
@@ -4736,7 +4685,7 @@ function Optimizer.Update_Ascension_Logic(pData)
             -- Debounce 5 detik untuk mencegah spam server
             if not Optimizer.Cache.LastAscendTime or (now - Optimizer.Cache.LastAscendTime) > 5 then
                 pcall(function()
-                    Reliable:FireServer("Ascend")
+                    Reply.To("Ascend")
                     if Notify then Notify("Ascension", "Auto Ascending...") end
                 end)
                 Optimizer.Cache.LastAscendTime = now
@@ -4751,8 +4700,8 @@ function Optimizer.Update_Enchantments_Logic(pData)
         if pData.Materials and pData.Attributes and pData.Weapons then
             
             -- [1] DATA WEAPON & TOKEN
-            local tokenKey = (EnchantmentsConfig and EnchantmentsConfig.TokenName) or "EnchantmentToken"
-            local tokenCost = (EnchantmentsConfig and EnchantmentsConfig.TokenCost) or 10
+            local tokenKey = (Enchantments and Enchantments.TokenName) or "EnchantmentToken"
+            local tokenCost = (Enchantments and Enchantments.TokenCost) or 10
             local myTokens = pData.Materials[tokenKey] or 0
             
             local currentEquipID = pData.Attributes.Weapon
@@ -4777,12 +4726,12 @@ function Optimizer.Update_Enchantments_Logic(pData)
             if weaponInstance and weaponInstance.Enchantment then
                 local rawID = weaponInstance.Enchantment
                 local parts = string.split(rawID, "_")
-                if #parts == 2 and EnchantmentsConfig and EnchantmentsConfig.Table then
+                if #parts == 2 and Enchantments and Enchantments.Table then
                     local eType = parts[1]
                     local eTier = tonumber(parts[2])
                     local roman = {"I", "II", "III", "IV", "V"}
-                    if EnchantmentsConfig.Table[eType] then
-                        local typeInfo = EnchantmentsConfig.Table[eType]
+                    if Enchantments.Table[eType] then
+                        local typeInfo = Enchantments.Table[eType]
                         enchantText = string.format("%s %s", typeInfo.Display, (roman[eTier] or eTier))
                     end
                 end
@@ -4797,11 +4746,11 @@ function Optimizer.Update_Enchantments_Logic(pData)
             if Optimizer.Cache.EnchantTextState ~= textStateHash then
                 EnchUI.MasterToggle:SetTitle(string.format("%s [%s]", weaponDisplayName, enchantText))
                 
-                local tkInfo = MaterialsModule[tokenKey]
+                local tkInfo = Materials[tokenKey]
                 local tkName = tkInfo and tkInfo.Display or "Tokens"
                 local tkIcon = tkInfo and GetIcon(tkInfo.Template) or ""
                 
-                EnchUI.MasterToggle:SetDesc(string.format("%s%s %s/%s", tkIcon, tkName, UtilsModule.ToText(tokenCost), UtilsModule.ToText(myTokens)))
+                EnchUI.MasterToggle:SetDesc(string.format("%s%s %s/%s", tkIcon, tkName, Utils.ToText(tokenCost), Utils.ToText(myTokens)))
                 
                 Optimizer.Cache.EnchantTextState = textStateHash
             end
@@ -4878,7 +4827,7 @@ function Optimizer.Update_Reforge_Logic(pData)
         local timeLeft = 3600 - timePassed 
         
         if timeLeft > 0 then
-            local timeStr = UtilsModule.ToText(timeLeft) -- Gunakan formatter yang tersedia di script Anda
+            local timeStr = Utils.ToText(timeLeft) -- Gunakan formatter yang tersedia di script Anda
             -- Jika tidak ada formatter waktu khusus, gunakan math sederhana:
             local m = math.floor(timeLeft / 60)
             local s = timeLeft % 60
@@ -4899,7 +4848,7 @@ function Optimizer.Update_Reforge_Logic(pData)
             end
             
             if Config.AutoReforge and Reliable then
-                Reliable:FireServer("Reforge Claim") 
+                Reply.To("Reforge Claim") 
                 Notify("Reforge", "Weapon Claimed! +50% Mastery Boost applied.")
             end
         end
@@ -4926,7 +4875,7 @@ function Optimizer.Update_Reforge_Logic(pData)
                 end
                 
                 if #materials == 2 and Reliable then
-                    Reliable:FireServer("Reforge Start", { mainUID, materials })
+                    Reply.To("Reforge Start", mainUID, materials)
                     Notify("Reforge", "Process Started (1 Hour)")
                 end
             end
@@ -4939,7 +4888,7 @@ function Optimizer.Update_Exchange_Logic(pData)
     for _, item in ipairs(ExchangeList) do
         local key = item.Value
         local currentAmount = (pData and pData.Materials and pData.Materials[key]) or 0
-        local newListItemDesc = "Stock: " .. UtilsModule.ToText(currentAmount)
+        local newListItemDesc = "Stock: " .. Utils.ToText(currentAmount)
         
         local cacheKey = "ExItemStock_" .. key
         if Optimizer.Cache[cacheKey] ~= newListItemDesc then
@@ -4964,17 +4913,17 @@ function Optimizer.Update_Exchange_Logic(pData)
             outputDisplay = math.floor(maxCanBuy * ExchangePercent)
             inputDisplay = outputDisplay * ratio
             if ratio < 500 then outputDisplay = outputDisplay/10 end
-            matDescText = string.format("Stock: %s | +%s (Buy)", UtilsModule.ToText(materialCount), UtilsModule.ToText(outputDisplay))
-            tradeDescText = string.format("Stock: %s | -%s (Pay)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(inputDisplay))
+            matDescText = string.format("Stock: %s | +%s (Buy)", Utils.ToText(materialCount), Utils.ToText(outputDisplay))
+            tradeDescText = string.format("Stock: %s | -%s (Pay)", Utils.ToText(tradeTokenCount), Utils.ToText(inputDisplay))
         else
             inputDisplay = math.floor(materialCount * ExchangePercent)
             outputDisplay = inputDisplay * ratio
-            matDescText = string.format("Stock: %s | -%s (Sell)", UtilsModule.ToText(materialCount), UtilsModule.ToText(inputDisplay))
-            tradeDescText = string.format("Stock: %s | +%s (Get)", UtilsModule.ToText(tradeTokenCount), UtilsModule.ToText(outputDisplay))
+            matDescText = string.format("Stock: %s | -%s (Sell)", Utils.ToText(materialCount), Utils.ToText(inputDisplay))
+            tradeDescText = string.format("Stock: %s | +%s (Get)", Utils.ToText(tradeTokenCount), Utils.ToText(outputDisplay))
         end
         
         -- [3] CACHE UNTUK SetMainImage (HEADER)
-        local info = MaterialsModule[SelectedExToken]
+        local info = Materials[SelectedExToken]
         if info and MatPreview.SetMainImage then
             local img = SelectedExIcon or (info.Template and GetIcon(info.Template)) or ""
             local rarity = info.Rarity or "Common"
@@ -5072,12 +5021,12 @@ function Optimizer.Update_Roll_Logic(pData)
         -- 3. Update Deskripsi (Jumlah Token)
         local lastState = Optimizer.Cache.Roll[rollType] or {}
         if lastState.Count ~= currentCount then
-            local matInfo = MaterialsModule[tokenKey]
+            local matInfo = Materials[tokenKey]
             local matDisplay = matInfo and matInfo.Display or tokenKey
             local matIcon = (matInfo and matInfo.Template) and GetIcon(matInfo.Template) or ""
             
             pcall(function() 
-                toggle:SetDesc(string.format("%s %s: %s", matIcon, matDisplay, UtilsModule.ToText(currentCount))) 
+                toggle:SetDesc(string.format("%s %s: %s", matIcon, matDisplay, Utils.ToText(currentCount))) 
             end)
         end
         
@@ -5150,8 +5099,8 @@ function Optimizer.Update_Craft_Logic(pData)
                 for matName, reqAmt in pairs(data.Costs[nextLvl]) do
                     local myAmt = pData.Materials[matName] or 0
                     local dName, dIcon = matName, ""
-                    if MaterialsModule[matName] then dName = MaterialsModule[matName].Display; if MaterialsModule[matName].Template then dIcon = GetIcon(MaterialsModule[matName].Template) end end
-                    table.insert(parts, string.format("%s%s %s/%s", dIcon, dName, UtilsModule.ToText(reqAmt), UtilsModule.ToText(myAmt)))
+                    if Materials[matName] then dName = Materials[matName].Display; if Materials[matName].Template then dIcon = GetIcon(Materials[matName].Template) end end
+                    table.insert(parts, string.format("%s%s %s/%s", dIcon, dName, Utils.ToText(reqAmt), Utils.ToText(myAmt)))
                 end
                 costStr = table.concat(parts, "\n")
             end
@@ -5169,7 +5118,7 @@ function Optimizer.Update_Craft_Logic(pData)
         
         if Config["AutoCraft_"..id] and not isMaxed and CanAffordCraft(id, nextLvl) then
             if Reliable then 
-                local s = pcall(function() Reliable:FireServer("Upgrade Craft", { tostring(id) }) end) 
+                local s = pcall(function() Reply.To("Upgrade Craft", tostring(id)) end) 
                 if s then 
                     local now, hk = os.time(), "Craft_"..id
                     if not LastWebhookTime[hk] or (now - LastWebhookTime[hk]) >= 3 then SendUpgradeWebhook("Trainer", "Craft: "..data.Display, nextLvl, 0); LastWebhookTime[hk] = now end
@@ -5210,7 +5159,7 @@ function Optimizer.Update_Trainer_Logic(pData)
             local cost = (mod.GetCost and mod.GetCost(currentLvl)) or 0
             local maxLvl = (mod.MAX_LEVEL or mod.MaxLevel or 100)
             local currentMat = pData.Materials[tokenKey] or 0
-            local matInfo = MaterialsModule[tokenKey]
+            local matInfo = Materials[tokenKey]
             local matDisplay = string.format("%s%s", (matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""), (matInfo and matInfo.Display or tokenKey))
 
             local newTitle, newDesc, isMaxed = "", "", false
@@ -5220,7 +5169,7 @@ function Optimizer.Update_Trainer_Logic(pData)
                 local chanceVal = (mod.GetChance and mod.GetChance(currentLvl)) or 0
                 local chanceTxt = chanceVal > 0 and (" | Chance: " .. (math.floor(chanceVal * 10) / 10) .. "%") or ""
                 newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
-                newDesc = string.format("Cost: %s%s\n%s: %s", UtilsModule.ToText(cost), chanceTxt, matDisplay, UtilsModule.ToText(currentMat))
+                newDesc = string.format("Cost: %s%s\n%s: %s", Utils.ToText(cost), chanceTxt, matDisplay, Utils.ToText(currentMat))
             end
 
             local cache = Optimizer.Cache.Upgrade[name] or {}
@@ -5282,7 +5231,7 @@ function Optimizer.Update_Vault_Logic(pData)
 end
 
 function Optimizer.Update_Avatar_Logic(pData)
-    if not pData.AvatarLevels or not AvatarLevelsModule then return end
+    if not pData.AvatarLevels or not AvatarLevels then return end
     
     local currentAvatar = pData.Attributes.Avatar
     local isAvatarSelected = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
@@ -5319,11 +5268,11 @@ function Optimizer.Update_Avatar_Logic(pData)
     -- [2. UPDATE VISUAL TEKS (TITLE & DESC)]
     if pData.Attributes and pData.Materials then
         local avatarDisplayName = currentAvatar
-        local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
+        local tokenKey = AvatarLevels.Token or "AvatarToken"
         local currentLevel = pData.AvatarLevels[currentAvatar] or 0
         
         -- MENGGUNAKAN GETMAXLEVEL DINAMIS
-        local maxLevel = isAvatarSelected and AvatarLevelsModule.GetMaxLevel(currentAvatar) or 100
+        local maxLevel = isAvatarSelected and AvatarLevels.GetMaxLevel(currentAvatar) or 100
         local myTokens = pData.Materials[tokenKey] or 0
         
         local newTitle = "No Avatar Selected"
@@ -5336,10 +5285,10 @@ function Optimizer.Update_Avatar_Logic(pData)
 
             local nextLevel = currentLevel + 1
             local isMaxed = currentLevel >= maxLevel
-            local currentBuff = AvatarLevelsModule.GetBuff(currentLevel)
-            local nextBuff = isMaxed and currentBuff or AvatarLevelsModule.GetBuff(nextLevel)
-            local cost = isMaxed and 0 or AvatarLevelsModule.GetCost(currentLevel)
-            local tokenDisplayName = MaterialsModule[tokenKey].Display or tokenKey
+            local currentBuff = AvatarLevels.GetBuff(currentLevel)
+            local nextBuff = isMaxed and currentBuff or AvatarLevels.GetBuff(nextLevel)
+            local cost = isMaxed and 0 or AvatarLevels.GetCost(currentLevel)
+            local tokenDisplayName = Materials[tokenKey].Display or tokenKey
             
             local tokenIcon = GetAvatarTokenIcon() or ""
             newTitle = string.format("%s (Lv. %d / %d)", avatarDisplayName, currentLevel, maxLevel)
@@ -5349,7 +5298,7 @@ function Optimizer.Update_Avatar_Logic(pData)
                     "<b>STATUS: MAX LEVEL</b>\n\n" ..
                     "Total Buff: <font color='#00ff00'>+%s%% Damage</font>\n" ..
                     "%s%s %s", 
-                    UtilsModule.ToText(currentBuff), tokenIcon,tokenDisplayName, UtilsModule.ToText(myTokens, 0)
+                    Utils.ToText(currentBuff), tokenIcon,tokenDisplayName, Utils.ToText(myTokens, 0)
                 )
                 
                 if AvatarLevelToggle and not AvatarLevelToggle.Locked then
@@ -5364,10 +5313,10 @@ function Optimizer.Update_Avatar_Logic(pData)
                     "Next Buff: <font color='#00aaff'>+%s%%</font>\n\n" ..
                     "Upgrade Cost: <font color='#ffaa00'>%s</font> %s%s\n" ..
                     "Your Balance: %s",
-                    UtilsModule.ToText(currentBuff),
-                    UtilsModule.ToText(nextBuff),
-                    UtilsModule.ToText(cost, 0), tokenIcon,tokenDisplayName,
-                    UtilsModule.ToText(myTokens, 0)
+                    Utils.ToText(currentBuff),
+                    Utils.ToText(nextBuff),
+                    Utils.ToText(cost, 0), tokenIcon,tokenDisplayName,
+                    Utils.ToText(myTokens, 0)
                 )
                 
                 if AvatarLevelToggle and AvatarLevelToggle.Locked then
@@ -5391,15 +5340,14 @@ function Optimizer.Update_Avatar_Logic(pData)
     -- [3. LOGIKA AUTO UPGRADE]
     if Config.AutoAvatarLevelUp and isAvatarSelected then
         local currentLevel = pData.AvatarLevels[currentAvatar] or 0
-        local maxLevel = AvatarLevelsModule.GetMaxLevel(currentAvatar)
-        local tokenKey = AvatarLevelsModule.Token or "AvatarToken"
+        local maxLevel = AvatarLevels.GetMaxLevel(currentAvatar)
+        local tokenKey = AvatarLevels.Token or "AvatarToken"
         
         if currentLevel < maxLevel then
-            local cost = AvatarLevelsModule.GetCost(currentLevel)
+            local cost = AvatarLevels.GetCost(currentLevel)
             if (pData.Materials[tokenKey] or 0) >= cost then
                 if Reliable then
-                    pcall(function() Reliable:FireServer("Avatar Upgrade") end)
-                    task.wait(1) -- Debounce agar tidak spam
+                    pcall(function() Reply.To("Avatar Upgrade") end)
                 end
             end
         end
@@ -5439,7 +5387,7 @@ function Optimizer.Update_Heroes_Logic(pData)
                 end
                 
                 local finalDamage = baseDamage * 100 * buffMultiplier
-                damageDisplay = UtilsModule.ToText(finalDamage, 3) .. "%"
+                damageDisplay = Utils.ToText(finalDamage, 3) .. "%"
             end
             
             local displayTitle = string.format("%s [%s]", hName, hRarity)
@@ -5504,7 +5452,7 @@ function Optimizer.Update_Heroes_Logic(pData)
             if HeroesStatsModule.GetBuff then
                 pcall(function() buffMultiplier = HeroesStatsModule.GetBuff("Damage", damageStatIndex) end)
             end
-            hDamageStr = UtilsModule.ToText(baseDamage * 100 * buffMultiplier, 3) .. "%"
+            hDamageStr = Utils.ToText(baseDamage * 100 * buffMultiplier, 3) .. "%"
         end
 
         -- [BARU: LOGIKA VIEWPORT HERO]
@@ -5548,7 +5496,7 @@ function Optimizer.Update_Heroes_Logic(pData)
         end
         
         local myShards = pData.Materials.HeroesStats or 0
-        local shardsStr = UtilsModule.ToText(myShards)
+        local shardsStr = Utils.ToText(myShards)
         lines = lines .. string.format('\n<font color="#00ffff"><b>Hero Shards:</b></font> %s', shardsStr)
         
         local newTitle = string.format("%s [%s] - %s DMG", hName, hRarity, hDamageStr)
@@ -5572,12 +5520,11 @@ function Optimizer.Update_Heroes_Logic(pData)
                 -- Jika Tier Stats saat ini >= Target Tier DAN belum dikunci
                 if currentIdx >= targetIdx and not lStats[sName] then
                     pcall(function()
-                        Reliable:FireServer("Lock Hero Stats", {sName})
+                        Reply.To("Lock Hero Stats", sName)
                         if Notify then 
                             Notify("Auto Lock", "Locked " .. sName .. " (Tier " .. (RarityIndexMap[currentIdx] or "?") .. ")", "lock") 
                         end
                     end)
-                    task.wait(0.1) -- Jeda singkat agar tidak spam remote
                 end
             end
         end
@@ -5597,7 +5544,7 @@ function Optimizer.Update_Heroes_Logic(pData)
                 end
             end
 
-            if allTargetsLocked and currency > 15 then
+            if allTargetsLocked and currency > 10 then
                 if (os.time() - Optimizer.Cache.LastHeroRollTime) >= 1.5 then
                     local anyUnlocked = false
                     for _, sName in ipairs(ValidStatsList) do 
@@ -5605,7 +5552,7 @@ function Optimizer.Update_Heroes_Logic(pData)
                     end
                     
                     if anyUnlocked then
-                        Reliable:FireServer("Roll Hero Stats", {SelectedHeroUID, false})
+                        Reply.To("Roll Hero Stats", SelectedHeroUID, false)
                         Optimizer.Cache.LastHeroRollTime = os.time()
                     end
                 end
@@ -5627,7 +5574,7 @@ end
 
 function Optimizer.Update_MegaBoss_Logic(pData)
     -- Pastikan config & module terload
-    if not MegaBossUpgradeConfig or not MegaBossUpgradeModule then return end
+    if not MegaBossUpgradeConfig or not MegaBoss then return end
 
     if not IsPremium then
         if MegaBossFilterDrop then
@@ -5653,14 +5600,14 @@ function Optimizer.Update_MegaBoss_Logic(pData)
     
     -- Ambil Data Player
     local myUpgrades = pData.MegaBossUpgrades or {}
-    local tokenName = MegaBossUpgradeModule.TokenName or "MegaBossToken" --
+    local tokenName = MegaBoss.TokenName or "MegaBossToken" --
     local myTokens = pData.Materials[tokenName] or 0
     
     -- Ambil Template Icon Token untuk Display (Optional)
     local tokenIcon = ""
-    if MaterialsModule[tokenName] and MaterialsModule[tokenName].Template then
-        tokenIcon = GetIcon(MaterialsModule[tokenName].Template)
-        tokenName = MaterialsModule[tokenName].Display
+    if Materials[tokenName] and Materials[tokenName].Template then
+        tokenIcon = GetIcon(Materials[tokenName].Template)
+        tokenName = Materials[tokenName].Display
     end
 
     for name, cfg in pairs(MegaBossUpgradeConfig) do
@@ -5669,13 +5616,13 @@ function Optimizer.Update_MegaBoss_Logic(pData)
         
         -- Hitung Cost & Buff menggunakan Fungsi dari Module
         local cost = 0
-        if MegaBossUpgradeModule.GetUpgradeCost then
-            cost = MegaBossUpgradeModule.GetUpgradeCost(currentLvl, name) -- Rumus: 5 + 5 * Level
+        if MegaBoss.GetUpgradeCost then
+            cost = MegaBoss.GetUpgradeCost(currentLvl, name) -- Rumus: 5 + 5 * Level
         end
         
         local currentBuff = 0
-        if MegaBossUpgradeModule.GetUpgradeBuff then
-            currentBuff = MegaBossUpgradeModule.GetUpgradeBuff(name, currentLvl) -- Rumus: Level * BonusPerLevel
+        if MegaBoss.GetUpgradeBuff then
+            currentBuff = MegaBoss.GetUpgradeBuff(name, currentLvl) -- Rumus: Level * BonusPerLevel
         end
 
         -- Update Visual UI
@@ -5687,7 +5634,7 @@ function Optimizer.Update_MegaBoss_Logic(pData)
 
             if isMaxed then
                 newTitle = name .. " [MAX]"
-                newDesc = string.format("<b>Maxed</b>\nBuff: +%s%%", UtilsModule.ToText(currentBuff))
+                newDesc = string.format("<b>Maxed</b>\nBuff: +%s%%", Utils.ToText(currentBuff))
                 if not toggle.Locked then 
                     toggle:Lock("Already Maxed") 
                     Config["AutoMegaBossUp_" .. name] = false
@@ -5696,7 +5643,7 @@ function Optimizer.Update_MegaBoss_Logic(pData)
             else
                 newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
                 newDesc = string.format("%s%s %s/%s\nBuff: +%s%%", 
-                    tokenIcon,tokenName, UtilsModule.ToText(cost), UtilsModule.ToText(myTokens), UtilsModule.ToText(currentBuff))
+                    tokenIcon,tokenName, Utils.ToText(cost), Utils.ToText(myTokens), Utils.ToText(currentBuff))
                 if toggle.Locked then toggle:Unlock() end
             end
 
@@ -5716,7 +5663,7 @@ function Optimizer.Update_MegaBoss_Logic(pData)
                 if Reliable then
                     pcall(function()
                         -- Remote Event sesuai Decompile
-                        Reliable:FireServer("Mega Boss Upgrade", {name})
+                        Reply.To("Mega Boss Upgrade", name)
                     end)
                     
                 local now = os.time()
@@ -5763,7 +5710,7 @@ function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule,
                 if upgradeModule.GetUpgradeBuff then
                     buff = upgradeModule.GetUpgradeBuff(name, lvl)
                 end
-                newDesc = string.format("<b>Maxed</b>\nBuff: +%s%%", UtilsModule.ToText(buff))
+                newDesc = string.format("<b>Maxed</b>\nBuff: +%s%%", Utils.ToText(buff))
                 
                 -- Kunci toggle jika sudah Max (Logic UI State)
                 if not toggle.Locked then 
@@ -5781,7 +5728,7 @@ function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule,
                 
                 -- Format: Icon Cost | Cur: Value \n Buff: +%
                 newDesc = string.format("%s Cost: %s/%s\nBuff: +%s%%", 
-                    currencyIcon, UtilsModule.ToText(cost), UtilsModule.ToText(currencyVal), UtilsModule.ToText(buff))
+                    currencyIcon, Utils.ToText(cost), Utils.ToText(currencyVal), Utils.ToText(buff))
                 
                 -- Buka kunci jika belum Max
                 if toggle.Locked then toggle:Unlock() end
@@ -5810,7 +5757,7 @@ function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule,
         if Config[configPrefix .. name] and lvl < max then
             if currencyVal >= cost then
                 if Reliable then
-                    pcall(function() Reliable:FireServer(remoteName, {name}) end)
+                    pcall(function() Reply.To(remoteName, name) end)
                 end
             end
         end
@@ -5819,13 +5766,13 @@ end
 
 function Optimizer.Update_Main_Data_Logic(pData)
     local cRank, cMastery = (pData.Attributes.Rank or 0), (pData.Attributes.Mastery or 0)
-    local req, cBuff, nBuff = RankModule.GetRequirement(cRank), RankModule.GetBuff(cRank), RankModule.GetBuff(cRank+1)
+    local req, cBuff, nBuff = RankUp.GetRequirement(cRank), RankUp.GetBuff(cRank), RankUp.GetBuff(cRank+1)
     
     if RankProgressUI then
         local pct = req>0 and math.clamp(cMastery/req,0,1) or 0
         local bar = string.rep("█", math.floor(pct*10)) .. string.rep("▒", 10-math.floor(pct*10))
-        local bt = (cRank>=RankModule.MAX) and ("Buff: "..UtilsModule.ToText(cBuff).."% (MAX)") or ("Buff: "..UtilsModule.ToText(cBuff).."% >> "..UtilsModule.ToText(nBuff).."%")
-        local finalDesc = string.format("%s\n[%s] %d%%\n%s / %s", bt, bar, math.floor(pct*100), UtilsModule.ToText(cMastery), UtilsModule.ToText(req))
+        local bt = (cRank>=RankUp.MAX) and ("Buff: "..Utils.ToText(cBuff).."% (MAX)") or ("Buff: "..Utils.ToText(cBuff).."% >> "..Utils.ToText(nBuff).."%")
+        local finalDesc = string.format("%s\n[%s] %d%%\n%s / %s", bt, bar, math.floor(pct*100), Utils.ToText(cMastery), Utils.ToText(req))
         
         if _UIDescCache["Rank"] ~= finalDesc then
             RankProgressUI:SetTitle("Rank "..cRank)
@@ -5834,8 +5781,8 @@ function Optimizer.Update_Main_Data_Logic(pData)
         end
     end
     
-    if Config.AutoRankUp and cMastery >= req and cRank < RankModule.MAX then
-         if Reliable then pcall(function() Reliable:FireServer("RankUp") end) end
+    if Config.AutoRankUp and cMastery >= req and cRank < RankUp.MAX then
+         if Reliable then pcall(function() Reply.To("RankUp") end) end
     end
 
     -- [LOGIKA BARU YANG LEBIH PENDEK]
@@ -5843,9 +5790,9 @@ function Optimizer.Update_Main_Data_Logic(pData)
     -- 1. Jalankan Logika Yen
     if pData.YenUpgrades then
         Optimizer.GenericUpgradeLogic(
-            YenUpgradeConfig,        -- Config
+            YenUpgrades.Config,        -- Config
             pData.YenUpgrades,       -- Data Level Player
-            YenModule,               -- Module Game
+            YenUpgrades,               -- Module Game
             YenUpgradeToggleUI,      -- UI Toggle Kita
             "AutoYen_",              -- Prefix Config
             "Yen Upgrade",           -- Nama Remote
@@ -5859,14 +5806,14 @@ function Optimizer.Update_Main_Data_Logic(pData)
         -- Siapkan Icon Token
         local tKey = "UpgradeToken"
         local tIcon = ""
-        if MaterialsModule[tKey] and MaterialsModule[tKey].Template then 
-            tIcon = GetIcon(MaterialsModule[tKey].Template) 
+        if Materials[tKey] and Materials[tKey].Template then 
+            tIcon = GetIcon(Materials[tKey].Template) 
         end
         
         Optimizer.GenericUpgradeLogic(
-            TokenUpgradeConfig, 
+            TokenUpgrades.Config, 
             pData.TokenUpgrades, 
-            TokenModule, 
+            TokenUpgrades, 
             TokenUpgradeToggleUI, 
             "AutoToken_", 
             "Token Upgrade", 
@@ -5982,7 +5929,7 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
             else
                 statusColor = "#ffaa00" -- Oranye
                 statusText = "FARMING"
-                detailText = string.format("%s: %s/%s", displayTargetName, UtilsModule.ToText(currentAmount), UtilsModule.ToText(reqAmount))
+                detailText = string.format("%s: %s/%s", displayTargetName, Utils.ToText(currentAmount), Utils.ToText(reqAmount))
             end
         end
         
@@ -6001,13 +5948,13 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
         if isAuto and questInfo and not hasActionTaken then
             if serverQuestData and ((serverQuestData.Status == "Completed") or (serverQuestData.Progress and serverQuestData.Progress >= questInfo.Required)) then
                 if Reliable then
-                    pcall(function() Reliable:FireServer("Update HiddenQuests", {strID}) end)
+                    pcall(function() Reply.To("Update HiddenQuests", strID) end)
                     Notify("Hidden Quest", "Claiming Stage " .. currentStageIndex)
                     hasActionTaken = true
                 end
             elseif not serverQuestData then
                 if Reliable then
-                    pcall(function() Reliable:FireServer("Update HiddenQuests", {strID}) end)
+                    pcall(function() Reply.To("Update HiddenQuests", strID) end)
                     Notify("Hidden Quest", "Starting Stage " .. currentStageIndex)
                     hasActionTaken = true 
                 end
@@ -6016,7 +5963,7 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
                 if currentMap ~= "Unknown" and currentMap ~= questData.Zone then
                     if not IsTeleporting then
                         if Reliable then
-                            pcall(function() Reliable:FireServer("Zone Teleport", {questData.Zone}) end)
+                            pcall(function() Reply.To("Zone Teleport", questData.Zone) end)
                             IsTeleporting = true
                             hasActionTaken = true
                             task.spawn(function() task.wait(4); IsTeleporting = false end)
@@ -6071,11 +6018,11 @@ function Optimizer.Update_RarityPower_Logic(pData)
     end
 
     for powerName, toggle in pairs(RarityPowerUI) do
-        local powerConfig = RarityPowerConfig.List[powerName]
+        local powerConfig = RarityPower.List[powerName]
         local totalLevel = pData.RarityPowers[powerName] or 0
         
         -- Mengambil Rarity, Level di Rarity tersebut, dan Max Level Rarity tersebut
-        local rIdx, curLvl, maxLvl = RarityPowerConfig.GetRarityFromLevel(powerName, totalLevel)
+        local rIdx, curLvl, maxLvl = RarityPower.GetRarityFromLevel(powerName, totalLevel)
         local rarityData = powerConfig.List[rIdx]
         
         if rarityData then
@@ -6084,12 +6031,12 @@ function Optimizer.Update_RarityPower_Logic(pData)
             local canEvolve = isAtMaxLevel and not isMaxRarity
             
             -- 1. HITUNG BONUS STAT
-            local bonusValue = RarityPowerConfig.GetBuff(totalLevel)
+            local bonusValue = RarityPower.GetBuff(totalLevel)
             local bonusType = powerConfig.BonusType or "Power" -- Contoh: Damage, Mastery
             
             -- 2. IDENTIFIKASI MATA UANG & ICON
             local tokenKey = rarityData.TokenName
-            local materialData = MaterialsModule[tokenKey]
+            local materialData = Materials[tokenKey]
             local tokenIcon = materialData and materialData.Template and GetIcon(materialData.Template) or ""
             local tokenDisplayName = materialData and materialData.Display or tokenKey
 
@@ -6097,10 +6044,10 @@ function Optimizer.Update_RarityPower_Logic(pData)
             local cost = 0
             local actionName = "Upgrade"
             if canEvolve then
-                cost = RarityPowerConfig.GetEvolveCost(powerName, rIdx)
+                cost = RarityPower.GetEvolveCost(powerName, rIdx)
                 actionName = "Evolve"
             else
-                cost = RarityPowerConfig.GetLevelUpCost(curLvl + 1)
+                cost = RarityPower.GetLevelUpCost(curLvl + 1)
             end
 
             -- 4. UPDATE VISUAL UI
@@ -6114,9 +6061,9 @@ function Optimizer.Update_RarityPower_Logic(pData)
                     "Status: <font color='%s'><b>%s</b></font> (%s)\n" ..
                     "Level: %d/%d\n" ..
                     "Cost: %s/%s %s",
-                    bonusType, UtilsModule.ToText(bonusValue),
+                    bonusType, Utils.ToText(bonusValue),
                     statusColor, actionName, rarityData.Name,
-                    curLvl, maxLvl, UtilsModule.ToText(cost), UtilsModule.ToText(myTokenAmount),
+                    curLvl, maxLvl, Utils.ToText(cost), Utils.ToText(myTokenAmount),
                     tokenIcon
                 )
 
@@ -6142,7 +6089,7 @@ function Optimizer.Update_RarityPower_Logic(pData)
                 if myToken >= (cost or 0) then
                     pcall(function()
                         -- Remote sesuai decompile
-                        Reliable:FireServer("Upgrade Rarity Power", { powerName })
+                        Reply.To("Upgrade Rarity Power", powerName)
                     end)
                     local now = os.time()
                     local hookKey = "RarityPower_" .. powerName
@@ -6157,7 +6104,7 @@ function Optimizer.Update_RarityPower_Logic(pData)
     end
 end
 function Optimizer.Update_AvatarCurse_Logic(pData)
-    if not pData.AvatarCurses or not pData.Attributes or not AvatarCursesConfig then return end
+    if not pData.AvatarCurses or not pData.Attributes or not AvatarCurses then return end
     
     local currentAvatar = pData.Attributes.Avatar
     local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
@@ -6166,7 +6113,7 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     if isAvatarActive then
         if Optimizer.Cache.LastCurseAvatarID ~= currentAvatar then
             Optimizer.Cache.LastCurseAvatarID = currentAvatar
-            local modelPath = game:GetService("ReplicatedFirst").Assets.Enemies:FindFirstChild(currentAvatar)
+            local modelPath = ReplicatedFirst.Assets.Enemies:FindFirstChild(currentAvatar)
             
             if CurseStatusPara and modelPath then
                 local modelClone = modelPath:Clone()
@@ -6192,7 +6139,7 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
     -- Ambil indeks kutukan dan pastikan dikonversi ke Number agar valid saat mencari di Table
     local curseRawIndex = pData.AvatarCurses[currentAvatar]
     local curseIndex = tonumber(curseRawIndex) or 0
-    local curseData = AvatarCursesConfig.Table[curseIndex]
+    local curseData = AvatarCurses.Table[curseIndex]
     
     local rarity = curseData and curseData.Rarity or "Common"
     local curseTitle = curseData and curseData.Display or "No Curse"
@@ -6235,18 +6182,18 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
 
     -- [3] UPDATE DESKRIPSI TOGGLE (INFO MATERIAL & BIAYA)
     if CurseAutoToggle then
-        local tokenKey = AvatarCursesConfig.TokenName
-        local matInfo = MaterialsModule[tokenKey]
+        local tokenKey = AvatarCurses.TokenName
+        local matInfo = Materials[tokenKey]
         
         local multi = pData.Gamepasses.Vip and 0.8 or 1
-        local cost = AvatarCursesConfig.TokenCost * multi
+        local cost = AvatarCurses.TokenCost * multi
         local owned = pData.Materials[tokenKey] or 0
         
         local matIcon = (matInfo and matInfo.Template) and GetIcon(matInfo.Template) or ""
         local matName = matInfo and matInfo.Display or tokenKey
         
         local toggleDesc = string.format("%s %s: %s / %s", 
-            matIcon, matName, UtilsModule.ToText(cost), UtilsModule.ToText(owned))
+            matIcon, matName, Utils.ToText(cost), Utils.ToText(owned))
         
         if Optimizer.Cache.LastCurseToggleDesc ~= toggleDesc then
             CurseAutoToggle:SetDesc(toggleDesc)
@@ -6273,12 +6220,12 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
             Notify("Avatar Curse", "Target reached! Auto roll stopped.", "check")
         else
             local multi = pData.Gamepasses.Vip and 0.8 or 1
-            local cost = AvatarCursesConfig.TokenCost * multi
-            local owned = pData.Materials[AvatarCursesConfig.TokenName] or 0
+            local cost = AvatarCurses.TokenCost * multi
+            local owned = pData.Materials[AvatarCurses.TokenName] or 0
             
             if owned >= cost and Reliable then
-                Reliable:FireServer("Avatar Curse Roll")
-                task.wait(1.5)
+                Reply.To("Avatar Curse Roll")
+                task.wait(1)
             end
         end
     end
@@ -6286,7 +6233,7 @@ end
 
 function Optimizer.Update_EnergyUpgrade_Logic(pData)
     -- Pastikan module terload dan user adalah Premium
-    if not EnergyUpgradeConfig or not IsPremium then
+    if not EnergyUpgrade or not IsPremium then
         if Config.AutoEnergyUpgrade then Config.AutoEnergyUpgrade = false end
         if EnergyUpgradeToggle then
             pcall(function() 
@@ -6302,17 +6249,17 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
     local currentLvl = pData.EnergyUpgrade or 0 
     
     -- Ambil Data Langsung dari Module (Modular)
-    local maxLvl = EnergyUpgradeConfig.MAX
-    local tokenKey = EnergyUpgradeConfig.TOKEN_NAME
-    local displayName = EnergyUpgradeConfig.Display
-    local imageId = EnergyUpgradeConfig.ImageId
+    local maxLvl = EnergyUpgrade.MAX
+    local tokenKey = EnergyUpgrade.TOKEN_NAME
+    local displayName = EnergyUpgrade.Display
+    local imageId = EnergyUpgrade.ImageId
     
     -- Ambil Kalkulasi dari Fungsi Module
-    local cost = EnergyUpgradeConfig.GetEvolveCost(EnergyUpgradeConfig, currentLvl)
-    local bonusText = EnergyUpgradeConfig.GetDisplayBonus(currentLvl)
+    local cost = EnergyUpgrade.GetEvolveCost(EnergyUpgrade, currentLvl)
+    local bonusText = EnergyUpgrade.GetDisplayBonus(currentLvl)
     
     local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
-    local matInfo = MaterialsModule[tokenKey]
+    local matInfo = Materials[tokenKey]
     local matIcon = matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""
     local matName = matInfo and matInfo.Display or tokenKey
 
@@ -6335,7 +6282,7 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
             "Current Bonus: <font color='#d667ff'>%s</font>\n" ..
             "%s%s %s / %s",
             bonusText,
-            matIcon, matName, UtilsModule.ToText(cost), UtilsModule.ToText(myTokens)
+            matIcon, matName, Utils.ToText(cost), Utils.ToText(myTokens)
         )
         
         if EnergyUpgradeToggle.Locked then EnergyUpgradeToggle:Unlock() end
@@ -6364,7 +6311,7 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
             if Reliable then
                 pcall(function()
                     -- Mengirim remote sesuai instruksi decompile Interface.c
-                    Reliable:FireServer("Evolve EnergyUpgrade")
+                    Reply.To("Evolve EnergyUpgrade")
                 end)
                 
                 -- Anti-spam delay
@@ -6403,13 +6350,12 @@ function Optimizer.Update_AutoUnlock_Logic(pData)
             if isLocked then
                 pcall(function()
                     -- Mengirim remote "Try Unlock" dengan argumen tabel nama fitur
-                    Reliable:FireServer("Try Unlock", {itemName})
+                    Reply.To("Try Unlock", itemName)
                 end)
 
                 if Notify then 
                     Notify("Auto Unlock", "Unlocking Feature: " .. itemName, "shopping-cart") 
                 end
-                task.wait(1)
                 break 
             end
         end
@@ -6423,9 +6369,9 @@ function Optimizer.Update_YenUpgrade2_Logic(pData)
         
         -- Memanggil fungsi helper generic yang sudah ada di baris 782 skrip Anda
         Optimizer.GenericUpgradeLogic(
-            YenUpgrade2Module.Config,   -- List Config Tier 2
+            YenUpgrades2.Config,   -- List Config Tier 2
             pData.YenUpgrades2,          -- Data Level Player Tier 2
-            YenUpgrade2Module,           -- Module Tier 2 (untuk hitung cost/buff)
+            YenUpgrades2,           -- Module Tier 2 (untuk hitung cost/buff)
             YenUpgrade2ToggleUI,         -- UI Toggle Tier 2
             "AutoYen2_",                 -- Prefix Flag Config
             "Yen Upgrade 2",             -- Nama Remote Event sesuai decompile
@@ -6477,7 +6423,7 @@ task.spawn(function()
             end
             
         end
-        task.wait(0.1) -- Throttle Global
+        task.wait(0.05) -- Throttle Global
     end
 end)
 Window:SelectTab(FarmTab.Index);
