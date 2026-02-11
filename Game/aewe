@@ -1618,7 +1618,7 @@ FarmGroup:Toggle({
 
 -- Dropdown Select Enemy (Multi-Select)
 EnemyDropdown = FarmGroup:Dropdown({
-    Title = "Select Enemy (Multi)",
+    Title = "Select Enemy",
     Values = {},
     Multi = true, -- Mengaktifkan pemilihan banyak musuh
     AllowNone = true,
@@ -1642,14 +1642,21 @@ local MouseModule = require(ReplicatedStorage.Common.Utility.Mouse_Module)
 function Optimizer.Update_KillAura_Logic(data)
     -- Berjalan hanya jika Toggle Kill Aura aktif
     if Config.AutoKillAura then
-        local nearbyMonsters = MouseModule.Get_Monsters_InRange(50)
+        -- Get_Monsters_InRange tanpa parameter akan mengambil semua monster yang terdeteksi
+        local nearbyMonsters = MouseModule.Get_Monsters_InRange()
         local args = nil
         
         if nearbyMonsters and #nearbyMonsters > 0 then
+            -- Ambil data monster yang paling dekat (index 1)
             local targetData = nearbyMonsters[1]
             local monsterModel = targetData.Character
-            local args = { Id = monsterModel.Name,Action = "_Mouse_Click"}
-            ReplicatedStorage.Events.To_Server:FireServer(args)
+            local args = {
+                {
+                    Id = monsterModel.Name,
+                    Action = "_Mouse_Click"
+                }
+            }
+            ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
         end
     end
 end
@@ -1807,7 +1814,7 @@ function Optimizer.Update_Farm_Logic(pData)
         if distance > 10 then
             local targetCFrame = targetMonster:IsA("Model") and targetMonster.PrimaryPart.CFrame or targetMonster.CFrame
             -- Teleport dengan sedikit offset (5 unit) agar tidak stuck di dalam model musuh
-            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, -8)
+            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, -5)
         end
     end
 end
@@ -1818,8 +1825,7 @@ local GameModeGroups = FarmTab:Group({ Title = "Game Mode / Dungeons" })
 FM_Add("Farm", GameModeGroups)
 
 FM_Add("Farm", GameModeGroups:Toggle({
-    Title = "Auto Join (Search Room)",
-    Desc = "Mencari room aktif di Dungeons_Shared.",
+    Title = "Auto Join/Create Dungeon",
     Flag = "AutoJoin_Cfg",
     Callback = function(val) Config.AutoEnter = val end
 }))
@@ -2503,20 +2509,6 @@ task.spawn(function()
         
         if pData then
             pcall(Optimizer.Update_KillAura_Logic,pData)
-        end
-    end
-end)
-task.spawn(function()
-    while true do
-        task.wait() -- Update setiap 0.5 detik (Real-time)
-        
-        -- Pastikan Window masih ada
-        if not IsWindowAlive() then break end
-
-        -- Ambil PlayerData dari Global Variable atau Sync
-        local pData = PlayerReplica and PlayerReplica.Data
-        
-        if pData then
             pcall(Optimizer.Update_Farm_Logic, pData)
         end
     end
