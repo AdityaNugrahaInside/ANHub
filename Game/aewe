@@ -2,7 +2,7 @@ if game.PlaceId ~= 90462358603255 then return end
 repeat task.wait() until game:IsLoaded()
 
 getgenv().SLoading = getgenv().SLoading or {}
-getgenv().SLoading.SubTitle = "Anime Eternal"
+getgenv().SLoading.SubTitle = "Anime Eternals"
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -2510,6 +2510,20 @@ task.spawn(function()
         
         if pData then
             pcall(Optimizer.Update_KillAura_Logic,pData)
+        end
+    end
+end)
+task.spawn(function()
+    while true do
+        task.wait() -- Update setiap 0.5 detik (Real-time)
+        
+        -- Pastikan Window masih ada
+        if not IsWindowAlive() then break end
+
+        -- Ambil PlayerData dari Global Variable atau Sync
+        local pData = PlayerReplica and PlayerReplica.Data
+        
+        if pData then
             pcall(Optimizer.Update_Farm_Logic, pData)
         end
     end
