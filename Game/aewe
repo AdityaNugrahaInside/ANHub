@@ -1636,30 +1636,6 @@ FM_Add("Farm", FarmTab:Toggle({
         Config.AutoKillAura = val
     end
 }))
--- Pastikan MouseModule sudah di-require di bagian atas script Anda
-local MouseModule = require(ReplicatedStorage.Common.Utility.Mouse_Module)
-
-function Optimizer.Update_KillAura_Logic(data)
-    -- Berjalan hanya jika Toggle Kill Aura aktif
-    if Config.AutoKillAura then
-        -- Get_Monsters_InRange tanpa parameter akan mengambil semua monster yang terdeteksi
-        local nearbyMonsters = MouseModule.Get_Monsters_InRange()
-        local args = nil
-        
-        if nearbyMonsters and #nearbyMonsters > 0 then
-            -- Ambil data monster yang paling dekat (index 1)
-            local targetData = nearbyMonsters[1]
-            local monsterModel = targetData.Character
-            local args = {
-                {
-                    Id = monsterModel.Name,
-                    Action = "_Mouse_Click"
-                }
-            }
-            ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
-        end
-    end
-end
 
 -- [[ 3. LOGIKA FILTERING DINAMIS (VERIFIED FOR ANUI) ]] --
 function Optimizer.RefreshMonsterList(pData)
@@ -1715,72 +1691,155 @@ function Optimizer.RefreshMonsterList(pData)
     end
 end
 local CurrentTargetIndex = 1 -- Melacak urutan musuh
-
-function Optimizer.Update_Farm_Logic(pData)
-
-    -- 2. Refresh list musuh di Dropdown
+local CachedMonsterFolder = nil
+local function GetMonsterFolderSafe()
+    if CachedMonsterFolder and CachedMonsterFolder.Parent then
+        return CachedMonsterFolder
+    end
     
-    -- 1. PROTEKSI TRANSISI (Sangat Penting)
-    -- Jika sedang loading masuk dungeon (IsTransitioning = true), stop farm sementara.
-    -- Jika baru keluar dungeon, IsTransitioning sudah false, jadi farm langsung jalan.
-    if IsTransitioning then 
-        return 
+    local Debris = workspace:FindFirstChild("Debris")
+    if Debris then
+        CachedMonsterFolder = Debris:FindFirstChild("Monsters")
+    end
+    
+    return CachedMonsterFolder
+end
+-- [[ CACHE PLAYER & ROOTPART ]] --
+local CachedCharacter = nil
+local CachedRootPart = nil
+
+local function GetRootPartSafe()
+    local currentArrow = LocalPlayer.Character
+    
+    -- Jika karakter berubah (misal respawn/mati), reset cache
+    if currentArrow ~= CachedCharacter then
+        CachedCharacter = currentArrow
+        CachedRootPart = nil
     end
 
-    -- 3. Cek apakah Auto Farm diaktifkan di UI
+    -- Jika RootPart sudah ada di cache dan masih valid (belum terhapus), pakai itu aja
+    if CachedRootPart and CachedRootPart.Parent then
+        return CachedRootPart
+    end
+
+    -- Jika cache kosong, baru kita cari (Hemat CPU: Cuma jalan sesekali)
+    if currentArrow then
+        CachedRootPart = currentArrow:FindFirstChild("HumanoidRootPart")
+    end
+    
+    return CachedRootPart
+end
+function Optimizer.Update_KillAura_Logic(pData)
+    -- 1. Cek apakah fitur nyala
+    if not Config.AutoKillAura then return end
+
+    -- 2. Ambil Folder Monster dari Cache (Sangat Cepat)
+    local monsterFolder = GetMonsterFolderSafe()
+    if not monsterFolder then return end
+
+    local rootPart = GetRootPartSafe() 
+    if not rootPart then return end -- Kalau gak ada rootpart, stop
+    
+    local myPos = rootPart.Position
+    local killRange = 50 -- Atur jarak serang (biasanya 20-25 cukup)
+    local targetFound = nil
+    
+    -- 3. Loop Ringan (Hanya Cek Jarak)
+    -- Kita tidak pakai Get_Monsters_InRange dari Mouse_Module karena itu berat (ada Raycast).
+    local children = monsterFolder:GetChildren()
+    
+    for _, monster in ipairs(children) do
+        if monster:IsA("Model") and monster.PrimaryPart then
+            local dist = (monster.PrimaryPart.Position - myPos).Magnitude
+            
+            -- Jika masuk jarak serang
+            if dist <= killRange then
+                -- Opsional: Cek apakah monster hidup (punya Humanoid & HP > 0)
+                local hum = monster:FindFirstChild("Humanoid")
+                if hum and hum.Health > 0 then
+                    targetFound = monster
+                    break -- OPTIMASI: Begitu ketemu 1 musuh terdekat, langsung serang & berhenti loop
+                end
+            end
+        end
+    end
+
+    -- 4. Eksekusi Serangan
+    if targetFound then
+        local args = {
+            {
+                Id = targetFound.Name, -- Pastikan game menerima Name atau Instance
+                Action = "_Mouse_Click"
+            }
+        }
+        ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
+    end
+end
+function Optimizer.Update_Farm_Logic(pData)
+    -- 1. PROTEKSI TRANSISI
+    if IsTransitioning then return end
+
+    -- 2. Cek apakah Auto Farm aktif
     if not Config.AutoFarm then return end
 
+    -- 3. Ambil Folder Monster dari Cache (Cepat & Ringan)
+    local monsterFolder = GetMonsterFolderSafe()
+    if not monsterFolder then return end -- Jika folder belum ada, skip frame ini
+
+    -- Persiapan Variabel Player
+    local rootPart = GetRootPartSafe() 
+    if not rootPart then return end -- Kalau gak ada rootpart, stop
+
+    local targetMonster = nil
     local inDungeon = IsInDungeonEvent or false
     local selectedEnemies = Config.SelectedEnemy
     local hasSelection = type(selectedEnemies) == "table" and #selectedEnemies > 0
-
-    local character = LocalPlayer.Character
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return end
-
-    local targetMonster = nil
     
-    -- 4. LOGIKA PRIORITAS
+    -- Ambil semua monster SEKALIGUS (Hanya satu kali call API)
+    local allMonsters = monsterFolder:GetChildren()
+    if #allMonsters == 0 then return end -- Tidak ada monster, tidak usah lanjut
+
+    -- 4. LOGIKA PENCARIAN TARGET
     if inDungeon then
         -- === LOGIKA DI DALAM DUNGEON ===
         local mapMonsterIds = {}
         local currentMapName = pData.InGame.Info.Map
         local currentMapId = nil
         
-        -- Cari ID Map saat ini untuk memfilter mana monster map asli dan mana monster dungeon
-        for id, data in pairs(GeneralReplica.Data.Enums.World_Maps) do
-            if data.Name == currentMapName then 
-                currentMapId = id 
-                break 
-            end
-        end
-
-        if currentMapId then
-            for _, mData in pairs(GeneralReplica.Data.Monsters) do
-                if mData.MapId == currentMapId then 
-                    mapMonsterIds[tostring(mData.Name)] = true 
+        -- Mapping ID Map (Optimasi: Bisa dipindah ke cache jika mau lebih cepat lagi)
+        if GeneralReplica and GeneralReplica.Data then
+            for id, data in pairs(GeneralReplica.Data.Enums.World_Maps) do
+                if data.Name == currentMapName then 
+                    currentMapId = id 
+                    break 
                 end
             end
-        end
-
-        local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
-        if debrisMonsters then
-            for _, monster in pairs(debrisMonsters:GetChildren()) do
-                if monster:IsA("Model") and monster.PrimaryPart then
-                    local monsterTitle = monster:GetAttribute("Title") or ""
-                    -- Target monster yang BUKAN bagian dari database map normal
-                    if not mapMonsterIds[tostring(monsterTitle)] then
-                        targetMonster = monster
-                        break
+            
+            if currentMapId then
+                for _, mData in pairs(GeneralReplica.Data.Monsters) do
+                    if mData.MapId == currentMapId then 
+                        mapMonsterIds[tostring(mData.Name)] = true 
                     end
                 end
             end
         end
+
+        -- Loop array monster yang sudah diambil (Cepat karena hanya tabel Lua)
+        for _, monster in ipairs(allMonsters) do
+            if monster:IsA("Model") and monster.PrimaryPart then
+                local monsterTitle = monster:GetAttribute("Title") or ""
+                -- Jika monster TIDAK ada di database map normal, berarti monster dungeon
+                if not mapMonsterIds[tostring(monsterTitle)] then
+                    targetMonster = monster
+                    break -- Langsung berhenti loop jika ketemu 1 target (Hemat CPU)
+                end
+            end
+        end
+
     elseif hasSelection then
-        -- === LOGIKA MAP NORMAL (BERURUTAN) ===
-        local debrisMonsters = workspace:FindFirstChild("Debris") and workspace.Debris:FindFirstChild("Monsters")
+        -- === LOGIKA MAP NORMAL ===
         
-        -- Reset index jika melebihi jumlah pilihan
+        -- Reset index jika melebihi batas
         if CurrentTargetIndex > #selectedEnemies then 
             CurrentTargetIndex = 1 
         end
@@ -1788,33 +1847,33 @@ function Optimizer.Update_Farm_Logic(pData)
         local currentChoice = selectedEnemies[CurrentTargetIndex]
         local targetName = (type(currentChoice) == "table" and currentChoice.Value) and currentChoice.Value.Name or nil
 
-        if targetName and debrisMonsters then
-            for _, monster in pairs(debrisMonsters:GetChildren()) do
+        if targetName then
+            -- Cari monster spesifik
+            for _, monster in ipairs(allMonsters) do
                 if monster:IsA("Model") and monster.PrimaryPart then
                     if monster:GetAttribute("Title") == targetName then
                         targetMonster = monster
-                        break 
+                        break -- Ketemu langsung break
                     end
                 end
             end
-        end
 
-        -- Jika target urutan ini tidak ditemukan, pindah ke index berikutnya
-        if not targetMonster then
-            CurrentTargetIndex = (CurrentTargetIndex % #selectedEnemies) + 1
+            -- Jika target saat ini tidak ada, ganti index target untuk frame berikutnya
+            if not targetMonster then
+                CurrentTargetIndex = (CurrentTargetIndex % #selectedEnemies) + 1
+            end
         end
     end
 
     -- 5. EKSEKUSI TELEPORT
-    if targetMonster then
-        local targetPos = targetMonster:IsA("Model") and targetMonster.PrimaryPart.Position or targetMonster.Position
-        local distance = (rootPart.Position - targetPos).Magnitude
+    if targetMonster and targetMonster.PrimaryPart then
+        local targetCFrame = targetMonster.PrimaryPart.CFrame
+        local targetPos = targetCFrame.Position
         
-        -- Jarak aman teleport 10 unit
-        if distance > 10 then
-            local targetCFrame = targetMonster:IsA("Model") and targetMonster.PrimaryPart.CFrame or targetMonster.CFrame
-            -- Teleport dengan sedikit offset (5 unit) agar tidak stuck di dalam model musuh
-            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, -5)
+        -- Cek jarak dulu sebelum set CFrame (Mengurangi jitter)
+        if (rootPart.Position - targetPos).Magnitude > 10 then
+            -- Teleport ke belakang/atas monster sedikit agar aman
+            rootPart.CFrame = targetCFrame * CFrame.new(0, 0, -5) 
         end
     end
 end
@@ -1876,7 +1935,7 @@ GameModeGroup:Dropdown({
 
 -- Dropdown 2: Raid (Paid / Keys)
 GameModeGroup:Dropdown({
-    Title = "Select Raid (Requires Key)",
+    Title = "Select Raid",
     Values = RaidList,
     AllowNone = true,
     Flag = "Raid_cfg",
