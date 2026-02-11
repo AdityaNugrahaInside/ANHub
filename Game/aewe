@@ -2,7 +2,7 @@ if game.PlaceId ~= 90462358603255 then return end
 repeat task.wait() until game:IsLoaded()
 
 getgenv().SLoading = getgenv().SLoading or {}
-getgenv().SLoading.SubTitle = "Anime Eternals"
+getgenv().SLoading.SubTitle = "Anime Eternal"
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
@@ -1642,21 +1642,26 @@ local MouseModule = require(ReplicatedStorage.Common.Utility.Mouse_Module)
 function Optimizer.Update_KillAura_Logic(data)
     -- Berjalan hanya jika Toggle Kill Aura aktif
     if Config.AutoKillAura then
-        -- Get_Monsters_InRange tanpa parameter akan mengambil semua monster yang terdeteksi
-        local nearbyMonsters = MouseModule.Get_Monsters_InRange()
-        local args = nil
+        -- 1. Ambil daftar semua monster dalam jangkauan
+        -- Tips: Anda bisa memasukkan angka ke dalam kurung untuk batas jarak, misal: Get_Monsters_InRange(50)
+        local nearbyMonsters = MouseModule.Get_Monsters_InRange() 
         
         if nearbyMonsters and #nearbyMonsters > 0 then
-            -- Ambil data monster yang paling dekat (index 1)
-            local targetData = nearbyMonsters[1]
-            local monsterModel = targetData.Character
-            local args = {
-                {
-                    Id = monsterModel.Name,
-                    Action = "_Mouse_Click"
-                }
-            }
-            ReplicatedStorage.Events.To_Server:FireServer(unpack(args))
+            local attackBatch = {}
+            local maxTargets = 10 -- Batasi jumlah target sekali serang biar tidak kena kick/disconnect
+            
+            -- 2. Loop semua monster yang ditemukan (Bukan cuma index 1)
+            for i, targetData in ipairs(nearbyMonsters) do
+                if i > maxTargets then break end -- Berhenti jika sudah melebihi batas target
+
+                -- Cek apakah monster terlihat (Line of Sight) agar aman
+                if targetData.IsInSight and targetData.Character then
+                    ReplicatedStorage.Events.To_Server:FireServer({
+                        Id = targetData.Character.Name, -- Pastikan game butuh Name atau Instance
+                        Action = "_Mouse_Click"
+                    })
+                end
+            end
         end
     end
 end
