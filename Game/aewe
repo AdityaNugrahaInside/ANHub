@@ -1172,18 +1172,16 @@ function Optimizer.Update_Progression_Logic(pData)
             if not priceTable then continue end
             
             local baseAmount = math.abs(priceTable.Amount)
-            local priceIncrease = upgInfo.Price_Increase or 0
-            local currentCost = baseAmount
-
-            -- Logika Perhitungan Harga Game
-            if upgInfo.Price_Compound then
-                -- Eksponensial: Base * (1 + Increase)^Level
-                currentCost = baseAmount * ((1 + priceIncrease) ^ currentLevel)
-            else
-                -- Linear: Base * (1 + (Increase * Level))
-                currentCost = baseAmount * (1 + (priceIncrease * currentLevel))
+            local inc = levelDef.Price_Increase or 0
+            local lvlInc = levelDef.Price_Maximum_Lv
+            if currentLevel < lvlInc then
+                lvlInc = currentLevel
             end
-
+                
+                -- Rumus: base * ((1 + inc) ^ level) jika compound, atau base * (1 + (inc * level))
+            local currentCost = levelDef.Price_Compound 
+                and (baseAmount * ((1 + inc) ^ lvlInc)) 
+                    or (baseAmount * (1 + (inc * lvlInc)))
             local currency = priceTable.Id
             local currentBalance = GetBalance(pData, currency)
 
