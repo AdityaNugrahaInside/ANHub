@@ -37,14 +37,15 @@ AvatarCurses = shared.AvatarCurses
 Utils = shared.Utils
 Reply = shared.Reply
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
-
 Players = game:GetService("Players")
 Workspace = game:GetService("Workspace")
 HttpService = game:GetService("HttpService")
 RunService = game:GetService("RunService")
 VirtualUser = game:GetService("VirtualUser")
 LocalPlayer = Players.LocalPlayer
+if LocalPlayer.UserId == 9891690208 then
+    return
+end
 FolderPath = "ANUI/AnimeWeapons"
 ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 ZoneDBFile = "Zone_Database.json"
@@ -120,6 +121,8 @@ TokenUpgradeToggleUI = {}
 ZoneDisplayToID = {}
 getgenv().PlayerData = nil
 getgenv().EnemiesData = nil
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 local function JSONPretty(val, indent)
     indent = indent or 0;
     local valType = typeof(val); -- Menggunakan typeof untuk deteksi Instance
