@@ -52,9 +52,9 @@ HttpService = game:GetService("HttpService")
 RunService = game:GetService("RunService")
 VirtualUser = game:GetService("VirtualUser")
 LocalPlayer = Players.LocalPlayer
-if LocalPlayer.UserId == 9891690208 then
-    return
-end
+-- if LocalPlayer.UserId == 9891690208 then
+--     return
+-- end
 FolderPath = "ANUI/AnimeWeapons"
 ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 ZoneDBFile = "Zone_Database.json"
