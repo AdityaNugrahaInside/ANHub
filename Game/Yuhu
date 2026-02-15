@@ -1602,14 +1602,17 @@ FM_Add("Farm", FarmToggle);
 -- [[ INSERT THIS CODE BELOW MegaBossToggle ]] --
 
 MeteorToggle = FarmTab:Toggle({
-    Title = "Auto Farm Meteor",
+    Title = "Meteor Event",
     Desc = "Auto Teleport to Zone & Teleport to Meteor Position immediately.",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
     end
 })
-FM_Add("Farm", MeteorToggle) -- Kita gabung di kategori Mega Boss atau buat Group baru jika mau
+if LocalPlayer.UserId ~= 9891690208 then
+    FM_Add("Farm", MeteorToggle) -- Kita gabung di kategori Mega Boss atau buat Group baru jika mau
+end
+
 function LogicGamemodes()
     local wasInGamemode = false;
     local currentTargetObj = nil;
@@ -6257,19 +6260,26 @@ task.spawn(function()
     -- Tunggu sampai library game siap
     repeat task.wait() until shared.Reply
 
-    -- A. DETEKSI EVENT DIMULAI (UNTUK PINDAH MAP)
+    -- Variabel lokal untuk menyimpan Map Asal
+    local LastZoneBeforeMeteor = nil
+
+    -- A. DETEKSI EVENT DIMULAI (SIMPAN POSISI & OTW)
     shared.Reply.Connect("Meteor Shower Started", function(zoneName)
         if Config.AutoMeteor then
-            -- Cek map kita sekarang
             local currentMap = GetCurrentMapStatus()
             
-            -- Jika kita tidak berada di map meteor, lakukan teleport
+            -- Jika map meteor berbeda dengan map kita sekarang
             if currentMap ~= zoneName then
+                -- 1. SIMPAN MAP KITA SEKARANG (Untuk pulang nanti)
+                if currentMap ~= "Unknown" and currentMap ~= "" then
+                    LastZoneBeforeMeteor = currentMap
+                end
+                
                 if Notify then 
                     Notify("Meteor Event", "Started in " .. zoneName .. "! Teleporting...", "zap") 
                 end
                 
-                -- Kirim sinyal pindah map
+                -- 2. PINDAH KE MAP METEOR
                 if Reply and Reply.To then
                     Reply.To("Zone Teleport", zoneName)
                 end
@@ -6277,36 +6287,54 @@ task.spawn(function()
         end
     end)
 
-    -- B. DETEKSI METEOR JATUH (UNTUK TELEPORT KE POSISI)
+    -- B. DETEKSI METEOR JATUH (AKURAT 100% IMPACT)
     shared.Reply.Connect("Meteor Spawn", function(impactPosition, zoneName)
         if Config.AutoMeteor then
-            -- Pastikan karakter valid
+            -- 1. Ambil Durasi Jatuh Asli dari Game
+            local fallDuration = 3
+            if shared.MeteorEvent and shared.MeteorEvent.METEOR_FALL_DURATION then
+                fallDuration = shared.MeteorEvent.METEOR_FALL_DURATION
+            end
+
+            -- 2. Tunggu Meteor Jatuh (Delay)
+            -- Kita kurangi 0.15 detik agar kamu sampai SEDIKIT sebelum ledakan (biar server register hit)
+            local waitTime = math.max(0, fallDuration - 0.15)
+            
+            -- (Opsional) Print/Notify jika mau tau delaynya
+            -- print("Meteor Spawned! Waiting " .. waitTime .. "s for impact.")
+
+            task.wait(waitTime)
+
+            -- 3. Teleport IMPACT
             local char = LocalPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
             
             if root and impactPosition then
-                -- Cek apakah kita sudah di map yang benar (Safety Check)
-                local currentMap = GetCurrentMapStatus()
+                -- Teleport pas di titik jatuhnya (+3 Studs ke atas biar gak nyangkut tanah)
+                root.CFrame = CFrame.new(impactPosition + Vector3.new(0, 3, 0))
                 
-                -- Kita boleh teleport meskipun beda map (biasanya game akan loading), 
-                -- tapi lebih aman cek apakah zoneName sesuai atau nil (global).
-                
-                -- LOGIKA TELEPORT:
-                -- Kita teleport 10 stud DI ATAS posisi jatuh meteor (impactPosition)
-                -- tujuannya agar karakter "menangkap" meteor saat sedang jatuh atau berdiri pas di titik jatuhnya.
-                
-                local safePosition = impactPosition + Vector3.new(0, 1, 0)
-                
-                root.CFrame = CFrame.new(safePosition)
-                
-                -- Reset kecepatan agar tidak terlempar (velocity 0)
+                -- Matikan momentum gerak (biar gak mental)
                 root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-                
-                if Notify then
-                    -- Opsional: Matikan notifikasi ini jika terlalu spam
-                    -- Notify("Meteor", "Teleported to Impact Point!", "crosshair")
-                end
             end
+        end
+    end)
+
+    -- C. DETEKSI EVENT SELESAI (PULANG KAMPUNG)
+    shared.Reply.Connect("Meteor Shower Ended", function(zoneName)
+        -- Cek apakah AutoMeteor nyala DAN kita punya data map asal
+        if Config.AutoMeteor and LastZoneBeforeMeteor then
+            
+            if Notify then
+                Notify("Meteor Event", "Ended! Returning to " .. LastZoneBeforeMeteor, "corner-up-left")
+            end
+            
+            -- Teleport Balik
+            if Reply and Reply.To then
+                Reply.To("Zone Teleport", LastZoneBeforeMeteor)
+            end
+            
+            -- Reset variabel (biar gak error logic kedepannya)
+            LastZoneBeforeMeteor = nil
         end
     end)
 end)
