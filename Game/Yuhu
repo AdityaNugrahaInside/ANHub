@@ -6255,14 +6255,14 @@ function Optimizer.Update_YenUpgrade2_Logic(pData)
         )
     end
 end
--- [[ METEOR EVENT LOGIC: PERFECTED ]] --
+-- [[ METEOR EVENT LOGIC: ENEMY HUNTER ONLY ]] --
 task.spawn(function()
     repeat task.wait() until shared.Reply and getgenv().EnemiesData
 
     local LastZoneBeforeMeteor = nil
     local IncandescentTargets = {} -- Daftar Target Prioritas
 
-    -- 1. TAMBAH TARGET: Saat Aura Muncul
+    -- 1. [TRACKING] TAMBAH TARGET: Saat Aura Muncul
     shared.Reply.Connect("Enemy Incandescent", function(uid, isActive)
         if isActive then
             IncandescentTargets[uid] = true
@@ -6271,20 +6271,19 @@ task.spawn(function()
         end
     end)
 
-    -- 2. HAPUS TARGET: Saat Musuh Mati (BUKTI DARI DECOMPILE)
-    -- Kita wajib hapus dari list karena musuh mati = aura hilang
+    -- 2. [TRACKING] HAPUS TARGET: Saat Musuh Mati
     shared.Reply.Connect("Enemy Die", function(uid)
         if IncandescentTargets[uid] then
             IncandescentTargets[uid] = nil
         end
     end)
 
-    -- 3. HAPUS SEMUA: Saat Pindah Zone (Reset Data)
+    -- 3. [TRACKING] RESET: Saat Pindah Zone
     shared.Reply.Connect("Enemies Changed", function()
         IncandescentTargets = {}
     end)
 
-    -- 4. LOOP PEMBURU (SMART AUTO FARM LOGIC)
+    -- 4. [ACTION] LOOP PEMBURU (Smart Auto Farm Logic)
     task.spawn(function()
         while not Window.Destroyed do
             if Config.AutoMeteor then
@@ -6293,14 +6292,15 @@ task.spawn(function()
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 local humanoid = char and char:FindFirstChild("Humanoid")
 
+                -- Pastikan karakter hidup
                 if hrp and humanoid and humanoid.Health > 0 then
-                    -- Cari target valid dari daftar Incandescent
+                    
+                    -- A. Cari Target Valid dari List Incandescent
                     local targetUID = nil
                     for uid, _ in pairs(IncandescentTargets) do
-                        -- Double check: Pastikan data musuh masih ada & Alive di sistem game
                         if enemiesData[uid] and enemiesData[uid].Alive then
                             targetUID = uid
-                            break 
+                            break -- Fokus satu musuh dulu
                         else
                             IncandescentTargets[uid] = nil -- Bersihkan data sampah
                         end
@@ -6308,16 +6308,16 @@ task.spawn(function()
 
                     local targetEnemy = targetUID and enemiesData[targetUID]
 
-                    -- JIKA ADA TARGET -> KEJAR & BUNUH
+                    -- B. JIKA TARGET DITEMUKAN -> KEJAR DENGAN LOGIKA AUTO FARM
                     if targetEnemy and targetEnemy.Root then
                         pcall(function()
                             local enemyRoot = targetEnemy.Root
                             
-                            -- [RUMUS POSISI AUTO FARM] --
+                            -- Kalkulasi Posisi (Smart Positioning)
                             local enemyPos = enemyRoot.Position
                             local enemyLook = enemyRoot.CFrame.LookVector
                             
-                            -- Hitung Scale (Tinggi Musuh)
+                            -- Hitung Tinggi Musuh (Biar sejajar)
                             local enemyScale = 1
                             if targetEnemy.DifficultConfig and targetEnemy.DifficultConfig.Scale then
                                 enemyScale = targetEnemy.DifficultConfig.Scale
@@ -6329,21 +6329,16 @@ task.spawn(function()
                             local feetY = enemyPos.Y - (baseHipHeight * enemyScale)
                             local myTargetY = feetY + baseHipHeight
                             
-                            -- Posisi: 5 Stud di DEPAN musuh (Biar hitbox kena)
+                            -- Posisi: 5 Stud di DEPAN musuh (Hitbox Ideal)
                             local dirVector = Vector3.new(enemyLook.X, 0, enemyLook.Z).Unit 
                             local attackPos = enemyPos + (dirVector * 5) 
                             
                             local finalPos = Vector3.new(attackPos.X, myTargetY, attackPos.Z)
                             local lookAtPos = Vector3.new(enemyPos.X, myTargetY, enemyPos.Z)
                             
-                            -- Teleport Halus (CFrame)
+                            -- C. Teleport & Serang
                             hrp.CFrame = CFrame.lookAt(finalPos, lookAtPos)
-                            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-
-                            -- Kirim Paket Hit
-                            if Reply and Reply.UnTo then
-                                Reply.UnTo("Hit", {targetUID})
-                            end
+                            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) -- Hentikan momentum
                         end)
                     end
                 end
@@ -6352,44 +6347,41 @@ task.spawn(function()
         end
     end)
 
-    -- 5. DETEKSI EVENT MULAI (OTW MAP)
+    -- 5. [EVENT START] PINDAH MAP
     shared.Reply.Connect("Meteor Shower Started", function(zoneName)
         if Config.AutoMeteor then
             local currentMap = GetCurrentMapStatus()
             if currentMap ~= zoneName then
+                -- Simpan map asal
                 if currentMap ~= "Unknown" and currentMap ~= "" then
                     LastZoneBeforeMeteor = currentMap
                 end
-                if Notify then Notify("Meteor", "Started in " .. zoneName, "zap") end
+                
+                if Notify then Notify("Meteor", "Event started in " .. zoneName, "zap") end
+                
+                -- Teleport ke Map Event
                 if Reply and Reply.To then Reply.To("Zone Teleport", zoneName) end
             end
         end
     end)
 
-    -- 6. DETEKSI METEOR JATUH (STANDBY POSISI)
+    -- 6. [EVENT PROCESS] SINKRONISASI WAKTU (HAPUS TELEPORT METEOR)
     shared.Reply.Connect("Meteor Spawn", function(impactPosition, zoneName)
+        -- Di sini kita TIDAK teleport ke meteor.
+        -- Kita hanya menunggu durasi jatuh agar script 'sadar' bahwa event sedang berlangsung.
         if Config.AutoMeteor then
             local fallDuration = shared.MeteorEvent and shared.MeteorEvent.METEOR_FALL_DURATION or 5
-            
-            -- Tunggu di dekat lokasi jatuh (biar musuh ter-load oleh client)
-            task.wait(math.max(0, fallDuration - 0.5))
-
-            local char = LocalPlayer.Character
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            
-            if root and impactPosition then
-                -- Teleport 10 stud di atas impact point
-                root.CFrame = CFrame.new(impactPosition + Vector3.new(0, 10, 0))
-                root.AssemblyLinearVelocity = Vector3.new(0,0,0)
-            end
+            task.wait(fallDuration) 
+            -- Setelah wait ini selesai, biasanya server baru memunculkan/update musuh jadi 'Incandescent'.
+            -- Saat itu terjadi, Loop Pemburu (No. 4) akan otomatis bekerja.
         end
     end)
 
-    -- 7. EVENT SELESAI (PULANG)
+    -- 7. [EVENT END] PULANG KAMPUNG
     shared.Reply.Connect("Meteor Shower Ended", function(zoneName)
-        IncandescentTargets = {} -- Reset total
+        IncandescentTargets = {} -- Hapus semua target sisa
         if Config.AutoMeteor and LastZoneBeforeMeteor then
-            if Notify then Notify("Meteor", "Ended! Returning...", "corner-up-left") end
+            if Notify then Notify("Meteor", "Event ended. Returning...", "corner-up-left") end
             if Reply and Reply.To then Reply.To("Zone Teleport", LastZoneBeforeMeteor) end
             LastZoneBeforeMeteor = nil
         end
