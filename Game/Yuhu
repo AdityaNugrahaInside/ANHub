@@ -1887,7 +1887,7 @@ shadowGateList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.ShadowGate,
 capitalRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.CapitalRaid, "Capital Raid", "CapitalRaid", "MAX_WAVE", "Max Waves")
 magicRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.MagicRaid, "Magic Raid", "MagicRaid", "MAX_WAVE", "Max Waves")
 ignitionRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.IgnitionRaid, "Ignition Raid", "IgnitionRaid", "MAX_WAVE", "Max Waves")
-slimeRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SlimeRaid, "Ignition Raid", "SlimeRaid", "MAX_WAVE", "Max Waves")
+slimeRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SlimeRaid, "Slime Raid", "SlimeRaid", "MAX_WAVE", "Max Waves")
 sorcerersDefenseList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SorcerersDefense, "Sorcerers Defense", "SorcerersDefense", "MAX_WAVE", "Max Waves")
 
 -- [3. DUNGEON DATA]
@@ -2306,7 +2306,7 @@ task.spawn(function()
                 end
                 -- Letakkan di bawah pengecekan MagicRaid
                 if not modeActive then
-                    local ignitionUI = HudGamemode:FindFirstChild("ISlimeRaid")
+                    local ignitionUI = HudGamemode:FindFirstChild("SlimeRaid")
                     if ignitionUI and ignitionUI.Visible then
                         local txt = ignitionUI.wave.amount.Text 
                         currentVal = tonumber(string.match(txt, "%d+")) or 0
@@ -4481,7 +4481,7 @@ function Optimizer.Update_Gamemode_Dropdowns()
         table.insert(summaryItems, "• Ignition Raid")
     end
     if Config.TargetSlimeRaid and #Config.TargetSlimeRaid > 0 then
-        table.insert(summaryItems, "• Ignition Raid")
+        table.insert(summaryItems, "• Slime Raid")
     end
 
     -- [LOGIKA FORMAT BARU DISINI]
