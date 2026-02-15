@@ -1840,7 +1840,7 @@ function LogicGamemodes()
                     {ID="Defense",          DB=defenseDB, Cfg=Config.TargetDefense,     Key="DefenseModeKey",          CanOpen=true},
                     {ID="MagicRaid", DB=nil, Cfg=Config.TargetMagicRaid, Key="MagicRaidModeKey", CanOpen=true, SelName="MagicRaid"},
                     {ID="IgnitionRaid",     DB=nil,       Cfg=Config.TargetIgnitionRaid,Key="IgnitionRaidModeKey",     CanOpen=true,  SelName="IgnitionRaid"},
-                    {ID="SlimeRaid",     DB=nil,       Cfg=Config.TargetSlimenRaid,Key="SlimeRaidModeKey",     CanOpen=true,  SelName="SlimeRaid"},
+                    {ID="SlimeRaid",     DB=nil,       Cfg=Config.TargetSlimeRaid,Key="SlimeRaidModeKey",     CanOpen=true,  SelName="SlimeRaid"},
                     {ID="Dungeon",          DB=dungeonDB, Cfg=Config.TargetDungeon,     Key=nil,                       CanOpen=false}
                 }
 
@@ -2310,7 +2310,7 @@ task.spawn(function()
                     if ignitionUI and ignitionUI.Visible then
                         local txt = ignitionUI.wave.amount.Text 
                         currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_SlimenRaid
+                        targetLimit = Config.AutoLeave_SlimeRaid
                         modeActive = true
                     end
                 end
