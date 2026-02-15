@@ -1654,7 +1654,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Auto Farm Meteor",
-    Desc = "Auto Teleport to Zone & Teleport to Meteor Position immediately. (STILL TESTER)",
+    Desc = "Auto Teleport to Zone & Teleport to Meteor Position immediately.",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
@@ -6346,7 +6346,7 @@ task.spawn(function()
                 -- Kita teleport 10 stud DI ATAS posisi jatuh meteor (impactPosition)
                 -- tujuannya agar karakter "menangkap" meteor saat sedang jatuh atau berdiri pas di titik jatuhnya.
                 
-                local safePosition = impactPosition + Vector3.new(0, 10, 0)
+                local safePosition = impactPosition + Vector3.new(0, 1, 0)
                 
                 root.CFrame = CFrame.new(safePosition)
                 
