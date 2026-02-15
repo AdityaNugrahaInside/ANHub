@@ -898,7 +898,7 @@ end
 function CheckIsFightingZone()
     local mapName = GetCurrentMapStatus()
     -- Tambahkan IgnitionRaid ke dalam list keywords
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid", "MagicRaid", "SkullRaid", "IgnitionRaid"} 
+    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid", "MagicRaid", "SkullRaid", "IgnitionRaid", "SlimeRaid"} 
 
     for _, keyword in ipairs(fightingKeywords) do
         if string.find(mapName, keyword) then 
@@ -1657,7 +1657,8 @@ function LogicGamemodes()
                 MagicRaid = true,
                 IgnitionRaid = true,
                 SkullRaid = true,                
-                Raid = true
+                Raid = true,
+                SlimeRaid = true
             }
             if fixedZones[currentMap] then
                 isFightingZone = true
@@ -1839,6 +1840,7 @@ function LogicGamemodes()
                     {ID="Defense",          DB=defenseDB, Cfg=Config.TargetDefense,     Key="DefenseModeKey",          CanOpen=true},
                     {ID="MagicRaid", DB=nil, Cfg=Config.TargetMagicRaid, Key="MagicRaidModeKey", CanOpen=true, SelName="MagicRaid"},
                     {ID="IgnitionRaid",     DB=nil,       Cfg=Config.TargetIgnitionRaid,Key="IgnitionRaidModeKey",     CanOpen=true,  SelName="IgnitionRaid"},
+                    {ID="SlimeRaid",     DB=nil,       Cfg=Config.TargetSlimenRaid,Key="SlimeRaidModeKey",     CanOpen=true,  SelName="SlimeRaid"},
                     {ID="Dungeon",          DB=dungeonDB, Cfg=Config.TargetDungeon,     Key=nil,                       CanOpen=false}
                 }
 
@@ -1885,6 +1887,7 @@ shadowGateList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.ShadowGate,
 capitalRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.CapitalRaid, "Capital Raid", "CapitalRaid", "MAX_WAVE", "Max Waves")
 magicRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.MagicRaid, "Magic Raid", "MagicRaid", "MAX_WAVE", "Max Waves")
 ignitionRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.IgnitionRaid, "Ignition Raid", "IgnitionRaid", "MAX_WAVE", "Max Waves")
+slimeRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SlimeRaid, "Ignition Raid", "SlimeRaid", "MAX_WAVE", "Max Waves")
 sorcerersDefenseList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SorcerersDefense, "Sorcerers Defense", "SorcerersDefense", "MAX_WAVE", "Max Waves")
 
 -- [3. DUNGEON DATA]
@@ -2019,7 +2022,7 @@ function BuildGameModesDropdownValues()
     AddList("Dungeon", dungeonList, true)
     AddList("Raid", raidList, true)
     AddList("Defense", defenseList, true)
-    local singleLists = {pirateTowerList, shadowGateList, sorcerersDefenseList, capitalRaidList, magicRaidList, ignitionRaidList}
+    local singleLists = {pirateTowerList, shadowGateList, sorcerersDefenseList, capitalRaidList, magicRaidList, ignitionRaidList,slimeRaidList}
     for _, list in ipairs(singleLists) do
         AddList("", list, false)
     end
@@ -2037,14 +2040,15 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImagePadding = 6,
     Callback = function(val)
         -- Tambahkan ignitionRaidT di baris variabel local
-        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT, capitalRaidT, magicRaidT, ignitionRaidT = {}, {}, {}, {}, {}, {}, {}, {}, {}
+        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT, capitalRaidT, magicRaidT, ignitionRaidT, slimeRaidT = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
         local singleTargetMap = {
             PirateTower = pirateT,
             ShadowGate = shadowT,
             SorcerersDefense = sorcerersT,
             CapitalRaid = capitalRaidT,
             MagicRaid = magicRaidT,
-            IgnitionRaid = ignitionRaidT -- Tambahkan ini
+            IgnitionRaid = ignitionRaidT, -- Tambahkan ini,
+            SlimeRaid = slimeRaidT, -- Tambahkan ini,
         }
 
         for _, v in pairs(val) do
@@ -2076,6 +2080,7 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetCapitalRaid = capitalRaidT
         Config.TargetMagicRaid = magicRaidT
         Config.TargetIgnitionRaid = ignitionRaidT
+        Config.TargetSlimeRaid = slimeRaidT
         
         -- Kita panggil optimizer manual sekali agar deskripsi langsung berubah saat diklik
         pcall(Optimizer.Update_Gamemode_Dropdowns)
@@ -2153,7 +2158,8 @@ local leaveConfigs = {
     {Title = "Shadow Gate (Wave)", Key = "AutoLeave_ShadowGate", Default = 500, Flag = "Leave_Shadow_Cfg"},
     {Title = "Capital Raid (Wave)", Key = "AutoLeave_CapitalRaid", Default = 1000, Flag = "Leave_Capital_Cfg"},
     {Title = "Magic Raid (Wave)", Key = "AutoLeave_MagicRaid", Default = 500, Flag = "Leave_MagicRaid_Cfg"},
-    {Title = "Ignition Raid (Wave)", Key = "AutoLeave_IgnitionRaid", Default = 500, Flag = "Leave_IgnitionRaid_Cfg"}
+    {Title = "Ignition Raid (Wave)", Key = "AutoLeave_IgnitionRaid", Default = 500, Flag = "Leave_IgnitionRaid_Cfg"},
+    {Title = "Slime Raid (Wave)", Key = "AutoLeave_SlimeRaid", Default = 500, Flag = "Leave_SlimeRaid_Cfg"},
 }
 
 local currentLeaveGroup = nil
@@ -2295,6 +2301,16 @@ task.spawn(function()
                         local txt = ignitionUI.wave.amount.Text 
                         currentVal = tonumber(string.match(txt, "%d+")) or 0
                         targetLimit = Config.AutoLeave_IgnitionRaid
+                        modeActive = true
+                    end
+                end
+                -- Letakkan di bawah pengecekan MagicRaid
+                if not modeActive then
+                    local ignitionUI = HudGamemode:FindFirstChild("ISlimeRaid")
+                    if ignitionUI and ignitionUI.Visible then
+                        local txt = ignitionUI.wave.amount.Text 
+                        currentVal = tonumber(string.match(txt, "%d+")) or 0
+                        targetLimit = Config.AutoLeave_SlimenRaid
                         modeActive = true
                     end
                 end
@@ -3140,7 +3156,7 @@ task.spawn(function()
             
             local currentMap = GetCurrentMapStatus()
             -- Cari baris ini di sekitar baris 1452 dan ganti dengan ini:
-            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "SorcerersDefense" or currentMap == "CapitalRaid" or currentMap == "MagicRaid" or currentMap == "IgnitionRaid"))
+            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "SorcerersDefense" or currentMap == "CapitalRaid" or currentMap == "MagicRaid" or currentMap == "IgnitionRaid" or currentMap == "SlimeRaid"))
 
             -- [PRIORITAS 1: MEGA BOSS]
             -- Jika Mega Boss Aktif (via Auto Mega Boss) DAN config equip Mega Boss dipilih
@@ -4462,6 +4478,9 @@ function Optimizer.Update_Gamemode_Dropdowns()
             table.insert(summaryItems, "• Magic Raid")
     end
     if Config.TargetIgnitionRaid and #Config.TargetIgnitionRaid > 0 then
+        table.insert(summaryItems, "• Ignition Raid")
+    end
+    if Config.TargetSlimeRaid and #Config.TargetSlimeRaid > 0 then
         table.insert(summaryItems, "• Ignition Raid")
     end
 
