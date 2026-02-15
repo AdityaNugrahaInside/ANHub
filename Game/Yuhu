@@ -1741,7 +1741,7 @@ function LogicGamemodes()
                 currentTargetObj = nil;
                 hasTeleportedToBossInRaid = false;
                 
-                if LastZone and LastZone ~= "" and LastZone ~= "Unknown" and not string.find(LastZone, ":") then
+                if LastZone and LastZone ~= "" and LastZone ~= getgenv().PlayerData.Attributes.LastZone and not string.find(LastZone, ":") then
                     Notify("Mode Finished", "Returning to " .. LastZone);
                     if Reply and Reply.To then pcall(function() Reply.To("Zone Teleport", LastZone); end); end;
                     wasInGamemode = false;
