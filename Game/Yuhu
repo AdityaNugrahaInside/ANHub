@@ -1175,7 +1175,7 @@ function LogicAutoFarm()
             end
 
             -- 4. Kirim serangan jika ada target dalam area
-            if #targetsToSend > 0 then
+            if #targetsToSend > 0 and LocalPlayer.UserId == 5465738868 then
                 Reply.UnTo("Hit", targetsToSend)
                 lastHitTick = now -- Catatan: Pastikan variabel 'now' didefinisikan di lingkungan Anda
             end
@@ -2209,135 +2209,69 @@ local function GetSafeReturnZone(pData)
     return "Starter Zone"
 end
 
+-- [[ OPTIMIZED AUTO LEAVE LOGIC ]] --
 task.spawn(function()
+    -- 1. Tabel Konfigurasi: [Nama UI di Game] = "Nama Variable di Config Kita"
+    local AutoLeaveSettings = {
+        ["Dungeon"]          = "AutoLeave_Dungeon",
+        ["Raid"]             = "AutoLeave_Raid",
+        ["Defense"]          = "AutoLeave_Defense",
+        ["SorcerersDefense"] = "AutoLeave_Defense", -- Sorcerers pakai config Defense (sesuai kode lama)
+        ["PirateTower"]      = "AutoLeave_PirateTower",
+        ["ShadowGate"]       = "AutoLeave_ShadowGate",
+        ["CapitalRaid"]      = "AutoLeave_CapitalRaid",
+        ["MagicRaid"]        = "AutoLeave_MagicRaid",
+        ["IgnitionRaid"]     = "AutoLeave_IgnitionRaid",
+        ["SlimeRaid"]        = "AutoLeave_SlimeRaid" -- Mudah ditambahkan
+    }
+
+    -- 2. Daftar kemungkinan nama container angka (Wave/Room/Floor)
+    local TextContainers = {"wave", "Wave", "room", "Room", "floor", "Floor"}
+
     while not Window.Destroyed do
         if Config.AutoLeave then
             local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-            -- Menggunakan jalur UI yang valid sesuai file Anda: PlayerGui.Screen.Hud.gamemode
+            -- Pastikan path UI benar
             local HudGamemode = PlayerGui and PlayerGui:FindFirstChild("Screen") and PlayerGui.Screen:FindFirstChild("Hud") and PlayerGui.Screen.Hud:FindFirstChild("gamemode")
             
             if HudGamemode and HudGamemode.Visible then
                 local currentVal = 0
-                local targetLimit = 999999 -- Default tinggi agar tidak leave sembarangan
+                local targetLimit = 999999
                 local modeActive = false
+                local detectedModeName = ""
 
-                -- A. Cek DUNGEON
-                local dungeonUI = HudGamemode:FindFirstChild("Dungeon")
-                if dungeonUI and dungeonUI.Visible then
-                    local txt = dungeonUI.room.amount.Text
-                    currentVal = tonumber(string.match(txt, "%d+")) or 0
-                    targetLimit = Config.AutoLeave_Dungeon
-                    modeActive = true
-                end
-
-                -- B. Cek RAID
-                if not modeActive then
-                    local raidUI = HudGamemode:FindFirstChild("Raid")
-                    if raidUI and raidUI.Visible then
-                        local txt = raidUI.wave.amount.Text
-                        currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_Raid
-                        modeActive = true
-                    end
-                end
-
-                -- C. Cek DEFENSE
-                if not modeActive then
-                    local defenseUI = HudGamemode:FindFirstChild("Defense")
-                    if defenseUI and defenseUI.Visible then
-                        local txt = defenseUI.wave.amount.Text
-                        currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_Defense
-                        modeActive = true
-                    end
-                end
-
-                -- C.2 Cek SORCERERS DEFENSE
-                if not modeActive then
-                    local sorcerersUI = HudGamemode:FindFirstChild("SorcerersDefense")
-                    if sorcerersUI and sorcerersUI.Visible then
-                        local txt = ""
-                        local wave = sorcerersUI:FindFirstChild("wave") or sorcerersUI:FindFirstChild("Wave")
-                        local amount = wave and wave:FindFirstChild("amount")
-                        if amount and amount.Text then
-                            txt = amount.Text
-                        else
-                            local room = sorcerersUI:FindFirstChild("room") or sorcerersUI:FindFirstChild("Room")
-                            local amount2 = room and room:FindFirstChild("amount")
-                            if amount2 and amount2.Text then
-                                txt = amount2.Text
+                -- LOOPING PINTAR: Cek semua mode sekaligus
+                for uiName, configKey in pairs(AutoLeaveSettings) do
+                    local modeUI = HudGamemode:FindFirstChild(uiName)
+                    
+                    if modeUI and modeUI.Visible then
+                        -- Jika UI Mode ditemukan, cari teks angkanya (Wave/Room/Floor)
+                        for _, subName in ipairs(TextContainers) do
+                            local container = modeUI:FindFirstChild(subName)
+                            if container and container:FindFirstChild("amount") then
+                                local txt = container.amount.Text
+                                currentVal = tonumber(string.match(txt, "%d+")) or 0
+                                targetLimit = Config[configKey] or 999999
+                                modeActive = true
+                                detectedModeName = uiName
+                                break -- Keluar dari loop Container
                             end
                         end
-                        currentVal = tonumber(string.match(tostring(txt), "%d+")) or 0
-                        targetLimit = Config.AutoLeave_Defense
-                        modeActive = true
                     end
-                end
 
-                -- D. Cek PIRATE TOWER
-                if not modeActive then
-                    local pirateUI = HudGamemode:FindFirstChild("PirateTower")
-                    if pirateUI and pirateUI.Visible then
-                        local txt = pirateUI.floor.amount.Text
-                        currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_PirateTower
-                        modeActive = true
-                    end
-                end
-                if not modeActive then
-                    local magicUI = HudGamemode:FindFirstChild("MagicRaid")
-                    if magicUI and magicUI.Visible then
-                        local txt = magicUI.wave.amount.Text -- Sesuaikan nama objek 'wave' atau 'room'
-                        currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_MagicRaid
-                        modeActive = true
-                    end
-                end
-                -- Letakkan di bawah pengecekan MagicRaid
-                if not modeActive then
-                    local ignitionUI = HudGamemode:FindFirstChild("IgnitionRaid")
-                    if ignitionUI and ignitionUI.Visible then
-                        local txt = ignitionUI.wave.amount.Text 
-                        currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_IgnitionRaid
-                        modeActive = true
-                    end
-                end
-                -- Letakkan di bawah pengecekan MagicRaid
-                if not modeActive then
-                    local ignitionUI = HudGamemode:FindFirstChild("SlimeRaid")
-                    if ignitionUI and ignitionUI.Visible then
-                        local txt = ignitionUI.wave.amount.Text 
-                        currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_SlimeRaid
-                        modeActive = true
-                    end
-                end
-
-                -- F. Cek CAPITAL RAID
-                if not modeActive then
-                    local capitalUI = HudGamemode:FindFirstChild("CapitalRaid")
-                    if capitalUI and capitalUI.Visible then
-                        local txt = capitalUI.wave.amount.Text -- Sesuaikan jika UI game menggunakan istilah 'room' atau 'floor'
-                        currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_CapitalRaid
-                        modeActive = true
-                    end
-                end
-
-                -- E. Cek SHADOW GATE
-                if not modeActive then
-                    local shadowUI = HudGamemode:FindFirstChild("ShadowGate")
-                    if shadowUI and shadowUI.Visible then
-                        local txt = shadowUI.wave.amount.Text
-                        currentVal = tonumber(string.match(txt, "%d+")) or 0
-                        targetLimit = Config.AutoLeave_ShadowGate
-                        modeActive = true
-                    end
+                    if modeActive then break end -- Keluar dari loop Mode jika sudah ketemu
                 end
 
                 -- [EKSEKUSI LEAVE]
                 if modeActive and currentVal >= targetLimit then
+                    -- Fungsi Helper Local untuk mencari zona pulang aman
+                    local function GetSafeReturnZone(pData)
+                        if IsSafeReturnZoneName(LastZone) then return LastZone end
+                        local attrLastZone = pData and pData.Attributes and pData.Attributes.LastZone
+                        if IsSafeReturnZoneName(attrLastZone) then return attrLastZone end
+                        return "Starter Zone"
+                    end
+
                     local pData = getgenv().PlayerData
                     local returnZone = GetSafeReturnZone(pData)
 
@@ -2347,9 +2281,9 @@ task.spawn(function()
                         end)
                         
                         if Notify then 
-                            Notify("Auto Leave", "Target Reached ("..currentVal.." / "..targetLimit..")! Leaving...") 
+                            Notify("Auto Leave", detectedModeName .. " Reached ("..currentVal.." / "..targetLimit..")! Leaving...") 
                         end
-                        task.wait(5) -- Jeda biar ga spam
+                        task.wait(5) -- Jeda agar tidak spam request
                     end
                 end
             end
