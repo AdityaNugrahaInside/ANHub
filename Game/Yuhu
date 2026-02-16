@@ -1607,7 +1607,7 @@ FM_Add("Farm", FarmToggle);
 -- [[ INSERT THIS CODE BELOW MegaBossToggle ]] --
 
 MeteorToggle = FarmTab:Toggle({
-    Title = "Meteor Event",
+    Title = "Meteor Events",
     Desc = "Auto Teleport to Zone & Teleport to Kill Mobs Get Hit Meteor.",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
@@ -6499,46 +6499,34 @@ function Optimizer.Update_Relics_Logic(pData)
     end
 end
 -- [[ METEOR EVENT LOGIC: ENEMY HUNTER ONLY ]] --
--- [[ METEOR EVENT LOGIC: HYBRID FARM (GLOWING + SAME TYPE) ]] --
 task.spawn(function()
     repeat task.wait() until shared.Reply and getgenv().EnemiesData
 
     local LastZoneBeforeMeteor = nil
-    local IncandescentTargets = {} -- Daftar ID musuh bersinar
-    local LastIncandescentName = nil -- Ingatan nama musuh terakhir
+    local IncandescentTargets = {} -- Daftar Target Prioritas
 
-    -- 1. [TRACKING] TAMBAH TARGET GLOWING
+    -- 1. [TRACKING] TAMBAH TARGET: Saat Aura Muncul
     shared.Reply.Connect("Enemy Incandescent", function(uid, isActive)
         if isActive then
             IncandescentTargets[uid] = true
-            
-            -- Coba ambil namanya saat terdeteksi bersinar
-            local enemiesData = getgenv().EnemiesData
-            if enemiesData and enemiesData[uid] then
-                local enemy = enemiesData[uid]
-                if enemy.Config and enemy.Config.Name then
-                    LastIncandescentName = enemy.Config.Name
-                end
-            end
         else
             IncandescentTargets[uid] = nil
         end
     end)
 
-    -- 2. [TRACKING] HAPUS TARGET DARI LIST GLOWING SAAT MATI
+    -- 2. [TRACKING] HAPUS TARGET: Saat Musuh Mati
     shared.Reply.Connect("Enemy Die", function(uid)
         if IncandescentTargets[uid] then
             IncandescentTargets[uid] = nil
         end
     end)
 
-    -- 3. [TRACKING] RESET TOTAL SAAT PINDAH ZONE
+    -- 3. [TRACKING] RESET: Saat Pindah Zone
     shared.Reply.Connect("Enemies Changed", function()
         IncandescentTargets = {}
-        LastIncandescentName = nil -- Lupakan nama musuh jika pindah map
     end)
 
-    -- 4. [ACTION] LOOP PEMBURU CERDAS (HYBRID)
+    -- 4. [ACTION] LOOP PEMBURU (Smart Auto Farm Logic)
     task.spawn(function()
         while not Window.Destroyed do
             if Config.AutoMeteor then
@@ -6547,123 +6535,96 @@ task.spawn(function()
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 local humanoid = char and char:FindFirstChild("Humanoid")
 
+                -- Pastikan karakter hidup
                 if hrp and humanoid and humanoid.Health > 0 then
-                    local finalTarget = nil
                     
-                    -- A. PRIORITAS UTAMA: Cari Musuh GLOWING (Incandescent)
+                    -- A. Cari Target Valid dari List Incandescent
+                    local targetUID = nil
                     for uid, _ in pairs(IncandescentTargets) do
-                        local enemy = enemiesData[uid]
-                        if enemy and enemy.Alive then
-                            finalTarget = enemy
-                            
-                            -- Update ingatan nama (siapa tau berubah)
-                            if enemy.Config and enemy.Config.Name then
-                                LastIncandescentName = enemy.Config.Name
-                            end
-                            break -- Fokus ke yang glowing dulu!
+                        if enemiesData[uid] and enemiesData[uid].Alive then
+                            targetUID = uid
+                            break -- Fokus satu musuh dulu
                         else
-                            IncandescentTargets[uid] = nil -- Bersihkan sampah
+                            IncandescentTargets[uid] = nil -- Bersihkan data sampah
                         end
                     end
 
-                    -- B. PRIORITAS KEDUA: Cari Musuh BIASA (Nama Sama)
-                    -- Jalankan ini HANYA jika tidak ada musuh glowing TAPI kita punya ingatan nama
-                    if not finalTarget and LastIncandescentName then
-                        for uid, enemy in pairs(enemiesData) do
-                            -- Cari musuh yang: Hidup, Punya Nama Sama, dan RootPart ada
-                            if enemy.Alive and enemy.Root and enemy.Config and enemy.Config.Name == LastIncandescentName then
-                                finalTarget = enemy
-                                break -- Ambil satu saja
-                            end
-                        end
-                    end
+                    local targetEnemy = targetUID and enemiesData[targetUID]
 
-                    -- C. EKSEKUSI SERANGAN (Sama seperti Auto Farm)
-                    if finalTarget and finalTarget.Root then
+                    -- B. JIKA TARGET DITEMUKAN -> KEJAR DENGAN LOGIKA AUTO FARM
+                    if targetEnemy and targetEnemy.Root then
                         pcall(function()
-                            local enemyRoot = finalTarget.Root
+                            local enemyRoot = targetEnemy.Root
                             
-                            -- Kalkulasi Posisi
+                            -- Kalkulasi Posisi (Smart Positioning)
                             local enemyPos = enemyRoot.Position
                             local enemyLook = enemyRoot.CFrame.LookVector
                             
-                            -- Skala Musuh
+                            -- Hitung Tinggi Musuh (Biar sejajar)
                             local enemyScale = 1
-                            if finalTarget.DifficultConfig and finalTarget.DifficultConfig.Scale then
-                                enemyScale = finalTarget.DifficultConfig.Scale
-                            elseif finalTarget.Config and finalTarget.Config.Scale then
-                                enemyScale = finalTarget.Config.Scale
+                            if targetEnemy.DifficultConfig and targetEnemy.DifficultConfig.Scale then
+                                enemyScale = targetEnemy.DifficultConfig.Scale
+                            elseif targetEnemy.Config and targetEnemy.Config.Scale then
+                                enemyScale = targetEnemy.Config.Scale
                             end
 
                             local baseHipHeight = 3.0 
                             local feetY = enemyPos.Y - (baseHipHeight * enemyScale)
                             local myTargetY = feetY + baseHipHeight
                             
-                            -- Posisi Serang (5 Stud di Depan)
+                            -- Posisi: 5 Stud di DEPAN musuh (Hitbox Ideal)
                             local dirVector = Vector3.new(enemyLook.X, 0, enemyLook.Z).Unit 
                             local attackPos = enemyPos + (dirVector * 5) 
                             
                             local finalPos = Vector3.new(attackPos.X, myTargetY, attackPos.Z)
                             local lookAtPos = Vector3.new(enemyPos.X, myTargetY, enemyPos.Z)
                             
-                            -- Teleport & Hit
+                            -- C. Teleport & Serang
                             hrp.CFrame = CFrame.lookAt(finalPos, lookAtPos)
-                            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-
-                            if Reply and Reply.UnTo then
-                                -- Gunakan UID dari target yang ditemukan (baik glowing maupun biasa)
-                                -- Kita perlu cari UID-nya jika variable 'finalTarget' tidak menyimpan UID langsung
-                                -- Tapi biasanya enemiesData key-nya adalah UID.
-                                
-                                -- Trik mencari UID dari Object (karena loop B pakai pair value)
-                                local targetUIDHit = nil
-                                for uid, val in pairs(enemiesData) do
-                                    if val == finalTarget then
-                                        targetUIDHit = uid
-                                        break
-                                    end
-                                end
-                                
-                                if targetUIDHit then
-                                    Reply.UnTo("Hit", {targetUIDHit})
-                                end
-                            end
+                            hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) -- Hentikan momentum
                         end)
                     end
                 end
             end
-            task.wait() -- Speed maksimal
+            task.wait() -- Kecepatan maksimal (RenderStepped)
         end
     end)
 
-    -- 5. [EVENT] LOGIKA PINDAH MAP & TIMER (SAMA SEPERTI SEBELUMNYA)
+    -- 5. [EVENT START] PINDAH MAP
     shared.Reply.Connect("Meteor Shower Started", function(zoneName)
         if Config.AutoMeteor then
             local currentMap = GetCurrentMapStatus()
             if currentMap ~= zoneName then
+                -- Simpan map asal
                 if currentMap ~= "Unknown" and currentMap ~= "" then
                     LastZoneBeforeMeteor = currentMap
                 end
-                if Notify then Notify("Meteor", "Event started! Moving to " .. zoneName, "zap") end
+                
+                if Notify then Notify("Meteor", "Event started in " .. zoneName, "zap") end
+                
+                -- Teleport ke Map Event
                 if Reply and Reply.To then Reply.To("Zone Teleport", zoneName) end
             end
         end
     end)
 
+    -- 6. [EVENT PROCESS] SINKRONISASI WAKTU (HAPUS TELEPORT METEOR)
     shared.Reply.Connect("Meteor Spawn", function(impactPosition, zoneName)
+        -- Di sini kita TIDAK teleport ke meteor.
+        -- Kita hanya menunggu durasi jatuh agar script 'sadar' bahwa event sedang berlangsung.
         if Config.AutoMeteor then
-            -- Hanya timer sinkronisasi, tidak teleport ke batu
             local fallDuration = shared.MeteorEvent and shared.MeteorEvent.METEOR_FALL_DURATION or 5
             task.wait(fallDuration) 
+            -- Setelah wait ini selesai, biasanya server baru memunculkan/update musuh jadi 'Incandescent'.
+            -- Saat itu terjadi, Loop Pemburu (No. 4) akan otomatis bekerja.
         end
     end)
 
+    -- 7. [EVENT END] PULANG KAMPUNG
     shared.Reply.Connect("Meteor Shower Ended", function(zoneName)
-        IncandescentTargets = {} 
-        LastIncandescentName = nil -- Reset target nama saat event selesai
-        
+        IncandescentTargets = {} -- Hapus semua target sisa
         if Config.AutoMeteor and LastZoneBeforeMeteor then
-            if Notify then Notify("Meteor", "Event Ended. Returning...", "corner-up-left") end
+            if Notify then Notify("Meteor", "Event ended. Returning...", "corner-up-left") end
             if Reply and Reply.To then Reply.To("Zone Teleport", LastZoneBeforeMeteor) end
             LastZoneBeforeMeteor = nil
         end
