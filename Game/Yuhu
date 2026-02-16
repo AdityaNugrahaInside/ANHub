@@ -41,6 +41,8 @@ Potions = shared.Potions
 Accessories = shared.Accessories
 Enemies = shared.Enemies
 Weapons = shared.Weapons
+RelicsConfig = shared.Relics
+CapitalsUpgradesConfig = shared.CapitalsUpgrades
 UpgradeModules = {
     DemonArt = shared.DemonArt,
     MagicEyes = shared.MagicEyes,
@@ -1412,6 +1414,7 @@ FM_Categories = {}
 FM_CategoryDescriptions = {
     ["Farm"] = "Auto farm enemies per zone and specific targets",
     ["GameModes"] = "Auto Join & Farm Dungeons/Raids by Time",
+    ["Relics"] = "Auto Equip And Upgrade Your Relics",
     ["Vault"] = "Auto Equipped Best Vault for battle/lobby",
     ["Avatar Level"] = "Upgrade Avatar Level, view stats and costs",
     ["Heroes Stats"] = "Reroll Heroes Stats, view stats and costs",
@@ -1424,7 +1427,7 @@ FM_CategoryDescriptions = {
     ["Rolls"] = "Auto roll various gachas and monitor material stock",
     ["Upgrade: Yen"] = "Upgrade Yen buff along with cost and effects",
     ["Upgrade: Token"] = "Upgrade Token buff with shards",
-    ["Upgrade: Mega Boss"] = "Upgrade MegaBoss buff with shards",
+    ["Mega Boss"] = "Upgrade MegaBoss buff with shards",
     ["Rankup"] = "Rank progress, requirements, and bonuses",
     ["Trainers"] = "Trainer settings and enhancement",
     ["Crafts"] = "Auto craft/upgrade items and equipment"
@@ -1482,7 +1485,9 @@ FM_Category = FarmTab:Category({
     Options = {
         {Title="Farm", Icon=GetIcon(72039606576980)},
         {Title="GameModes", Icon=GetIcon(109634928579023)},
+        {Title="Mega Boss", Icon=GetIcon(73239911812292)},
         {Title="Vault", Icon=GetIcon(90798559571883)},
+        {Title="Relics", Icon=GetIcon(88061784222994)}, -- TAMBAHKAN INI
         {Title="Energy Upgrade", Icon=GetIcon(92370510867554)},
         {Title="Rarity Powers", Icon=GetIcon(110938344194362)},-- Tambahkan ini ke dalam FM_Category Options
         {Title="Avatar Curses", Icon=GetIcon(140684736911247)}, -- Gunakan icon yang sesuai
@@ -1495,7 +1500,7 @@ FM_Category = FarmTab:Category({
         {Title="Rolls", Icon=GetIcon(128047949460588)},
         {Title="Upgrade: Yen", Icon=GetIcon(139379806755218)},
         {Title="Upgrade: Token", Icon=GetIcon(124644932563791)},
-        {Title="Upgrade: Mega Boss", Icon=GetIcon(73239911812292)},
+        {Title="Upgrade: Capital", Icon=GetIcon(133067980243922)},
         {Title="Rankup", Icon=GetIcon(111262536381336)},
         {Title="Trainers", Icon=GetIcon(92875014242960)},
         {Title="Secret Quests", Icon=GetIcon(98394716892889)},
@@ -2580,7 +2585,11 @@ local Yen2Separator = FarmTab:Paragraph({
 FM_Add("Upgrade: Yen", Yen2Separator)
 CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrades2.Config, "AutoYen2_", YenUpgrade2ToggleUI)
 CreateUpgradeSection(FarmTab, "Upgrade: Token", TokenUpgrades.Config, "AutoToken_", TokenUpgradeToggleUI, nil)
-
+CapitalUpgradeToggles = {}
+if CapitalsUpgradesConfig and CapitalsUpgradesConfig.Config then
+    FM_CategoryDescriptions["Upgrade: Capital"] = "Upgrade stats using Capital Tokens"
+    CreateUpgradeSection(FarmTab, "Upgrade: Capital", CapitalsUpgradesConfig.Config, "AutoCapital_", CapitalUpgradeToggles)
+end
 RankProgressUI = FarmTab:Paragraph({ Title = "Rank Progress", Desc = "Waiting for data...", Image = GetIcon(111262536381336), ImageSize = 40 })
 FM_Add("Rankup", RankProgressUI)
 
@@ -3323,7 +3332,7 @@ for id, data in pairs(ZonesConfig) do
 end
 table.sort(MegaBossZoneOptions, function(a, b) return a.Order < b.Order end)
 
-MegaBossFilterDrop = FM_Add("Upgrade: Mega Boss", FarmTab:Dropdown({
+MegaBossFilterDrop = FM_Add("Mega Boss", FarmTab:Dropdown({
     Title = "Mega Boss Map Filter",
     Desc = "Select the maps you want to SKIP (Ignore)",
     Multi = true,
@@ -3347,10 +3356,10 @@ MegaBossToggle = FarmTab:Toggle({
         end
     end
 })
-FM_Add("Upgrade: Mega Boss", MegaBossToggle)
+FM_Add("Mega Boss", MegaBossToggle)
 MegaBossToggles = {}
 if MegaBossUpgradeConfig then
-    CreateUpgradeSection(FarmTab, "Upgrade: Mega Boss", MegaBossUpgradeConfig, "AutoMegaBossUp_", MegaBossToggles, nil)
+    CreateUpgradeSection(FarmTab, "Mega Boss", MegaBossUpgradeConfig, "AutoMegaBossUp_", MegaBossToggles, nil)
 end
 
 if not IsPremium then
@@ -3995,6 +4004,80 @@ if not IsPremium then
     pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
 end
 
+-- [[ CATEGORY: RELICS (FINAL FIX + AUTO EQUIP) ]] --
+
+-- [BARU] Dropdown Auto Equip
+local RelicEquipValues = {}
+if RelicsConfig then
+    for id, data in pairs(RelicsConfig) do
+        table.insert(RelicEquipValues, {
+            Title = data.Display,
+            Value = tostring(id), -- ID harus String agar cocok dengan remote
+            Icon = GetIcon(data.Template)
+        })
+    end
+    table.sort(RelicEquipValues, function(a,b) return a.Title < b.Title end)
+end
+
+RelicEquipDrop = FarmTab:Dropdown({
+    Title = "Auto Equip Relic",
+    Desc = "Select a Relic to auto-equip if owned.",
+    Values = RelicEquipValues,
+    AllowNone = true,
+    Flag = "AutoEquipRelic_Target",
+    Callback = function(val)
+        -- Simpan Value murni (ID String)
+        Config.AutoEquipRelicTarget = (type(val) == "table" and val.Value) or val
+    end
+})
+FM_Add("Relics", RelicEquipDrop)
+
+-- Toggle Generator
+RelicToggles = {} 
+
+if RelicsConfig then
+    local SortedRelics = {}
+    for id, data in pairs(RelicsConfig) do
+        table.insert(SortedRelics, {ID = tostring(id), Data = data})
+    end
+    table.sort(SortedRelics, function(a, b) 
+        return tonumber(a.ID) < tonumber(b.ID) 
+    end)
+
+    for _, item in ipairs(SortedRelics) do
+        local id = item.ID
+        local data = item.Data
+        
+        local toggle = FarmTab:Toggle({
+            Title = data.Display,
+            Desc = "Waiting for Game Data...", 
+            Image = GetIcon(data.Template), 
+            ImageSize = 40, 
+            Flag = "AutoRelic_" .. id,
+            Callback = function(val)
+                Config["AutoRelic_" .. id] = val
+            end
+        })
+        
+        FM_Add("Relics", toggle)
+        
+        RelicToggles[id] = {
+            UI = toggle,
+            Data = data
+        }
+    end
+end
+
+if not IsPremium then
+    -- Kunci Dropdown Equip
+    pcall(function() RelicEquipDrop:Lock("Need Premium User") end)
+    
+    for id, info in pairs(RelicToggles) do
+        Config["AutoRelic_" .. id] = false
+        pcall(function() info.UI:Lock("Need Premium User") end)
+        pcall(function() info.UI:Set(false) end)
+    end
+end
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
@@ -5648,6 +5731,27 @@ function Optimizer.Update_Main_Data_Logic(pData)
             tIcon
         )
     end
+
+    -- 3. Jalankan Logika Capital Upgrades
+    if pData.CapitalsUpgrades and CapitalsUpgradesConfig then
+        -- Ambil Icon Token Capital
+        local cKey = "UpgradeCapitalToken"
+        local cIcon = ""
+        if Materials[cKey] and Materials[cKey].Template then 
+            cIcon = GetIcon(Materials[cKey].Template) 
+        end
+        
+        Optimizer.GenericUpgradeLogic(
+            CapitalsUpgradesConfig.Config,  -- Config List
+            pData.CapitalsUpgrades,         -- Data Level Player
+            CapitalsUpgradesConfig,         -- Module (untuk hitung cost/buff)
+            CapitalUpgradeToggles,          -- UI Toggle Kita
+            "AutoCapital_",                 -- Prefix Config
+            "Capitals Upgrade",             -- Nama Remote Event (Sesuai Decompile)
+            (pData.Materials[cKey] or 0),   -- Jumlah Token Player
+            cIcon                           -- Icon Token
+        )
+    end
 end
 
 -- ============================================================================
@@ -6207,6 +6311,193 @@ function Optimizer.Update_YenUpgrade2_Logic(pData)
         )
     end
 end
+function Optimizer.Update_Relics_Logic(pData)
+    -- [FIX] Pastikan data valid
+    if not RelicsConfig or not pData then return end
+    
+    local RelicsOwned = pData.Relics or {}
+    local QuestsData = pData.Quests or {}
+    local MaterialsOwned = pData.Materials or {}
+    local EquippedRelics = pData.EquippedRelics or {} 
+    
+    -- Helper Format Bonus
+    local function FormatBonus(bTable)
+        if not bTable then return "None" end
+        local parts = {}
+        for k, v in pairs(bTable) do
+            local valStr = (Utils and Utils.ToText) and Utils.ToText(v) or tostring(v)
+            table.insert(parts, string.format("%s: +%s%%", k, valStr))
+        end
+        return table.concat(parts, ", ")
+    end
+
+    for id, info in pairs(RelicToggles) do
+        local toggle = info.UI
+        local data = info.Data
+        local strID = tostring(id) 
+        
+        local currentLvl = RelicsOwned[strID] 
+        local maxLvl = data.MaxLevel or 10
+        local rarity = data.Rarity or "Common"
+        
+        -- Warna Teks HTML untuk Deskripsi
+        local rColor = "#ffffff"
+        if rarity == "Celestial" then rColor = "#00ffff"      -- Cyan
+        elseif rarity == "Legend" then rColor = "#ffaa00"     -- Emas
+        elseif rarity == "Epic" then rColor = "#aa00ff"       -- Ungu
+        elseif rarity == "Rare" then rColor = "#00aaff"       -- Biru
+        elseif rarity == "Uncommon" then rColor = "#00ff00"   -- Hijau
+        end
+        
+        local newTitle = ""
+        local newDesc = ""
+        local isMaxed = false
+        local isOwned = (currentLvl ~= nil)
+        
+        -- Variabel untuk SetMainImage
+        local imageQuantityText = rarity -- Default: Menampilkan Rarity (misal: "Legendary")
+        
+        -- [STATUS 1: QUEST MODE]
+        if not isOwned then
+            local questKey = "Relic_" .. strID
+            local myQuest = QuestsData[questKey]
+            local req = data.Quest and data.Quest.Required or 1
+            local prog = (myQuest and myQuest.Progress) or 0
+            
+            local pct = math.clamp(prog / req, 0, 1)
+            local pctTxt = math.floor(pct * 100) .. "%"
+            
+            newTitle = string.format("%s [<font color='%s'>%s</font>]", data.Display, rColor, rarity)
+            
+            local firstBonus = FormatBonus(data.Bonuses and data.Bonuses[1])
+            
+            if not myQuest then
+                newDesc = string.format("Status: <font color='#ff4444'>Not Started</font>\nTarget: %s\nReward: <font color='#00aaff'>%s</font>", data.Quest.Description or "?", firstBonus)
+                imageQuantityText = "LOCKED"
+            elseif prog >= req then
+                newDesc = string.format("Progress: <font color='#00ff00'>100%%</font> (COMPLETED)\nStatus: <font color='#00ff00'>CLAIM READY!</font>")
+                imageQuantityText = "CLAIM!"
+            else
+                newDesc = string.format("Target: %s\nProgress: <font color='#00aaff'>%s</font> (%s / %s)\nStatus: Farming...",data.Quest.Description, pctTxt, prog, req)
+                imageQuantityText = pctTxt -- Menampilkan Persen di gambar
+            end
+            
+            if Config["AutoRelic_" .. strID] and Reliable then
+                local now = os.time()
+                if not Optimizer.Cache["RelicQuest_"..strID] or (now - Optimizer.Cache["RelicQuest_"..strID]) > 2 then
+                    if not myQuest or (prog >= req) then
+                        Reply.To("Start Relics Quest", strID)
+                        Optimizer.Cache["RelicQuest_"..strID] = now
+                    end
+                end
+            end
+
+        -- [STATUS 2: UPGRADE MODE]
+        else
+            local currentBonusStr = FormatBonus(data.Bonuses and data.Bonuses[currentLvl])
+            local isEquipped = (EquippedRelics[strID] == true)
+            local equipStatus = isEquipped and " <font color='#00ff00'>[EQUIPPED]</font>" or ""
+            
+            -- Update Label Gambar jika Equip/Max
+            if isEquipped then imageQuantityText = "EQUIPPED" end
+
+            if currentLvl >= maxLvl then
+                isMaxed = true
+                if not isEquipped then imageQuantityText = "MAX" end -- Prioritas Equip label
+                
+                newTitle = string.format("%s [MAX]%s", data.Display, equipStatus)
+                newDesc = string.format("<font color='%s'>%s</font>\n<b>Max Level Reached</b>\n\nActive Bonus:\n<font color='#00ff00'>%s</font>", rColor, rarity, currentBonusStr)
+            else
+                newTitle = string.format("%s [Lv %d]%s", data.Display, currentLvl, equipStatus)
+                local nextLvl = currentLvl + 1
+                local nextBonusStr = FormatBonus(data.Bonuses and data.Bonuses[nextLvl])
+                local costData = data.Costs and data.Costs[currentLvl]
+                local costStrLines = {}
+                local canAfford = true
+                
+                if costData then
+                    for matName, amount in pairs(costData) do
+                        local myMat = MaterialsOwned[matName] or 0
+                        local matDisplay = matName
+                        if Materials[matName] then matDisplay = Materials[matName].Display end
+                        local color = (myMat >= amount) and "#ffffff" or "#ff4444"
+                        table.insert(costStrLines, string.format("• %s<font color='%s'>%s: %s/%s</font>", GetIcon(Materials[matName].Template), color, matDisplay, Utils.ToText(amount), Utils.ToText(myMat)))
+                        if myMat < amount then canAfford = false end
+                    end
+                else
+                    table.insert(costStrLines, "Free / No Cost")
+                end
+                
+                newDesc = string.format("<font color='%s'>%s</font>\nCurrent: <font color='#00ff00'>%s</font>\nNext: <font color='#00aaff'>%s</font>\n\n<b>Upgrade Cost:</b>\n%s", rColor, rarity, currentBonusStr, nextBonusStr, table.concat(costStrLines, "\n"))
+                
+                if Config["AutoRelic_" .. strID] and canAfford and Reliable then
+                    local now = os.time()
+                    if not Optimizer.Cache["RelicUp_"..strID] or (now - Optimizer.Cache["RelicUp_"..strID]) > 1 then
+                        Reply.To("Upgrade Relics", strID)
+                        Optimizer.Cache["RelicUp_"..strID] = now
+                    end
+                end
+            end
+        end
+        
+        -- [[ VISUAL UPDATE & CACHE ]] --
+        local cacheKey = "RelicUI_" .. strID
+        local cacheData = Optimizer.Cache[cacheKey] or {}
+        
+        -- 1. Update Teks Judul & Deskripsi
+        if cacheData.Title ~= newTitle then toggle:SetTitle(newTitle) end
+        if cacheData.Desc ~= newDesc then toggle:SetDesc(newDesc) end
+        
+        -- 2. Update SetMainImage (Gradient & Icon)
+        -- Kita buat "VisualHash" agar tidak spam update image (bikin kedip/lag)
+        local currentVisualHash = string.format("%s|%s", rarity, imageQuantityText)
+        
+        if cacheData.VisualHash ~= currentVisualHash then
+            if toggle.SetMainImage then
+                toggle:SetMainImage({
+                    Image = GetIcon(data.Template), -- Icon Item
+                    Gradient = GetGameGradient(rarity), -- Gradient Rarity (Legend/Epic/dll)
+                }, 60)
+            end
+            cacheData.VisualHash = currentVisualHash
+        end
+        
+        -- 3. Lock jika MAX dan user ingin mematikan auto
+        if isMaxed and not cacheData.IsMaxed then
+            toggle:Lock("Maxed")
+            Config["AutoRelic_" .. strID] = false
+            toggle:Set(false)
+        end
+        
+        Optimizer.Cache[cacheKey] = {
+            Title = newTitle, 
+            Desc = newDesc, 
+            IsMaxed = isMaxed, 
+            VisualHash = currentVisualHash
+        }
+    end
+
+    -- [AUTO EQUIP LOGIC]
+    local targetEquipID = Config.AutoEquipRelicTarget
+    if targetEquipID then
+        targetEquipID = tostring(targetEquipID)
+        if RelicsOwned[targetEquipID] then
+            if not EquippedRelics[targetEquipID] then
+                if Reliable then
+                    local now = os.time()
+                    if not Optimizer.Cache.LastRelicEquip or (now - Optimizer.Cache.LastRelicEquip) > 3 then
+                        pcall(function() Reply.To("Equip Relics", targetEquipID) end)
+                        if Notify then 
+                            local rName = (RelicsConfig[targetEquipID] and RelicsConfig[targetEquipID].Display) or targetEquipID
+                            Notify("Relics", "Auto Equipping: " .. rName, "shield")
+                        end
+                        Optimizer.Cache.LastRelicEquip = now
+                    end
+                end
+            end
+        end
+    end
+end
 -- [[ METEOR EVENT LOGIC: ENEMY HUNTER ONLY ]] --
 task.spawn(function()
     repeat task.wait() until shared.Reply and getgenv().EnemiesData
@@ -6375,6 +6666,7 @@ task.spawn(function()
             pcall(Optimizer.Update_RarityPower_Logic, pData)
             pcall(Optimizer.Update_AvatarCurse_Logic, pData)
             pcall(Optimizer.Update_EnergyUpgrade_Logic, pData)
+            pcall(Optimizer.Update_Relics_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
