@@ -43,6 +43,8 @@ Enemies = shared.Enemies
 Weapons = shared.Weapons
 RelicsConfig = shared.Relics
 CapitalsUpgradesConfig = shared.CapitalsUpgrades
+AchievementsConfig = shared.Achievements
+TimeRewardsConfig = shared.TimeRewards
 UpgradeModules = {
     DemonArt = shared.DemonArt,
     MagicEyes = shared.MagicEyes,
@@ -851,12 +853,6 @@ function MaintainAutoStatus()
                 local Data = (getgenv()).PlayerData;
                 
                 if Data and Data.Settings and Reply and Reply.To then
-                    -- 1. Cek Setting Auto Click
-                    if Data.Settings.AutoClick == false then
-                        pcall(function()
-                            Reply.To("Settings","AutoClick",true);
-                        end);
-                    end;
 
                     -- 2. Cek Setting Auto Attack
                     if Data.Settings.AutoAttack == false then
@@ -1504,6 +1500,7 @@ FM_Category = FarmTab:Category({
         {Title="Rankup", Icon=GetIcon(111262536381336)},
         {Title="Trainers", Icon=GetIcon(92875014242960)},
         {Title="Secret Quests", Icon=GetIcon(98394716892889)},
+        {Title="Misc", Icon=GetIcon(128660194699457)},
         {Title="Crafts", Icon=GetIcon(132575095676543)}
     },
     Callback = FM_OnChange
@@ -2298,11 +2295,6 @@ task.spawn(function()
 end)
 FM_OnChange("Farm")
 
-GeneralTab = Window:Tab({
-    Title = "General",
-    Icon = "settings"
-});
-
 GeneralManagerSection = FarmTab
 ExchangeList = {}
 
@@ -2504,29 +2496,6 @@ if not IsPremium then
         end
     end
 end
-
-GeneralTab:Toggle({
-    Title = "Auto Fuse Weapons",
-    Flag = "AutoFuse_Cfg",
-    Callback = function(val)
-        Config.AutoFuse = val;
-        if val then
-            task.spawn(function()
-                while Config.AutoFuse do
-                    if Window.Destroyed then
-                        break;
-                    end;
-                    if Reply and Reply.To then
-                        pcall(function()
-                            Reply.To("Weapon Fuse All");
-                        end);
-                    end;
-                    task.wait(10);
-                end;
-            end);
-        end;
-    end
-});
 
 function GetStatsIcon()
     local icon = "bar-chart";
@@ -4078,10 +4047,67 @@ if not IsPremium then
         pcall(function() info.UI:Set(false) end)
     end
 end
+-- [[ CATEGORY: ACHIEVEMENTS ]] --
+AchGroup = FarmTab:Group({Title = "Achievements Manager"})
+FM_Add("Misc", AchGroup)
+
+-- Status Dashboard
+AchStatusPara = FarmTab:Paragraph({
+    Title = "Achievement Status",
+    Desc = "Scanning data...",
+    Image = GetIcon(128660194699457), -- Icon Achievement
+    ImageSize = 40
+})
+FM_Add("Misc", AchStatusPara)
+
+-- Toggle Auto Claim
+AchAutoClaim = FarmTab:Toggle({
+    Title = "Auto Claim Achievements",
+    Desc = "Automatically collects rewards for completed achievements.",
+    Flag = "AutoClaimAch_Cfg",
+    Callback = function(val)
+        Config.AutoClaimAchievements = val
+    end
+})
+FM_Add("Misc", AchAutoClaim)
+-- [[ TAMBAHAN UNTUK UI ACHIEVEMENTS ]] --
+
+-- Toggle Auto Time Rewards
+TimeRewardToggle = FarmTab:Toggle({
+    Title = "Auto Claim Time Rewards",
+    Desc = "Auto claim Daily & Weekly login rewards.",
+    Flag = "AutoTimeReward_Cfg",
+    Callback = function(val)
+        Config.AutoTimeRewards = val
+    end
+})
+FM_Add("Misc", TimeRewardToggle)
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
 });
+FM_Add("Misc",FarmTab:Toggle({
+    Title = "Auto Fuse Weapons",
+    Flag = "AutoFuse_Cfg",
+    Callback = function(val)
+        Config.AutoFuse = val;
+        if val then
+            task.spawn(function()
+                while Config.AutoFuse do
+                    if Window.Destroyed then
+                        break;
+                    end;
+                    if Reply and Reply.To then
+                        pcall(function()
+                            Reply.To("Weapon Fuse All");
+                        end);
+                    end;
+                    task.wait(10);
+                end;
+            end);
+        end;
+    end
+}))
 SettingsTab:Button({
     Title = "Copy PlayerData to Clipboard",
     Icon = "copy",
@@ -6283,10 +6309,6 @@ function Optimizer.Update_AutoUnlock_Logic(pData)
                     -- Mengirim remote "Try Unlock" dengan argumen tabel nama fitur
                     Reply.To("Try Unlock", itemName)
                 end)
-
-                if Notify then 
-                    Notify("Auto Unlock", "Unlocking Feature: " .. itemName, "shopping-cart") 
-                end
                 break 
             end
         end
@@ -6498,6 +6520,148 @@ function Optimizer.Update_Relics_Logic(pData)
         end
     end
 end
+function Optimizer.Update_Achievements_Logic(pData)
+    if not AchievementsConfig or not pData then return end
+    
+    -- Struktur Data Game:
+    -- pData.Achievements["ID_Stage"] = true (Jika sudah diklaim)
+    local myAchievements = pData.Achievements or {}
+    
+    local claimableQueue = {} -- Tabel penampung ID yang siap klaim
+    local totalClaimable = 0
+    local totalCompleted = 0
+    local pendingDesc = {}
+    
+    -- Loop semua Achievement di Config
+    for id, achData in pairs(AchievementsConfig) do
+        -- Loop semua Stage di dalam Achievement tersebut
+        if achData.List then
+            for stageIdx, stageData in ipairs(achData.List) do
+                local key = tostring(id) .. "_" .. tostring(stageIdx)
+                
+                -- Cek apakah SUDAH diklaim?
+                if myAchievements[key] then
+                    totalCompleted = totalCompleted + 1
+                else
+                    -- Jika BELUM, cek apakah Progress sudah 100% (>= 1)
+                    local progress = 0
+                    local success, err = pcall(function()
+                        -- Menggunakan fungsi Progress asli dari game
+                        if achData.Progress then
+                            progress = achData.Progress(pData, stageData.Requirement)
+                        end
+                    end)
+                    
+                    if success and progress >= 1 then
+                        -- Masukkan ke antrian klaim (Batching)
+                        if not claimableQueue[tostring(id)] then
+                            claimableQueue[tostring(id)] = {}
+                        end
+                        table.insert(claimableQueue[tostring(id)], stageIdx)
+                        
+                        totalClaimable = totalClaimable + 1
+                        
+                        -- Ambil nama untuk display (Cuma ambil 3 teratas biar ga spam teks)
+                        if totalClaimable <= 3 then
+                            table.insert(pendingDesc, "• " .. achData.Display .. " (Lv " .. stageIdx .. ")")
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Update UI Status
+    if AchStatusPara then
+        local statusText = ""
+        if totalClaimable > 0 then
+            statusText = string.format("<b>%d Rewards Available!</b>\n%s", totalClaimable, table.concat(pendingDesc, "\n"))
+            if totalClaimable > 3 then statusText = statusText .. "\n...and more" end
+        else
+            statusText = string.format("All caught up!\nTotal Completed: %d", totalCompleted)
+        end
+        
+        if Optimizer.Cache.LastAchDesc ~= statusText then
+            AchStatusPara:SetDesc(statusText)
+            Optimizer.Cache.LastAchDesc = statusText
+        end
+    end
+    
+    -- Eksekusi Auto Claim (Batch Send)
+    if Config.AutoClaimAchievements and totalClaimable > 0 and Reliable then
+        local now = os.time()
+        -- Delay 3 detik agar tidak spam remote setiap frame
+        if not Optimizer.Cache.LastAchClaim or (now - Optimizer.Cache.LastAchClaim) > 3 then
+            pcall(function()
+                -- Mengirim format tabel persis seperti decompiler: {[ID] = {Stage1, Stage2}}
+                Reply.To("Collect Achievements", claimableQueue)
+            end)
+            Optimizer.Cache.LastAchClaim = now
+        end
+    end
+end
+function Optimizer.Update_TimeRewards_Logic(pData)
+    if not TimeRewardsConfig or not pData then return end
+    
+    local DailyData = pData.DailyRewards or {}
+    local WeeklyData = pData.WeeklyRewards or {}
+    local Attr = pData.Attributes or {}
+    local myDailyTime = Attr.DailyTime or 0
+    local myWeeklyDay = Attr.WeeklyDay or 1
+    
+    -- [[ 1. CEK DAILY REWARDS ]] --
+    local dailyToClaim = {}
+    if TimeRewardsConfig.Daily then
+        for id, info in pairs(TimeRewardsConfig.Daily) do
+            local key = tostring(id)
+            -- Cek apakah belum diklaim DAN waktu cukup
+            if not DailyData[key] and (info.Timer - myDailyTime <= 0) then
+                table.insert(dailyToClaim, id)
+            end
+        end
+    end
+    
+    -- [[ 2. CEK WEEKLY REWARDS ]] --
+    local weeklyToClaim = {}
+    if TimeRewardsConfig.Weekly then
+        for id, info in pairs(TimeRewardsConfig.Weekly) do
+            local key = tostring(id)
+            -- Cek apakah belum diklaim DAN hari cukup
+            if not WeeklyData[key] and (id <= myWeeklyDay) then
+                table.insert(weeklyToClaim, id)
+            end
+        end
+    end
+    
+    -- [[ EKSEKUSI AUTO CLAIM ]] --
+    if Config.AutoTimeRewards and Reliable then
+        local now = os.time()
+        -- Delay 5 detik biar aman
+        if not Optimizer.Cache.LastTimeReward or (now - Optimizer.Cache.LastTimeReward) > 5 then
+            local claimed = false
+            
+            if #dailyToClaim > 0 then
+                pcall(function()
+                    Reply.To("Collect Time Reward List", "Daily", dailyToClaim)
+                end)
+                if Notify then Notify("Rewards", "Claimed " .. #dailyToClaim .. " Daily Rewards!", "gift") end
+                claimed = true
+            end
+            
+            if #weeklyToClaim > 0 then
+                pcall(function()
+                    Reply.To("Collect Time Reward List", "Weekly", weeklyToClaim)
+                end)
+                if Notify then Notify("Rewards", "Claimed " .. #weeklyToClaim .. " Weekly Rewards!", "gift") end
+                claimed = true
+            end
+            
+            if claimed then
+                Optimizer.Cache.LastTimeReward = now
+            end
+        end
+    end
+end
 -- [[ METEOR EVENT LOGIC: ENEMY HUNTER ONLY ]] --
 -- [[ METEOR EVENT LOGIC: SMART PRIORITY (NO GLITCH) ]] --
 task.spawn(function()
@@ -6683,6 +6847,8 @@ task.spawn(function()
             pcall(Optimizer.Update_AvatarCurse_Logic, pData)
             pcall(Optimizer.Update_EnergyUpgrade_Logic, pData)
             pcall(Optimizer.Update_Relics_Logic, pData)
+            pcall(Optimizer.Update_Achievements_Logic, pData)
+            pcall(Optimizer.Update_TimeRewards_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
