@@ -1611,6 +1611,22 @@ MeteorToggle = FarmTab:Toggle({
         Config.AutoMeteor = val
     end
 })
+
+-- [[ LOAD QUESTS CONFIG ]] --
+QuestsConfig = nil
+pcall(function()
+    QuestsConfig = shared.Quests
+end)
+-- [[ TAMBAHAN UI FARM ]] --
+AutoQuestToggle = FarmTab:Toggle({
+    Title = "Auto Accept & Claim Quests",
+    Desc = "Automatically accepts and claims zone quests.",
+    Flag = "AutoQuest_Cfg",
+    Callback = function(val)
+        Config.AutoQuest = val
+    end
+})
+FM_Add("Farm", AutoQuestToggle)
 if LocalPlayer.UserId ~= 9891690208 then
     FM_Add("Farm", MeteorToggle) -- Kita gabung di kategori Mega Boss atau buat Group baru jika mau
 end
@@ -1863,203 +1879,136 @@ function LogicGamemodes()
     end;
 end;
 
+-- [[ OPTIMIZED GAMEMODE DATA LOADING ]] --
+
+-- 1. Definisi Variabel List (Kosongkan dulu agar startup cepat)
+pirateTowerList, shadowGateList, capitalRaidList = nil, nil, nil
+magicRaidList, ignitionRaidList, slimeRaidList, sorcerersDefenseList = nil, nil, nil, nil
+dungeonList, dungeonDB = {}, {}
+raidList, raidDB = {}, {}
+defenseList, defenseDB = {}, {}
+
+-- Helper Function (Tetap)
 local function LoadSingleGamemodeData(configModule, displayFallback, valueName, maxKey, maxLabel)
-    local success, module = pcall(function()
-        return require(configModule)
-    end)
+    local success, module = pcall(function() return require(configModule) end)
     if success and module then
         local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
         local maxValue = module[maxKey] or 0
         local desc = maxLabel .. ": " .. maxValue .. " | HP Base: " .. Utils.ToText(hpBase)
-        local rewardCards = GenerateCardRewards(module.ChanceReward)
-
-        return {{
-            Title = module.Display or displayFallback,
-            Value = valueName,
-            Desc = desc,
-            Images = rewardCards
-        }}
+        local rewardCards = GenerateCardRewards(module.ChanceReward) -- Ini berat, akan kita load bertahap
+        return {{ Title = module.Display or displayFallback, Value = valueName, Desc = desc, Images = rewardCards }}
     end
     return {}
 end
 
-pirateTowerList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.PirateTower, "Pirate Tower", "PirateTower", "MAX_FLOOR", "Max Floors")
-shadowGateList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.ShadowGate, "Shadow Gate", "ShadowGate", "MAX_WAVE", "Max Waves")
-capitalRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.CapitalRaid, "Capital Raid", "CapitalRaid", "MAX_WAVE", "Max Waves")
-magicRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.MagicRaid, "Magic Raid", "MagicRaid", "MAX_WAVE", "Max Waves")
-ignitionRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.IgnitionRaid, "Ignition Raid", "IgnitionRaid", "MAX_WAVE", "Max Waves")
-slimeRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SlimeRaid, "Slime Raid", "SlimeRaid", "MAX_WAVE", "Max Waves")
-sorcerersDefenseList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SorcerersDefense, "Sorcerers Defense", "SorcerersDefense", "MAX_WAVE", "Max Waves")
-
 -- [3. DUNGEON DATA]
 function LoadDungeonData()
-    local success, module = pcall(function()
-        return require(RS.Scripts.Configs.Gamemodes.Dungeon);
-    end);
+    local success, module = pcall(function() return require(RS.Scripts.Configs.Gamemodes.Dungeon) end)
     if success and module and module.PHASES then
-        dungeonList, dungeonDB = {}, {};
+        dungeonList, dungeonDB = {}, {}
         for id, phase in ipairs(module.PHASES) do
-            local rName = phase.Name;
-            local hpCalc = module.GetRecommendedPower(phase.HealthBase);
-            
-            local times = phase.START_TIMES or {}
-            table.sort(times)
-            local desc = "HP: " .. Utils.ToText(hpCalc);
-            
-            local rewardCards = GenerateCardRewards(phase.ChanceReward)
+            local rName = phase.Name
+            local hpCalc = module.GetRecommendedPower(phase.HealthBase)
+            local desc = "HP: " .. Utils.ToText(hpCalc)
+            local rewardCards = GenerateCardRewards(phase.ChanceReward) -- Berat
 
-            table.insert(dungeonList, {
-                Title = rName,
-                Desc = desc,
-                Value = rName,
-                Images = rewardCards
-            });
-            dungeonDB[rName] = {
-                ID = id,
-                Times = phase.START_TIMES,
-                BaseDesc = desc
-            };
-        end;
-    end;
-end;
-LoadDungeonData();
+            table.insert(dungeonList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards })
+            dungeonDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
+            
+            -- [ANTI LAG] Istirahat setiap proses 1 phase dungeon
+            task.wait() 
+        end
+    end
+end
 
 -- [4. RAID DATA]
 function LoadRaidData()
-    local success, module = pcall(function()
-        return require(RS.Scripts.Configs.Gamemodes.Raid);
-    end);
+    local success, module = pcall(function() return require(RS.Scripts.Configs.Gamemodes.Raid) end)
     if success and module and module.PHASES then
-        raidList, raidDB = {}, {};
+        raidList, raidDB = {}, {}
         for id, phase in ipairs(module.PHASES) do
-            local rName = phase.Name;
-            local hpCalc = module.GetRecommendedPower(phase.HealthBase);
-            
-            local times = phase.START_TIMES or {}
-            table.sort(times)
-            local timeStr = table.concat(times, ", ")
-            local desc = "HP: " .. Utils.ToText(hpCalc);
-            
-            local rewardCards = GenerateCardRewards(phase.ChanceReward)
+            local rName = phase.Name
+            local hpCalc = module.GetRecommendedPower(phase.HealthBase)
+            local desc = "HP: " .. Utils.ToText(hpCalc)
+            local rewardCards = GenerateCardRewards(phase.ChanceReward) -- Berat
 
-            table.insert(raidList, {
-                Title = rName,
-                Desc = desc,
-                Value = rName,
-                Images = rewardCards
-            });
-            raidDB[rName] = {
-                ID = id,
-                Times = phase.START_TIMES,
-                BaseDesc = desc
-            };
-        end;
-    end;
-end;
-LoadRaidData();
+            table.insert(raidList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards })
+            raidDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
+            
+            -- [ANTI LAG] Istirahat setiap proses 1 phase raid
+            task.wait()
+        end
+    end
+end
 
 function LoadDefenseData()
-    local success, module = pcall(function()
-        return require(RS.Scripts.Configs.Gamemodes.Defense);
-    end);
+    local success, module = pcall(function() return require(RS.Scripts.Configs.Gamemodes.Defense) end)
     if success and module and module.PHASES then
-        defenseList, defenseDB = {}, {};
+        defenseList, defenseDB = {}, {}
         for id, phase in ipairs(module.PHASES) do
-            local rName = phase.Name;
-            local hpCalc = module.GetRecommendedPower(phase.HealthBase);
-            
-            local times = phase.START_TIMES or {}
-            table.sort(times)
-            local timeStr = table.concat(times, ", ")
-            local desc = "HP: " .. Utils.ToText(hpCalc);
-
+            local rName = phase.Name
+            local hpCalc = module.GetRecommendedPower(phase.HealthBase)
+            local desc = "HP: " .. Utils.ToText(hpCalc)
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
-            table.insert(defenseList, {
-                Title = rName,
-                Desc = desc,
-                Value = rName,
-                Images = rewardCards
-            });
-            defenseDB[rName] = {
-                ID = id,
-                Times = phase.START_TIMES,
-                BaseDesc = desc
-            };
-        end;
-    end;
-end;
-LoadDefenseData();
+            table.insert(defenseList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards })
+            defenseDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
+            
+            -- [ANTI LAG] Istirahat setiap proses 1 phase defense
+            task.wait()
+        end
+    end
+end
+
 function BuildGameModesDropdownValues()
     local out = {}
-
-    -- Helper local function
     local function AddList(prefix, list, useColon)
         if not list then return end
         for _, item in ipairs(list) do
             local rawVal = type(item) == "table" and (item.Value or item.Title) or tostring(item)
             local itemTitle = item.Title or rawVal
-            
-            -- FORMATTING PENTING:
-            -- Jika useColon=true, jadinya "Dungeon:Room 1"
-            -- Jika false, jadinya "PirateTower"
             local finalValue = useColon and (prefix .. ":" .. rawVal) or rawVal
-            
-            -- Title biarkan cantik (pakai spasi)
             local finalTitle = useColon and (prefix .. ": " .. itemTitle) or itemTitle
 
             if rawVal then
                 table.insert(out, {
-                    Title = finalTitle,
-                    Value = finalValue, -- Value ini yang dipakai key update
-                    Desc = item.Desc,
-                    Images = item.Images
+                    Title = finalTitle, Value = finalValue,
+                    Desc = item.Desc, Images = item.Images
                 })
             end
         end
     end
 
-    -- Panggil dengan logic strict
     AddList("Dungeon", dungeonList, true)
     AddList("Raid", raidList, true)
     AddList("Defense", defenseList, true)
-    local singleLists = {pirateTowerList, shadowGateList, sorcerersDefenseList, capitalRaidList, magicRaidList, ignitionRaidList,slimeRaidList}
+    local singleLists = {pirateTowerList, shadowGateList, sorcerersDefenseList, capitalRaidList, magicRaidList, ignitionRaidList, slimeRaidList}
     for _, list in ipairs(singleLists) do
         AddList("", list, false)
     end
-
     return out
 end
 
+-- UI Dropdown Dibuat KOSONG dulu agar tidak freeze saat startup
 GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     Title = "Select GameModes",
     Multi = true,
     AllowNone = true,
     Flag = "GameModesList_Cfg",
-    Values = BuildGameModesDropdownValues(),
+    Values = {}, -- Kosongkan dulu!
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Callback = function(val)
-        -- Tambahkan ignitionRaidT di baris variabel local
         local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT, capitalRaidT, magicRaidT, ignitionRaidT, slimeRaidT = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
         local singleTargetMap = {
-            PirateTower = pirateT,
-            ShadowGate = shadowT,
-            SorcerersDefense = sorcerersT,
-            CapitalRaid = capitalRaidT,
-            MagicRaid = magicRaidT,
-            IgnitionRaid = ignitionRaidT, -- Tambahkan ini,
-            SlimeRaid = slimeRaidT, -- Tambahkan ini,
+            PirateTower = pirateT, ShadowGate = shadowT, SorcerersDefense = sorcerersT,
+            CapitalRaid = capitalRaidT, MagicRaid = magicRaidT, IgnitionRaid = ignitionRaidT, SlimeRaid = slimeRaidT,
         }
 
         for _, v in pairs(val) do
-            -- Ambil Value murni
             local raw = type(v) == "table" and v.Value or v
-            
             if type(raw) == "string" then
-                -- Cek format "Mode:Nama"
                 local mode, name = raw:match("^([^:]+):(.+)$")
-                
                 if mode and name then
                     if mode == "Dungeon" then table.insert(dungeonT, name)
                     elseif mode == "Raid" then table.insert(raidT, name)
@@ -2083,10 +2032,36 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
         Config.TargetIgnitionRaid = ignitionRaidT
         Config.TargetSlimeRaid = slimeRaidT
         
-        -- Kita panggil optimizer manual sekali agar deskripsi langsung berubah saat diklik
         pcall(Optimizer.Update_Gamemode_Dropdowns)
     end
 }));
+
+-- [ASYNC LOADER] Memuat Data GameMode secara bertahap di Background
+task.spawn(function()
+    
+    -- Tampilkan status loading di Dropdown (Optional visual feedback)
+    if GameModesDrop and GameModesDrop.SetTitle then pcall(function() GameModesDrop:SetTitle("Loading Modes...") end) end
+
+    -- Load Single Modes satu per satu dengan jeda
+    pirateTowerList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.PirateTower, "Pirate Tower", "PirateTower", "MAX_FLOOR", "Max Floors"); task.wait()
+    shadowGateList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.ShadowGate, "Shadow Gate", "ShadowGate", "MAX_WAVE", "Max Waves"); task.wait()
+    sorcerersDefenseList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SorcerersDefense, "Sorcerers Defense", "SorcerersDefense", "MAX_WAVE", "Max Waves"); task.wait()
+    capitalRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.CapitalRaid, "Capital Raid", "CapitalRaid", "MAX_WAVE", "Max Waves"); task.wait()
+    magicRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.MagicRaid, "Magic Raid", "MagicRaid", "MAX_WAVE", "Max Waves"); task.wait()
+    ignitionRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.IgnitionRaid, "Ignition Raid", "IgnitionRaid", "MAX_WAVE", "Max Waves"); task.wait()
+    slimeRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SlimeRaid, "Slime Raid", "SlimeRaid", "MAX_WAVE", "Max Waves"); task.wait()
+
+    -- Load Multi Modes (Dungeon/Raid) yang sudah dioptimasi di atas
+    LoadDungeonData(); task.wait()
+    LoadRaidData(); task.wait()
+    LoadDefenseData(); task.wait()
+
+    -- Setelah semua data siap, Refresh Dropdown
+    if GameModesDrop and GameModesDrop.Refresh then
+        GameModesDrop:Refresh(BuildGameModesDropdownValues())
+        if GameModesDrop.SetTitle then pcall(function() GameModesDrop:SetTitle("Select GameModes") end) end
+    end
+end)
 
 -- [[ GROUP 1: UTAMA & JOIN ]] --
 local GM_Group1 = FarmTab:Group({})
