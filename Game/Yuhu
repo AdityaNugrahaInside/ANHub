@@ -3779,7 +3779,6 @@ if #RarityOptions > 0 then
                     
                     if isLocked and currentIndex < newTargetIndex then
                         Reply.To("Lock Hero Stats", statName)
-                        if Notify then Notify("Auto Unlock", "Unlocking " .. statName .. " (Below target)") end
                         task.wait(0.1)
                     end
                 end
@@ -5446,9 +5445,6 @@ function Optimizer.Update_Heroes_Logic(pData)
                 if currentIdx >= targetIdx and not lStats[sName] then
                     pcall(function()
                         Reply.To("Lock Hero Stats", sName)
-                        if Notify then 
-                            Notify("Auto Lock", "Locked " .. sName .. " (Tier " .. (RarityIndexMap[currentIdx] or "?") .. ")", "lock") 
-                        end
                     end)
                 end
             end
