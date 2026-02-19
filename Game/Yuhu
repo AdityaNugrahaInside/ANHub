@@ -5278,11 +5278,21 @@ function Optimizer.Update_Heroes_Logic(pData)
     local hashBuilder = "" 
     
     for key, value in pairs(pData.EquippedHeroes) do 
-        -- PERBAIKAN: Deteksi bentuk data (Array dari Server vs Dictionary dari Local Client)
-        local uid = type(key) == "number" and value or key
-        local isEquipped = type(key) == "number" and true or value
+        local uid = nil
+        local isEquipped = false
         
-        if isEquipped == true and pData.Heroes[uid] then 
+        -- [PERBAIKAN FINAL]: Deteksi Format Data (Array vs Dictionary) Super Akurat
+        if value == true then
+            -- Kondisi saat Equip Manual (Dictionary: {[UID] = true})
+            uid = key
+            isEquipped = true
+        elseif type(value) == "number" or type(value) == "string" then
+            -- Kondisi saat baru Login (Array: {[Index] = UID})
+            uid = value
+            isEquipped = true
+        end
+        
+        if isEquipped and uid and pData.Heroes[uid] then 
             local hData = pData.Heroes[uid]
             local hName = "Unknown"
             local hRarity = "Common"
@@ -5315,7 +5325,7 @@ function Optimizer.Update_Heroes_Logic(pData)
                 Desc = "Damage: " .. damageDisplay
             })
             
-            hashBuilder = hashBuilder .. uid
+            hashBuilder = hashBuilder .. tostring(uid)
         end 
     end
     
@@ -5327,7 +5337,7 @@ function Optimizer.Update_Heroes_Logic(pData)
             HeroSelectDrop:Refresh(activeHeroesList)
         end
         
-        -- PERBAIKAN: Paksa UI Dropdown untuk memilih (select) hero agar teksnya tidak kosong
+        -- Paksa UI Dropdown untuk memilih hero agar teks tidak kosong
         local isValidSelection = false
         if SelectedHeroUID then
             for _, hero in ipairs(activeHeroesList) do
@@ -5338,7 +5348,7 @@ function Optimizer.Update_Heroes_Logic(pData)
             end
         end
         
-        -- Jika belum ada yang valid dipilih, pilih Hero urutan pertama
+        -- Jika belum ada yang valid, pilih Hero pertama
         if not isValidSelection and #activeHeroesList > 0 then
             SelectedHeroUID = activeHeroesList[1].Value
         end
@@ -5355,10 +5365,12 @@ function Optimizer.Update_Heroes_Logic(pData)
     local isValidSelection = false
     if SelectedHeroUID then
         -- Cek apakah hero terpilih masih dipakai (Support Array & Dictionary)
-        for k, v in pairs(pData.EquippedHeroes) do
-            local uid = type(k) == "number" and v or k
-            local isEquipped = type(k) == "number" and true or v
-            if uid == SelectedHeroUID and isEquipped then
+        for key, value in pairs(pData.EquippedHeroes) do
+            local uid = nil
+            if value == true then uid = key
+            elseif type(value) == "number" or type(value) == "string" then uid = value end
+            
+            if uid == SelectedHeroUID then
                 isValidSelection = true
                 break
             end
@@ -5396,29 +5408,26 @@ function Optimizer.Update_Heroes_Logic(pData)
             hDamageStr = Utils.ToText(baseDamage * 100 * buffMultiplier, 3) .. "%"
         end
 
-        -- [BARU: LOGIKA VIEWPORT HERO]
+        -- [LOGIKA VIEWPORT HERO]
         if Optimizer.Cache.LastHeroUID ~= SelectedHeroUID then
             Optimizer.Cache.LastHeroUID = SelectedHeroUID
             
-            -- Mencari model hero di folder Assets/Heroes
             local modelPath = ReplicatedFirst:WaitForChild("Assets"):WaitForChild("Heroes"):FindFirstChild(hData.Index)
             
             if HeroStatsInfo and modelPath then
                 local modelClone = modelPath:Clone()
                 local orientation, size = modelClone:GetBoundingBox()
                 
-                -- Centering model
                 modelClone:PivotTo(CFrame.new(-orientation.Position)) 
                 
-                -- Set ke Viewport HeroStatsInfo
                 HeroStatsInfo:SetViewport(modelClone)
                 
                 local vp = HeroStatsInfo.ViewportFrame
                 if vp and vp.CurrentCamera then
                     local dist = size.Magnitude * 0.8 
                     vp.CurrentCamera.CFrame = CFrame.lookAt(
-                        Vector3.new(0, 0.2, -dist), -- Posisi kamera statis depan
-                        Vector3.new(0, 0, 0)        -- Melihat ke tengah model
+                        Vector3.new(0, 0.2, -dist), 
+                        Vector3.new(0, 0, 0)        
                     )
                 end
             end
@@ -5452,12 +5461,11 @@ function Optimizer.Update_Heroes_Logic(pData)
             Optimizer.Cache.LastHeroDesc = lines
         end
         
-        -- 1. Logika Auto Lock (Berjalan Mandiri)
+        -- 1. Logika Auto Lock
         if Config.EnableAutoLock then
             local targetIdx = RarityMap[TargetLockTier] or 999
             for _, sName in ipairs(ValidStatsList) do
                 local currentIdx = hStats[sName] or 1
-                -- Jika Tier Stats saat ini >= Target Tier DAN belum dikunci
                 if currentIdx >= targetIdx and not lStats[sName] then
                     pcall(function()
                         Reply.To("Lock Hero Stats", sName)
@@ -5469,10 +5477,9 @@ function Optimizer.Update_Heroes_Logic(pData)
             end
         end
 
-        -- 2. Logika Auto Roll (Hanya jalan jika Auto Roll ON)
+        -- 2. Logika Auto Roll
         if Config.AutoRollHeroStats then
             local currency = pData.Materials.HeroesStats or 0
-            -- Cek apakah semua stats yang >= target sudah terkunci sebelum lanjut roll
             local allTargetsLocked = true
             local targetIdx = RarityMap[TargetLockTier] or 999
             
@@ -5499,7 +5506,6 @@ function Optimizer.Update_Heroes_Logic(pData)
             end
         end
     else
-        -- Jika tidak ada hero dipilih, bersihkan viewport
         if Optimizer.Cache.LastHeroUID ~= nil then
             Optimizer.Cache.LastHeroUID = nil
             if HeroStatsInfo and HeroStatsInfo.ViewportFrame then
