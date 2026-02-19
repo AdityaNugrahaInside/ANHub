@@ -3426,7 +3426,7 @@ ValidStatsList = {}
 
 function LoadHeroesStatsData()
     local successStats, moduleStats = pcall(function()
-        return shared.HeroesStats
+        return require(RS.Scripts.Configs.MultipleZones.HeroesStats)
     end)
     if successStats and moduleStats then
         HeroesStatsModule = moduleStats
@@ -3452,7 +3452,7 @@ function LoadHeroesStatsData()
     end
 
     local successHero, moduleHero = pcall(function()
-        return shared.Heroes
+        return require(RS.Scripts.Configs.MultipleZones.Heroes)
     end)
     if successHero and moduleHero then
         HeroesConfigModule = moduleHero
