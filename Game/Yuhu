@@ -1409,7 +1409,7 @@ FM_CategoryDescriptions = {
     ["Relics"] = "Auto Equip And Upgrade Your Relics",
     ["Vault"] = "Auto Equipped Best Vault for battle/lobby",
     ["Avatar Level"] = "Upgrade Avatar Level, view stats and costs",
-    ["Heroes Stats"] = "Reroll Heroes Stats, view stats and costs",
+    ["Heroes Stats"] = "Reroll Heroes Stats",
     ["Rarity Powers"] = "Auto Upgrade and Evolve your rarity power stats",
     ["Avatar Curses"] = "Add Extra Stats To Your Avatar",
     ["Ascension"] = "You can exchange all your level progress to obtain boosts.",
@@ -5271,13 +5271,12 @@ function Optimizer.Update_Heroes_Logic(pData)
     
     -- Init Cache Variables
     if not Optimizer.Cache.LastHeroRollTime then Optimizer.Cache.LastHeroRollTime = 0 end
-    if not Optimizer.Cache.EquippedHeroesHash then Optimizer.Cache.EquippedHeroesHash = "" end
-    -- [HAL BARU]: Flag untuk memaksa refresh di awal
-    if Optimizer.Cache.HeroUIPopulated == nil then Optimizer.Cache.HeroUIPopulated = false end 
+    -- [PERBAIKAN]: Gunakan nilai awal "FirstLoad" agar saat pertama kali jalan pasti me-refresh 1 kali saja tanpa spam
+    if Optimizer.Cache.EquippedHeroesHash == nil then Optimizer.Cache.EquippedHeroesHash = "FirstLoad" end
 
     -- [1] KUMPULKAN HERO YANG SEDANG DIPAKAI (EQUIPPED)
     local activeHeroesList = {}
-    local tempUIDsForHash = {} -- [HAL BARU]: Penampung UID untuk diurutkan
+    local tempUIDsForHash = {} 
     
     for uid, isEquipped in pairs(pData.EquippedHeroes) do 
         if isEquipped == true and pData.Heroes[uid] then 
@@ -5313,18 +5312,16 @@ function Optimizer.Update_Heroes_Logic(pData)
                 Desc = "Damage: " .. damageDisplay
             })
             
-            -- [HAL BARU]: Masukkan UID ke tabel sementara
             table.insert(tempUIDsForHash, uid)
         end 
     end
     
-    -- [HAL BARU]: Urutkan UID agar susunan Hash selalu konsisten
     table.sort(tempUIDsForHash)
     local hashBuilder = table.concat(tempUIDsForHash, ",")
     
     -- [2] UPDATE DROPDOWN
-    -- [HAL BARU]: Kondisi tambahan 'or not Optimizer.Cache.HeroUIPopulated' agar dipaksa refresh saat start
-    if hashBuilder ~= Optimizer.Cache.EquippedHeroesHash or not Optimizer.Cache.HeroUIPopulated then
+    -- [PERBAIKAN]: Hapus kondisi 'not Optimizer.Cache.HeroUIPopulated' untuk menghentikan loop infinite refresh
+    if hashBuilder ~= Optimizer.Cache.EquippedHeroesHash then
         table.sort(activeHeroesList, function(a,b) return a.Title < b.Title end)
         
         if HeroSelectDrop and HeroSelectDrop.Refresh then
@@ -5339,11 +5336,6 @@ function Optimizer.Update_Heroes_Logic(pData)
         end
         
         Optimizer.Cache.EquippedHeroesHash = hashBuilder
-        
-        -- [HAL BARU]: Tandai bahwa UI sudah sukses diisi pertama kali
-        if #activeHeroesList > 0 then
-            Optimizer.Cache.HeroUIPopulated = true
-        end
     end
 
     -- [3] TAMPILKAN STATS & VIEWPORT HERO YANG DIPILIH
