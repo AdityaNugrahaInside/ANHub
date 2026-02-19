@@ -1601,7 +1601,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Meteor Event",
-    Desc = "Auto Teleport to Zone & Kill Mobs Get Hit Meteor.",
+    Desc = "Auto Teleport to Zone & Teleport to Kill Mobs Get Hit Meteor.",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
@@ -5272,27 +5272,15 @@ function Optimizer.Update_Heroes_Logic(pData)
     -- Init Cache Variables
     if not Optimizer.Cache.LastHeroRollTime then Optimizer.Cache.LastHeroRollTime = 0 end
     if not Optimizer.Cache.EquippedHeroesHash then Optimizer.Cache.EquippedHeroesHash = "" end
+    -- [HAL BARU]: Flag untuk memaksa refresh di awal
+    if Optimizer.Cache.HeroUIPopulated == nil then Optimizer.Cache.HeroUIPopulated = false end 
 
     -- [1] KUMPULKAN HERO YANG SEDANG DIPAKAI (EQUIPPED)
     local activeHeroesList = {}
-    local hashBuilder = "" 
+    local tempUIDsForHash = {} -- [HAL BARU]: Penampung UID untuk diurutkan
     
-    for key, value in pairs(pData.EquippedHeroes) do 
-        local uid = nil
-        local isEquipped = false
-        
-        -- [PERBAIKAN FINAL]: Deteksi Format Data (Array vs Dictionary) Super Akurat
-        if value == true then
-            -- Kondisi saat Equip Manual (Dictionary: {[UID] = true})
-            uid = key
-            isEquipped = true
-        elseif type(value) == "number" or type(value) == "string" then
-            -- Kondisi saat baru Login (Array: {[Index] = UID})
-            uid = value
-            isEquipped = true
-        end
-        
-        if isEquipped and uid and pData.Heroes[uid] then 
+    for uid, isEquipped in pairs(pData.EquippedHeroes) do 
+        if isEquipped == true and pData.Heroes[uid] then 
             local hData = pData.Heroes[uid]
             local hName = "Unknown"
             local hRarity = "Common"
@@ -5325,59 +5313,44 @@ function Optimizer.Update_Heroes_Logic(pData)
                 Desc = "Damage: " .. damageDisplay
             })
             
-            hashBuilder = hashBuilder .. tostring(uid)
+            -- [HAL BARU]: Masukkan UID ke tabel sementara
+            table.insert(tempUIDsForHash, uid)
         end 
     end
     
+    -- [HAL BARU]: Urutkan UID agar susunan Hash selalu konsisten
+    table.sort(tempUIDsForHash)
+    local hashBuilder = table.concat(tempUIDsForHash, ",")
+    
     -- [2] UPDATE DROPDOWN
-    if hashBuilder ~= Optimizer.Cache.EquippedHeroesHash then
+    -- [HAL BARU]: Kondisi tambahan 'or not Optimizer.Cache.HeroUIPopulated' agar dipaksa refresh saat start
+    if hashBuilder ~= Optimizer.Cache.EquippedHeroesHash or not Optimizer.Cache.HeroUIPopulated then
         table.sort(activeHeroesList, function(a,b) return a.Title < b.Title end)
         
         if HeroSelectDrop and HeroSelectDrop.Refresh then
             HeroSelectDrop:Refresh(activeHeroesList)
         end
         
-        -- Paksa UI Dropdown untuk memilih hero agar teks tidak kosong
-        local isValidSelection = false
-        if SelectedHeroUID then
-            for _, hero in ipairs(activeHeroesList) do
-                if hero.Value == SelectedHeroUID then
-                    isValidSelection = true
-                    break
-                end
+        if not SelectedHeroUID and #activeHeroesList > 0 then
+            SelectedHeroUID = activeHeroesList[1].Value
+            if HeroSelectDrop.Select then
+                pcall(function() HeroSelectDrop:Select(SelectedHeroUID) end)
             end
         end
         
-        -- Jika belum ada yang valid, pilih Hero pertama
-        if not isValidSelection and #activeHeroesList > 0 then
-            SelectedHeroUID = activeHeroesList[1].Value
-        end
-        
-        -- Eksekusi Set Value secara visual di UI
-        if HeroSelectDrop.Select and SelectedHeroUID then
-            pcall(function() HeroSelectDrop:Select(SelectedHeroUID) end)
-        end
-        
         Optimizer.Cache.EquippedHeroesHash = hashBuilder
+        
+        -- [HAL BARU]: Tandai bahwa UI sudah sukses diisi pertama kali
+        if #activeHeroesList > 0 then
+            Optimizer.Cache.HeroUIPopulated = true
+        end
     end
 
     -- [3] TAMPILKAN STATS & VIEWPORT HERO YANG DIPILIH
     local isValidSelection = false
-    if SelectedHeroUID then
-        -- Cek apakah hero terpilih masih dipakai (Support Array & Dictionary)
-        for key, value in pairs(pData.EquippedHeroes) do
-            local uid = nil
-            if value == true then uid = key
-            elseif type(value) == "number" or type(value) == "string" then uid = value end
-            
-            if uid == SelectedHeroUID then
-                isValidSelection = true
-                break
-            end
-        end
-    end
-
-    if not isValidSelection then
+    if SelectedHeroUID and pData.EquippedHeroes[SelectedHeroUID] == true then
+        isValidSelection = true
+    else
         if #activeHeroesList > 0 then
             SelectedHeroUID = activeHeroesList[1].Value
             isValidSelection = true
@@ -5408,7 +5381,6 @@ function Optimizer.Update_Heroes_Logic(pData)
             hDamageStr = Utils.ToText(baseDamage * 100 * buffMultiplier, 3) .. "%"
         end
 
-        -- [LOGIKA VIEWPORT HERO]
         if Optimizer.Cache.LastHeroUID ~= SelectedHeroUID then
             Optimizer.Cache.LastHeroUID = SelectedHeroUID
             
@@ -5419,7 +5391,6 @@ function Optimizer.Update_Heroes_Logic(pData)
                 local orientation, size = modelClone:GetBoundingBox()
                 
                 modelClone:PivotTo(CFrame.new(-orientation.Position)) 
-                
                 HeroStatsInfo:SetViewport(modelClone)
                 
                 local vp = HeroStatsInfo.ViewportFrame
@@ -5433,7 +5404,6 @@ function Optimizer.Update_Heroes_Logic(pData)
             end
         end
         
-        -- [A] UPDATE VISUAL TEKS
         local lines = ""
         for _, sName in ipairs(ValidStatsList) do
             local sIdx = hStats[sName] or 1
@@ -5461,7 +5431,6 @@ function Optimizer.Update_Heroes_Logic(pData)
             Optimizer.Cache.LastHeroDesc = lines
         end
         
-        -- 1. Logika Auto Lock
         if Config.EnableAutoLock then
             local targetIdx = RarityMap[TargetLockTier] or 999
             for _, sName in ipairs(ValidStatsList) do
@@ -5477,7 +5446,6 @@ function Optimizer.Update_Heroes_Logic(pData)
             end
         end
 
-        -- 2. Logika Auto Roll
         if Config.AutoRollHeroStats then
             local currency = pData.Materials.HeroesStats or 0
             local allTargetsLocked = true
