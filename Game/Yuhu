@@ -4019,10 +4019,17 @@ if not IsPremium then
         pcall(function() info.UI:Set(false) end)
     end
 end
+-- [[ CATEGORY: TITLES (MISC) ]] --
+TitleToggle = FarmTab:Toggle({
+    Title = "Auto Buy Title",
+    Desc = "Loading Title Data...",
+    Flag = "AutoTitle_Cfg",
+    Callback = function(val)
+        Config.AutoTitle = val
+    end
+})
+FM_Add("Misc", TitleToggle)
 -- [[ CATEGORY: ACHIEVEMENTS ]] --
-AchGroup = FarmTab:Group({Title = "Achievements Manager"})
-FM_Add("Misc", AchGroup)
-
 -- Status Dashboard
 AchStatusPara = FarmTab:Paragraph({
     Title = "Achievement Status",
@@ -4076,16 +4083,6 @@ FM_Add("Misc",FarmTab:Toggle({
         end;
     end
 }))
--- [[ CATEGORY: TITLES (MISC) ]] --
-TitleToggle = FarmTab:Toggle({
-    Title = "Auto Buy Title",
-    Desc = "Loading Title Data...",
-    Flag = "AutoTitle_Cfg",
-    Callback = function(val)
-        Config.AutoTitle = val
-    end
-})
-FM_Add("Misc", TitleToggle)
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
