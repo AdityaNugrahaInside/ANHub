@@ -4054,10 +4054,6 @@ TimeRewardToggle = FarmTab:Toggle({
     end
 })
 FM_Add("Misc", TimeRewardToggle)
-SettingsTab = Window:Tab({
-    Title = "Settings",
-    Icon = "settings-2"
-});
 FM_Add("Misc",FarmTab:Toggle({
     Title = "Auto Fuse Weapons",
     Flag = "AutoFuse_Cfg",
@@ -4080,6 +4076,20 @@ FM_Add("Misc",FarmTab:Toggle({
         end;
     end
 }))
+-- [[ CATEGORY: TITLES (MISC) ]] --
+TitleToggle = FarmTab:Toggle({
+    Title = "Auto Buy Title",
+    Desc = "Loading Title Data...",
+    Flag = "AutoTitle_Cfg",
+    Callback = function(val)
+        Config.AutoTitle = val
+    end
+})
+FM_Add("Misc", TitleToggle)
+SettingsTab = Window:Tab({
+    Title = "Settings",
+    Icon = "settings-2"
+});
 SettingsTab:Button({
     Title = "Copy PlayerData to Clipboard",
     Icon = "copy",
@@ -6831,6 +6841,158 @@ function Optimizer.Update_ZoneQuest_Logic(pData)
         end)
     end
 end
+
+function Optimizer.Update_Titles_Logic(pData)
+    local titleConfig = shared.Title
+    if not titleConfig or not pData or not pData.Attributes then return end
+
+    local currentIdx = pData.Attributes.Title or 0
+    local currentYen = pData.Attributes.Yen or 0
+    local maxIdx = #titleConfig
+
+    local newTitleUI = "Title"
+    local newDescUI = ""
+    local isMaxed = false
+    
+    local targetNameForGradient = ""
+    local targetColorSequence = nil
+
+    -- [TRIK RAHASIA] Membuat Gradient Text untuk RichText HTML
+    local function GetGradientText(text, colorData)
+        if not text then return "Unknown" end
+        if not colorData then return text end
+        
+        if typeof(colorData) == "ColorSequence" then
+            local result = ""
+            local len = string.len(text)
+            if len == 0 then return "" end
+            
+            for i = 1, len do
+                local char = string.sub(text, i, i)
+                -- Abaikan spasi agar kalkulasi gradasi lebih akurat pada huruf
+                if char == " " then
+                    result = result .. char
+                else
+                    -- Hitung posisi huruf (0 sampai 1)
+                    local alpha = (len > 1) and ((i - 1) / (len - 1)) or 0
+                    local targetColor = colorData.Keypoints[1].Value
+                    
+                    -- Cari warna yang tepat di posisi alpha tersebut
+                    for j = 1, #colorData.Keypoints - 1 do
+                        local kp1 = colorData.Keypoints[j]
+                        local kp2 = colorData.Keypoints[j + 1]
+                        if alpha >= kp1.Time and alpha <= kp2.Time then
+                            local percent = (alpha - kp1.Time) / (kp2.Time - kp1.Time)
+                            targetColor = kp1.Value:Lerp(kp2.Value, percent)
+                            break
+                        end
+                    end
+                    
+                    if alpha >= 1 then 
+                        targetColor = colorData.Keypoints[#colorData.Keypoints].Value 
+                    end
+                    
+                    -- Bungkus huruf dengan warna Hex hasil kalkulasi
+                    result = result .. string.format("<font color='#%s'>%s</font>", targetColor:ToHex(), char)
+                end
+            end
+            return result
+            
+        elseif typeof(colorData) == "Color3" then
+            return string.format("<font color='#%s'>%s</font>", colorData:ToHex(), text)
+        end
+        
+        return text
+    end
+
+    -- [FUNGSI HELPER] Format Bonus dengan Warna Kustom
+    local function FormatBonus(bTable)
+        if not bTable then return "<font color='#aaaaaa'>None</font>" end
+        local parts = {}
+        
+        local customColors = {
+            ["Mastery"] = "#d667ff", -- Ungu
+            ["Yen"]     = "#f1c40f", -- Kuning
+            ["Damage"]  = "#ff2b2b"  -- Merah
+        }
+        
+        for k, v in pairs(bTable) do
+            local cColor = customColors[k] or "#ffffff"
+            table.insert(parts, string.format("<font color='%s'>%s: +%s%%</font>", cColor, k, Utils.ToText(v)))
+        end
+        return table.concat(parts, " | ")
+    end
+
+    if currentIdx >= maxIdx then
+        -- KONDISI 1: SUDAH MAX TITLE
+        isMaxed = true
+        local currData = titleConfig[currentIdx]
+        local currName = currData and currData.Display or "Maxed"
+        
+        -- Aplikasikan Trik Gradient Teks!
+        local currNameGrad = GetGradientText(currName, currData and currData.Color)
+        local currBonus = currData and FormatBonus(currData.Bonus) or "<font color='#aaaaaa'>None</font>"
+        
+        targetNameForGradient = currName
+        targetColorSequence = currData and currData.Color
+        
+        newTitleUI = "Auto Buy Title [MAX]"
+        newDescUI = string.format(
+            "Current Title: <b>%s</b>\n" ..
+            "Active Bonus: %s", 
+            currNameGrad, currBonus
+        )
+    else
+        -- KONDISI 2: BELUM MAX (BISA BELI NEXT TITLE)
+        local currData = currentIdx > 0 and titleConfig[currentIdx] or nil
+        local currName = currData and currData.Display or "None"
+        local currNameGrad = GetGradientText(currName, currData and currData.Color)
+        local currBonus = currData and FormatBonus(currData.Bonus) or "<font color='#aaaaaa'>None</font>"
+        
+        local nextIdx = currentIdx + 1
+        local nextData = titleConfig[nextIdx]
+        local nextName = nextData.Display or "Unknown"
+        local nextNameGrad = GetGradientText(nextName, nextData.Color)
+        
+        local cost = nextData.Price or 0
+        local nextBonus = FormatBonus(nextData.Bonus)
+
+        targetNameForGradient = nextName
+        targetColorSequence = nextData.Color
+
+        local colorCost = (currentYen >= cost) and "#ffffff" or "#ff4444"
+        local yenIcon = GetIcon(139379806755218)
+
+        newDescUI = string.format(
+            "Current: <b>%s</b>\n" ..
+            "Active Bonus: %s\n\n" ..
+            "Next: <b>%s</b>\n" ..
+            "Next Bonus: %s\n\n" ..
+            "Cost: %s<font color='%s'>%s/%s</font>", 
+            currNameGrad, currBonus, nextNameGrad, nextBonus, yenIcon, colorCost, Utils.ToText(cost),Utils.ToText(currentYen)
+        )
+
+        -- LOGIKA AUTO BUY
+        if Config.AutoTitle and currentYen >= cost and Reliable then
+            pcall(function() Reply.To("BuyTitle", nextIdx) end)
+        end
+    end
+
+    -- [UPDATE UI VISUAL] --
+    if TitleToggle then
+        local cKey = "TitleUIState"
+        local cacheData = Optimizer.Cache[cKey] or {}
+        
+        if cacheData.Title ~= newTitleUI then TitleToggle:SetTitle(newTitleUI) end
+        if cacheData.Desc ~= newDescUI then TitleToggle:SetDesc(newDescUI) end
+        
+        Optimizer.Cache[cKey] = {
+            Title = newTitleUI, 
+            Desc = newDescUI, 
+            IsMaxed = isMaxed
+        }
+    end
+end
 -- MAIN GLOBAL LOOP TRIGGER
 -- // OPTIMIZED MAIN LOOP //
 task.spawn(function()
@@ -6871,6 +7033,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Achievements_Logic, pData)
             pcall(Optimizer.Update_TimeRewards_Logic, pData)
             pcall(Optimizer.Update_ZoneQuest_Logic, pData)
+            pcall(Optimizer.Update_Titles_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
