@@ -560,6 +560,7 @@ function LoadRollData(rollType)
 
     if success and module then
         RollConfigs[rollType] = {
+            Display = module.Display,
             Cost = module.Cost or 1,
             MaterialKey = (module.Material or module.UpgradeMaterial) or (rollType .. "Token"),
             ImageId = module.ImageId,
@@ -1240,7 +1241,7 @@ task.spawn(function()
                     anyRollActive = true
                     
                     local config = RollConfigs[rollType]
-                    local cost = config and config.Cost or 1
+                    local cost = (config.Cost or 10) * (pData.Gamepasses.Vip and 0.8 or 1)
                     local tokenKey = config and config.MaterialKey or (rollType .. "Token")
                     local currentCount = pData.Materials[tokenKey] or 0
                     
@@ -1250,14 +1251,9 @@ task.spawn(function()
                                 Reply.To("Crate Roll Start",rollType,false)
                             end)
                         end
-                        task.wait(1.5)
                     end
                 end
             end
-        end
-        
-        if not anyRollActive then
-            task.wait(1)
         end
         task.wait(0.1)
     end
@@ -2441,12 +2437,13 @@ for _, rollType in ipairs(AllRollTypes) do
         _rollGroup = GeneralManagerSection:Group({});
         FM_Add("Rolls", _rollGroup)
     end;
-    local tokenKey = (RollConfigs[rollType] and RollConfigs[rollType].MaterialKey) or (rollType .. "Token");
+    local config = RollConfigs[rollType]
+    local tokenKey = config and RollConfigs[rollType].MaterialKey;
     local displayName = (Materials[tokenKey] and Materials[tokenKey].Display) or rollType;
     local currentCount = (((getgenv()).PlayerData and (getgenv()).PlayerData.Materials) and (getgenv()).PlayerData.Materials[tokenKey]) or 0;
     local configFlag = "AutoRoll" .. rollType;
     local myToggle = _rollGroup:Toggle({
-        Title = rollType,
+        Title = config.Display,
         Flag = configFlag .. "_Cfg",
         Desc = displayName .. ": " .. Utils.ToText(currentCount),
         Image = GetRollIconAsset(rollType),
@@ -4937,7 +4934,7 @@ function Optimizer.Update_Roll_Logic(pData)
             local matIcon = (matInfo and matInfo.Template) and GetIcon(matInfo.Template) or ""
             
             pcall(function() 
-                toggle:SetDesc(string.format("%s %s: %s", matIcon, matDisplay, Utils.ToText(currentCount))) 
+                toggle:SetDesc(string.format("%s%s: %s", matIcon, matDisplay, Utils.ToText(currentCount))) 
             end)
         end
         
@@ -4948,14 +4945,19 @@ function Optimizer.Update_Roll_Logic(pData)
 
         if toggle.SetMainImage then
             if needsMainImageUpdate then
+                local anulabel = currentRarity and "(" .. currentRarity .. ")" or ""
                 pcall(function()
-                    local rarityLabel = currentRarity or "Common"
-                    toggle:SetMainImage({
-                        Image = currentImage,
-                        Quantity = rarityLabel,
-                        Title = currentItemName,
-                        Gradient = GetGameGradient(rarityLabel)
-                    }, 50)
+                    toggle:SetTitle(string.format("%s %s",config.Display,anulabel))
+                end)
+                pcall(function()
+                    local rarityLabel = currentRarity
+                    if rarityLabel then
+                        toggle:SetMainImage({
+                            Image = currentImage,
+                            Title = currentItemName,
+                            Gradient = GetGameGradient(rarityLabel)
+                        }, 50)
+                    end
                 end)
                 lastState.Image = currentImage
                 lastState.Rarity = currentRarity
@@ -6269,13 +6271,8 @@ function Optimizer.Update_AutoUnlock_Logic(pData)
             local isLocked = false
             
             -- Cek di tabel Unlocked (untuk YenUpgrades2, Mages, dll)
-            if pData.Unlocked[itemName] == nil or pData.Unlocked[itemName] == false then
+            if not pData.Unlocked[itemName] then
                 isLocked = true
-            -- Cek di tabel Vault (khusus kategori Roll/Gacha)
-            elseif pData.Vault and pData.Vault[itemName] then
-                if pData.Vault[itemName]["1"] == nil or pData.Vault[itemName]["1"] == false then
-                    isLocked = true
-                end
             end
 
             -- 3. Eksekusi jika terdeteksi masih terkunci
