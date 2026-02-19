@@ -5630,20 +5630,13 @@ function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule,
             
             -- [LOGIKA PENYUSUNAN TEXT]
             if lvl >= max then
-                newTitle = name .. " [MAX]"
+                newTitle = name .. " [" .. lvl .. "/" .. max .. "]"
                 
                 local buff = 0
                 if upgradeModule.GetUpgradeBuff then
                     buff = upgradeModule.GetUpgradeBuff(name, lvl)
                 end
                 newDesc = string.format("<b>Maxed</b>\nBuff: +%s%%", Utils.ToText(buff))
-                
-                -- Kunci toggle jika sudah Max (Logic UI State)
-                if not toggle.Locked then 
-                    toggle:Lock("Already Maxed")
-                    Config[configPrefix .. name] = false 
-                    toggle:Set(false) 
-                end
             else
                 newTitle = name .. " [" .. lvl .. "/" .. max .. "]"
                 
