@@ -1601,7 +1601,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Meteor Event",
-    Desc = "Auto Teleport to Zone & Kill Mobs Get Hit Meteor.",
+    Desc = "Auto Teleport to Zone & Teleport to Kill Mobs Get Hit Meteor.",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
@@ -3426,7 +3426,7 @@ ValidStatsList = {}
 
 function LoadHeroesStatsData()
     local successStats, moduleStats = pcall(function()
-        return require(RS.Scripts.Configs.MultipleZones.HeroesStats)
+        return shared.HeroesStats
     end)
     if successStats and moduleStats then
         HeroesStatsModule = moduleStats
@@ -3452,7 +3452,7 @@ function LoadHeroesStatsData()
     end
 
     local successHero, moduleHero = pcall(function()
-        return require(RS.Scripts.Configs.MultipleZones.Heroes)
+        return shared.Heroes
     end)
     if successHero and moduleHero then
         HeroesConfigModule = moduleHero
@@ -5277,7 +5277,11 @@ function Optimizer.Update_Heroes_Logic(pData)
     local activeHeroesList = {}
     local hashBuilder = "" 
     
-    for uid, isEquipped in pairs(pData.EquippedHeroes) do 
+    for key, value in pairs(pData.EquippedHeroes) do 
+        -- PERBAIKAN: Deteksi bentuk data (Array dari Server vs Dictionary dari Local Client)
+        local uid = type(key) == "number" and value or key
+        local isEquipped = type(key) == "number" and true or value
+        
         if isEquipped == true and pData.Heroes[uid] then 
             local hData = pData.Heroes[uid]
             local hName = "Unknown"
@@ -5323,11 +5327,25 @@ function Optimizer.Update_Heroes_Logic(pData)
             HeroSelectDrop:Refresh(activeHeroesList)
         end
         
-        if not SelectedHeroUID and #activeHeroesList > 0 then
-            SelectedHeroUID = activeHeroesList[1].Value
-            if HeroSelectDrop.Select then
-                pcall(function() HeroSelectDrop:Select(SelectedHeroUID) end)
+        -- PERBAIKAN: Paksa UI Dropdown untuk memilih (select) hero agar teksnya tidak kosong
+        local isValidSelection = false
+        if SelectedHeroUID then
+            for _, hero in ipairs(activeHeroesList) do
+                if hero.Value == SelectedHeroUID then
+                    isValidSelection = true
+                    break
+                end
             end
+        end
+        
+        -- Jika belum ada yang valid dipilih, pilih Hero urutan pertama
+        if not isValidSelection and #activeHeroesList > 0 then
+            SelectedHeroUID = activeHeroesList[1].Value
+        end
+        
+        -- Eksekusi Set Value secara visual di UI
+        if HeroSelectDrop.Select and SelectedHeroUID then
+            pcall(function() HeroSelectDrop:Select(SelectedHeroUID) end)
         end
         
         Optimizer.Cache.EquippedHeroesHash = hashBuilder
@@ -5335,9 +5353,19 @@ function Optimizer.Update_Heroes_Logic(pData)
 
     -- [3] TAMPILKAN STATS & VIEWPORT HERO YANG DIPILIH
     local isValidSelection = false
-    if SelectedHeroUID and pData.EquippedHeroes[SelectedHeroUID] == true then
-        isValidSelection = true
-    else
+    if SelectedHeroUID then
+        -- Cek apakah hero terpilih masih dipakai (Support Array & Dictionary)
+        for k, v in pairs(pData.EquippedHeroes) do
+            local uid = type(k) == "number" and v or k
+            local isEquipped = type(k) == "number" and true or v
+            if uid == SelectedHeroUID and isEquipped then
+                isValidSelection = true
+                break
+            end
+        end
+    end
+
+    if not isValidSelection then
         if #activeHeroesList > 0 then
             SelectedHeroUID = activeHeroesList[1].Value
             isValidSelection = true
@@ -5372,7 +5400,7 @@ function Optimizer.Update_Heroes_Logic(pData)
         if Optimizer.Cache.LastHeroUID ~= SelectedHeroUID then
             Optimizer.Cache.LastHeroUID = SelectedHeroUID
             
-            -- Mencari model hero di folder Assets/Enemies (sesuai letak model avatar Anda)
+            -- Mencari model hero di folder Assets/Heroes
             local modelPath = ReplicatedFirst:WaitForChild("Assets"):WaitForChild("Heroes"):FindFirstChild(hData.Index)
             
             if HeroStatsInfo and modelPath then
@@ -5424,7 +5452,6 @@ function Optimizer.Update_Heroes_Logic(pData)
             Optimizer.Cache.LastHeroDesc = lines
         end
         
-        -- TAMBAHKAN BAGIAN INI --
         -- 1. Logika Auto Lock (Berjalan Mandiri)
         if Config.EnableAutoLock then
             local targetIdx = RarityMap[TargetLockTier] or 999
