@@ -1601,7 +1601,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Meteor Event",
-    Desc = "Auto Teleport to Zone & Teleport to Kill Mobs Get Hit Meteor.",
+    Desc = "Auto Teleport to Zone & Kill Mobs Get Hit Meteor.",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
