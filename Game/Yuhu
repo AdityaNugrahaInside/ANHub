@@ -1245,12 +1245,13 @@ task.spawn(function()
                     local tokenKey = config and config.MaterialKey or (rollType .. "Token")
                     local currentCount = pData.Materials[tokenKey] or 0
                     
-                    if currentCount >= cost then
+                    if currentCount >= cost and pData.Unlocked[rollType] then
                         if Reply and Reply.To then
                             pcall(function()
                                 Reply.To("Crate Roll Start",rollType,false)
                             end)
                         end
+                        task.wait(1.5)
                     end
                 end
             end
@@ -6787,6 +6788,49 @@ task.spawn(function()
         end
     end)
 end)
+
+function Optimizer.Update_ZoneQuest_Logic(pData)
+    -- Pastikan Config aktif dan data pemain ada
+    if not Config.AutoQuest or not pData then return end
+    
+    local Attr = pData.Attributes or {}
+    local currentZone = Attr.Zone
+    
+    -- Pastikan kita ada di zona yang valid
+    if not currentZone or not QuestsConfig[currentZone] then return end
+    
+    -- Cek status Quest saat ini
+    -- Key format di data: "ZoneQuest_ZoneName" (Contoh: "ZoneQuest_Zone1")
+    local questKey = "ZoneQuest_" .. currentZone
+    local activeQuest = pData.Quests[questKey]
+    
+    local shouldInteract = false
+    local statusText = ""
+    
+    if not activeQuest then
+        -- KONDISI 1: Belum punya misi -> TERIMA (ACCEPT)
+        -- Cek apakah sudah tamat semua misi di zona ini?
+        local currentQuestIndex = (pData.ZoneQuests and pData.ZoneQuests[currentZone]) or 1
+        local questList = QuestsConfig[currentZone].Quests
+        
+        if questList and questList[currentQuestIndex] then
+            shouldInteract = true
+            statusText = "Accepting New Quest..."
+        end
+        
+    elseif activeQuest.Status == "Completed" then
+        -- KONDISI 2: Misi Selesai -> KLAIM (CLAIM)
+        shouldInteract = true
+        statusText = "Claiming Reward..."
+    end
+    
+    -- Eksekusi Remote (Hanya jika perlu interaksi)
+    if shouldInteract and Reliable then
+        pcall(function()
+            Reply.To("Update Quest", "Zone")
+        end)
+    end
+end
 -- MAIN GLOBAL LOOP TRIGGER
 -- // OPTIMIZED MAIN LOOP //
 task.spawn(function()
@@ -6826,6 +6870,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Relics_Logic, pData)
             pcall(Optimizer.Update_Achievements_Logic, pData)
             pcall(Optimizer.Update_TimeRewards_Logic, pData)
+            pcall(Optimizer.Update_ZoneQuest_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
