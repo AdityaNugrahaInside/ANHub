@@ -5690,7 +5690,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
         local finalDesc = string.format("%s\n[%s] %d%%\n%s / %s", bt, bar, math.floor(pct*100), Utils.ToText(cMastery), Utils.ToText(req))
         
         if _UIDescCache["Rank"] ~= finalDesc then
-            RankProgressUI:SetTitle("Rank "..cRank)
+            RankProgressUI:SetTitle("Rank "..cRank.."/"..RankUp.MAX)
             RankProgressUI:SetDesc(finalDesc)
             _UIDescCache["Rank"] = finalDesc
         end
