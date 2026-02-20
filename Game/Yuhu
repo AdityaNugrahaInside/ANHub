@@ -5124,30 +5124,26 @@ function Optimizer.Update_Vault_Logic(pData)
         -- 2. Masukkan data Accessory
         if pd.Attributes.Accessory then s["Accessory"] = pd.Attributes.Accessory end
 
-        -- 3. [PERBAIKAN] Masukkan data WEAPON
-        -- Tanpa baris ini, script tidak tahu kalau senjata berubah
+        -- 3. Masukkan data WEAPON (Sangat penting agar UI update saat ganti senjata)
         if pd.Attributes.Weapon then s["Weapon"] = pd.Attributes.Weapon end
 
         return HttpService:JSONEncode(s)
     end
     
-    local IsVisible = VaultGroup and VaultGroup.GroupFrame and VaultGroup.GroupFrame.Visible
+    -- Ambil sidik jari (Hash) equipment saat ini
     local CurrentHash = GetVaultSnapshot(pData)
     
-    -- Cek apakah sidik jari berubah?
-    local DataChanged = (CurrentHash ~= Optimizer.Cache.VaultHash)
-    
-    if DataChanged then 
+    -- Cek apakah sidik jari berubah? (Apakah ada equipment yang baru saja diganti?)
+    -- Jika SAMA, kita biarkan UI-nya. Jika BEDA, kita proses pembuatan ulang.
+    if CurrentHash ~= Optimizer.Cache.VaultHash then 
         Optimizer.Cache.VaultHash = CurrentHash 
+        
+        -- Bungkus dengan task.spawn agar fungsi RefreshVaultUI (yang memanggil Paragraph.lua)
+        -- berjalan di background dan tidak mengganggu performa main loop
+        task.spawn(function()
+            RefreshVaultUI()
+        end)
     end
-    
-    -- Refresh UI jika Data Berubah DAN Tab sedang dibuka
-    -- ATAU jika Tab baru saja dibuka (VaultWasVisible false -> true)
-    if (DataChanged and IsVisible) or (IsVisible and not Optimizer.Cache.VaultWasVisible) then 
-        RefreshVaultUI() 
-    end
-    
-    Optimizer.Cache.VaultWasVisible = IsVisible
 end
 
 function Optimizer.Update_Avatar_Logic(pData)
