@@ -5130,19 +5130,26 @@ function Optimizer.Update_Vault_Logic(pData)
         return HttpService:JSONEncode(s)
     end
     
-    -- Ambil sidik jari (Hash) equipment saat ini
-    local CurrentHash = GetVaultSnapshot(pData)
+    -- Cek apakah Tab Vault sedang terbuka di layar
+    local IsVisible = VaultGroup and VaultGroup.GroupFrame and VaultGroup.GroupFrame.Visible
     
-    -- Cek apakah sidik jari berubah? (Apakah ada equipment yang baru saja diganti?)
-    -- Jika SAMA, kita biarkan UI-nya. Jika BEDA, kita proses pembuatan ulang.
-    if CurrentHash ~= Optimizer.Cache.VaultHash then 
-        Optimizer.Cache.VaultHash = CurrentHash 
+    -- Kita HANYA mengecek perubahan data dan merender ulang UI JIKA tab sedang terbuka
+    if IsVisible then
+        -- Ambil sidik jari (Hash) equipment saat ini
+        local CurrentHash = GetVaultSnapshot(pData)
         
-        -- Bungkus dengan task.spawn agar fungsi RefreshVaultUI (yang memanggil Paragraph.lua)
-        -- berjalan di background dan tidak mengganggu performa main loop
-        task.spawn(function()
-            RefreshVaultUI()
-        end)
+        -- Cek apakah sidik jari berubah? (Apakah ada equipment yang baru saja diganti?)
+        -- Jika ADA perubahan, kita simpan hash baru dan buat ulang UI-nya.
+        -- Jika TIDAK ADA perubahan, kita biarkan saja (tidak perlu buang memori merender ulang).
+        if CurrentHash ~= Optimizer.Cache.VaultHash then 
+            Optimizer.Cache.VaultHash = CurrentHash 
+            
+            -- Bungkus dengan task.spawn agar fungsi RefreshVaultUI (yang memanggil Paragraph.lua)
+            -- berjalan di background thread dan tidak membuat layar game freeze
+            task.spawn(function()
+                RefreshVaultUI()
+            end)
+        end
     end
 end
 
