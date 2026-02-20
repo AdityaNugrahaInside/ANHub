@@ -5212,7 +5212,7 @@ function Optimizer.Update_Avatar_Logic(pData)
             if isMaxed then
                 newDesc = string.format(
                     "<b>STATUS: MAX LEVEL</b>\n\n" ..
-                    "Total Buff: <font color='#00ff00'>+%s%% Damage</font>\n" ..
+                    "Total Buff: <font color='#00ff00'>+%s%% Mastery</font>\n" ..
                     "%s%s %s", 
                     Utils.ToText(currentBuff), tokenIcon,tokenDisplayName, Utils.ToText(myTokens, 0)
                 )
