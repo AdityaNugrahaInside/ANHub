@@ -21,6 +21,7 @@ repeat task.wait() until shared.Essential and shared.Reply
 -- Referensi lokal ke modul game
 local Essential = shared.Essential
 EnergyUpgrade = shared.EnergyUpgrade
+HunterUpgrade = shared.Hunter
 Materials = shared.Materials
 UnlocksPrices = shared.Unlocks
 YenUpgrades = shared.YenUpgrades
@@ -165,6 +166,52 @@ local function JSONPretty(val, indent)
         end
     end;
 end;
+function HookTimerVariable()
+    task.spawn(function()
+        local targetFound = false
+        
+        while not targetFound do
+            local gcList = getgc() 
+
+            for _, func in pairs(gcList) do
+                if type(func) == "function" and islclosure(func) then
+                    local info = debug.getinfo(func)
+
+                    if info.source and string.find(info.source, "AutoReconnect.c") then
+                        
+                        local upvalues = debug.getupvalues(func)
+                        for index, value in pairs(upvalues) do
+
+                            if type(value) == "number" then
+                                targetFound = true
+
+                                local connection
+                                connection = RunService.Heartbeat:Connect(function()
+                                    if func then
+                                        debug.setupvalue(func, index, 0)
+                                    else
+                                        if connection then connection:Disconnect() end
+                                    end
+                                end)
+                            end
+
+                            if typeof(value) == "Instance" and (value:IsA("TextLabel") or value:IsA("Frame")) then
+                                value.Visible = false
+                                value:GetPropertyChangedSignal("Visible"):Connect(function()
+                                    value.Visible = false
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            if targetFound then break end
+            task.wait(2)
+        end
+    end)
+end
+HookTimerVariable()
 function GetNextTime(startTimes)
     if not startTimes or #startTimes == 0 then return nil end
     local currentMin = os.date("*t").min
@@ -269,6 +316,9 @@ task.spawn(function()
         if args[1] == "Return Teleport" then
             return
         end
+        if args[1] == "Auto Reconnect" then
+            return
+        end
         return originalTo(...)
     end)
 end)
@@ -339,53 +389,6 @@ task.spawn(ScanPlayerData)
 function GetIcon(id)
     return string.format("rbxassetid://%s", id)
 end
-
-function HookTimerVariable()
-    task.spawn(function()
-        local targetFound = false
-        
-        while not targetFound do
-            local gcList = getgc() 
-
-            for _, func in pairs(gcList) do
-                if type(func) == "function" and islclosure(func) then
-                    local info = debug.getinfo(func)
-
-                    if info.source and string.find(info.source, "AutoReconnect.c") then
-                        
-                        local upvalues = debug.getupvalues(func)
-                        for index, value in pairs(upvalues) do
-
-                            if type(value) == "number" then
-                                targetFound = true
-
-                                local connection
-                                connection = RunService.Heartbeat:Connect(function()
-                                    if func then
-                                        debug.setupvalue(func, index, 0)
-                                    else
-                                        if connection then connection:Disconnect() end
-                                    end
-                                end)
-                            end
-
-                            if typeof(value) == "Instance" and (value:IsA("TextLabel") or value:IsA("Frame")) then
-                                value.Visible = false
-                                value:GetPropertyChangedSignal("Visible"):Connect(function()
-                                    value.Visible = false
-                                end)
-                            end
-                        end
-                    end
-                end
-            end
-            
-            if targetFound then break end
-            task.wait(2)
-        end
-    end)
-end
-HookTimerVariable()
 
 task.spawn(function()
     LocalPlayer.Idled:Connect(function()
@@ -1481,7 +1484,7 @@ FM_Category = FarmTab:Category({
         {Title="Mega Boss", Icon=GetIcon(73239911812292)},
         {Title="Vault", Icon=GetIcon(90798559571883)},
         {Title="Relics", Icon=GetIcon(88061784222994)}, -- TAMBAHKAN INI
-        {Title="Energy Upgrade", Icon=GetIcon(92370510867554)},
+        {Title="Energy & Hunter", Icon=GetIcon(92370510867554)},
         {Title="Rarity Powers", Icon=GetIcon(110938344194362)},-- Tambahkan ini ke dalam FM_Category Options
         {Title="Avatar Curses", Icon=GetIcon(140684736911247)}, -- Gunakan icon yang sesuai
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
@@ -3924,7 +3927,7 @@ if not IsPremium then
     pcall(function() CurseFilterDrop:Lock("Need Premium User") end)
 end
 
-FM_CategoryDescriptions["Energy Upgrade"] = "Upgrade your Mastery Buff using Energy Tokens"
+FM_CategoryDescriptions["Energy & Hunter"] = "Upgrade your Mastery Buff using Energy Tokens"
 -- [[ CATEGORY: ENERGY UPGRADE ]] --
 
 -- Inisialisasi UI
@@ -3938,13 +3941,30 @@ EnergyUpgradeToggle = FarmTab:Toggle({
         Config.AutoEnergyUpgrade = val
     end
 })
-FM_Add("Energy Upgrade", EnergyUpgradeToggle)
+FM_Add("Energy & Hunter", EnergyUpgradeToggle)
 if not IsPremium then
     Config.AutoEnergyUpgrade = false
     pcall(function() EnergyUpgradeToggle:Set(false) end)
     pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
 end
+-- [[ HUNTER UPGRADE UI ]] --
+HunterUpgradeToggle = FarmTab:Toggle({
+    Title = "Auto Hunter Upgrade",
+    Desc = "Scanning data...",
+    Image = "rbxassetid://91774759519522", -- Default icon, akan terupdate otomatis
+    ImageSize = 30,
+    Flag = "AutoHunterUpgrade_Cfg",
+    Callback = function(val)
+        Config.AutoHunterUpgrade = val
+    end
+})
+FM_Add("Energy & Hunter", HunterUpgradeToggle)
 
+if not IsPremium then
+    Config.AutoHunterUpgrade = false
+    pcall(function() HunterUpgradeToggle:Set(false) end)
+    pcall(function() HunterUpgradeToggle:Lock("Need Premium User") end)
+end
 -- [[ CATEGORY: RELICS (FINAL FIX + AUTO EQUIP) ]] --
 
 -- [BARU] Dropdown Auto Equip
@@ -6263,7 +6283,96 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
         end
     end
 end
+function Optimizer.Update_HunterUpgrade_Logic(pData)
+    -- Pastikan module terload dan user adalah Premium
+    if not HunterUpgrade or not IsPremium then
+        if Config.AutoHunterUpgrade then Config.AutoHunterUpgrade = false end
+        if HunterUpgradeToggle then
+            pcall(function() 
+                HunterUpgradeToggle:Set(false)
+                if not IsPremium then HunterUpgradeToggle:Lock("Need Premium User") end
+            end)
+        end
+        return
+    end
 
+    -- Ambil Data dari PlayerData (Biasanya HunterUpgrade atau Hunter)
+    local currentLvl = pData.HunterUpgrade or pData.Hunter or 0 
+    
+    -- Ambil Data Langsung dari Module (Modular)
+    local maxLvl = HunterUpgrade.MAX or 100
+    local tokenKey = HunterUpgrade.TOKEN_NAME or "HunterToken"
+    local displayName = HunterUpgrade.Display or "Hunter Upgrade"
+    local imageId = HunterUpgrade.ImageId or 84366761557806
+    
+    -- Ambil Kalkulasi dari Fungsi Module
+    local cost = 0
+    if HunterUpgrade.GetEvolveCost then cost = HunterUpgrade.GetEvolveCost(HunterUpgrade, currentLvl)
+    elseif HunterUpgrade.GetCost then cost = HunterUpgrade.GetCost(currentLvl) end
+
+    local bonusText = ""
+    if HunterUpgrade.GetDisplayBonus then bonusText = HunterUpgrade.GetDisplayBonus(currentLvl)
+    elseif HunterUpgrade.GetBuff then bonusText = tostring(HunterUpgrade.GetBuff(currentLvl)) end
+    
+    local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
+    local matInfo = Materials[tokenKey]
+    local matIcon = matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""
+    local matName = matInfo and matInfo.Display or tokenKey
+
+    local isMaxed = currentLvl >= maxLvl
+    local newTitle = ""
+    local newDesc = ""
+
+    if isMaxed then
+        newTitle = displayName .. " [MAX]"
+        newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", bonusText)
+        
+        if not HunterUpgradeToggle.Locked then
+            HunterUpgradeToggle:Lock("Max level reached")
+            Config.AutoHunterUpgrade = false
+            HunterUpgradeToggle:Set(false)
+        end
+    else
+        newTitle = string.format("%s [%d/%d]", displayName, currentLvl, maxLvl)
+        newDesc = string.format(
+            "Current Bonus: <font color='#d667ff'>%s</font>\n" ..
+            "%s%s %s / %s",
+            bonusText,
+            matIcon, matName, Utils.ToText(cost), Utils.ToText(myTokens)
+        )
+        
+        if HunterUpgradeToggle.Locked then HunterUpgradeToggle:Unlock() end
+    end
+
+    -- Update UI dengan Cache
+    local cacheKey = "HunterUp_Modular_Status"
+    if Optimizer.Cache[cacheKey] ~= newDesc then
+        HunterUpgradeToggle:SetTitle(newTitle)
+        HunterUpgradeToggle:SetDesc(newDesc)
+        
+        if HunterUpgradeToggle.SetMainImage then
+            HunterUpgradeToggle:SetMainImage({
+                Image = GetIcon(imageId),
+                Quantity = "Lv." .. currentLvl,
+                Title = displayName,
+                Gradient = GetGameGradient("Rare") 
+            }, 60)
+        end
+        Optimizer.Cache[cacheKey] = newDesc
+    end
+
+    -- Logika Eksekusi Auto Upgrade
+    if Config.AutoHunterUpgrade and not isMaxed then
+        if myTokens >= cost then
+            if Reliable then
+                pcall(function()
+                    -- Remote sesuai dengan instruksi Anda
+                    Reply.To("Evolve Hunter")
+                end)
+            end
+        end
+    end
+end
 function Optimizer.Update_AutoUnlock_Logic(pData)
     -- Pastikan fitur aktif dan data dasar tersedia 
     if not Config.AutoUnlockRolls or not Reliable or not pData.Attributes or not pData.Unlocked then return end
@@ -7022,6 +7131,7 @@ task.spawn(function()
             pcall(Optimizer.Update_RarityPower_Logic, pData)
             pcall(Optimizer.Update_AvatarCurse_Logic, pData)
             pcall(Optimizer.Update_EnergyUpgrade_Logic, pData)
+            pcall(Optimizer.Update_HunterUpgrade_Logic, pData)
             pcall(Optimizer.Update_Relics_Logic, pData)
             pcall(Optimizer.Update_Achievements_Logic, pData)
             pcall(Optimizer.Update_TimeRewards_Logic, pData)
