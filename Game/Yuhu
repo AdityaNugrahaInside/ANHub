@@ -74,6 +74,8 @@ humanoid = nil
 LastZone = nil
 CurrentZoneName = ""
 CurrentZoneEnemiesCache = {}
+CurrentZoneEnemiesSignature = ""
+EnemyDropdownLastAppliedSignature = ""
 IsLoadingConfig = false
 MeteorState = {
     IsActive = false,
@@ -166,17 +168,6 @@ local function JSONPretty(val, indent)
         end
     end;
 end;
-function HookTimerVariable()
-    task.spawn(function()        
-        while not Window.Destroyed do
-            game:GetService("Players").LocalPlayer.PlayerGui.Screen.Hud.eventMessages.AutoReconnect:GetPropertyChangedSignal("Visible"):Connect(function()
-                game:GetService("Players").LocalPlayer.PlayerGui.Screen.Hud.eventMessages.AutoReconnect.Visible = false
-            end)
-            task.wait()
-        end
-    end)
-end
-HookTimerVariable()
 function GetNextTime(startTimes)
     if not startTimes or #startTimes == 0 then return nil end
     local currentMin = os.date("*t").min
@@ -507,6 +498,17 @@ Window = UI:CreateWindow({
     }
 })
 
+function HookTimerVariable()
+    task.spawn(function()        
+        while not Window.Destroyed do
+            game:GetService("Players").LocalPlayer.PlayerGui.Screen.Hud.eventMessages.AutoReconnect:GetPropertyChangedSignal("Visible"):Connect(function()
+                game:GetService("Players").LocalPlayer.PlayerGui.Screen.Hud.eventMessages.AutoReconnect.Visible = false
+            end)
+            task.wait()
+        end
+    end)
+end
+HookTimerVariable()
 function GetAvatarTokenIcon()
     local tokenKey = AvatarLevels.Token or "AvatarToken"
     local config = Materials[tokenKey]
@@ -645,6 +647,17 @@ function GenerateCardRewards(chanceRewardData)
     return rewardCards
 end
 
+RewardImagesCache = {}
+function BuildRewardsSignature(rewards)
+    if not rewards then return "" end
+    local parts = {}
+    for k, v in pairs(rewards) do
+        parts[#parts + 1] = tostring(k) .. "=" .. tostring(v)
+    end
+    table.sort(parts)
+    return table.concat(parts, "|")
+end
+
 function RefreshEnemyData()
     local uiList = {}
     local rawEnemies = getgenv().EnemiesData
@@ -696,14 +709,21 @@ function RefreshEnemyData()
                             rewards["Materials.AvatarToken"] = 5
                         end
                         
-                        local rewardImages = GenerateCardRewards(rewards)
+                        local rewardSignature = BuildRewardsSignature(rewards)
+                        local rewardImages = RewardImagesCache[rewardSignature]
+                        if not rewardImages then
+                            rewardImages = GenerateCardRewards(rewards)
+                            RewardImagesCache[rewardSignature] = rewardImages
+                        end
+                        local itemSignature = displayName .. "|" .. diff .. "|" .. tostring(maxHp) .. "|" .. rewardSignature
 
                         table.insert(uiList, {
                             Title = displayName .. " (" .. diff .. ")",
                             Value = displayName,
                             Desc = "HP: " .. Utils.ToText(maxHp),
                             HP = maxHp,
-                            Images = rewardImages
+                            Images = rewardImages,
+                            __sig = itemSignature
                         })
                     end
                 end
@@ -712,6 +732,12 @@ function RefreshEnemyData()
     end
     
     table.sort(uiList, function(a, b) return a.HP < b.HP end)
+    local signatureParts = {}
+    for i, item in ipairs(uiList) do
+        signatureParts[i] = item.__sig or ""
+        item.__sig = nil
+    end
+    CurrentZoneEnemiesSignature = table.concat(signatureParts, "||")
     CurrentZoneEnemiesCache = uiList
     return uiList
 end
@@ -1503,15 +1529,6 @@ EnemyDropdown = FarmTab:Dropdown({
 });
 FM_Add("Farm", EnemyDropdown);
 
-EnemyDropdownNeedsRefresh = true
-function EnemyDropdown_SetPendingValues(values)
-    CurrentZoneEnemiesCache = values or {}
-    if EnemyDropdown then
-        EnemyDropdown.Values = CurrentZoneEnemiesCache
-    end
-    EnemyDropdownNeedsRefresh = true
-end
-
 function EnemyDropdown_SetValueOnlyFromConfig()
     if not EnemyDropdown then return end
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
@@ -1522,28 +1539,20 @@ function EnemyDropdown_SetValueOnlyFromConfig()
     end
 end
 
-function EnemyDropdown_ApplyPendingRefresh()
-    if not EnemyDropdownNeedsRefresh then return end
+function EnemyDropdown_RefreshInstant(values)
     if not EnemyDropdown then return end
+    CurrentZoneEnemiesCache = values or {}
+    if not values or #CurrentZoneEnemiesCache == 0 then
+        CurrentZoneEnemiesSignature = ""
+    end
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
     local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
     EnemyDropdown.Value = selectedItems
-    if EnemyDropdown.Refresh then
+    if EnemyDropdown.Refresh and CurrentZoneEnemiesSignature ~= EnemyDropdownLastAppliedSignature then
         EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
-    end
-    EnemyDropdownNeedsRefresh = false
-end
-
-do
-    local menu = EnemyDropdown and EnemyDropdown.DropdownMenu
-    local oldMenuOpen = menu and menu.Open
-    if oldMenuOpen then
-        menu.Open = function(self, ...)
-            if EnemyDropdown and not EnemyDropdown.Opened then
-                pcall(EnemyDropdown_ApplyPendingRefresh)
-            end
-            return oldMenuOpen(self, ...)
-        end
+        EnemyDropdownLastAppliedSignature = CurrentZoneEnemiesSignature
+    elseif EnemyDropdown.Display then
+        pcall(function() EnemyDropdown.Display() end)
     end
 end
 
@@ -1551,7 +1560,16 @@ RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
     Callback = function()
-        EnemyDropdown:Refresh(RefreshEnemyData());
+        if EnemyDropdown and EnemyDropdown.SetTitle then
+            pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
+        end
+        task.spawn(function()
+            local freshEnemies = RefreshEnemyData()
+            EnemyDropdown_RefreshInstant(freshEnemies)
+            pcall(function()
+                if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+            end)
+        end)
     end
 });
 FM_Add("Farm", RefreshBtn);
@@ -4166,10 +4184,8 @@ if Reliable then
                     pcall(function() EnemyDropdown.Display() end)
                 end
             end
-            EnemyDropdownNeedsRefresh = true
             task.spawn(function()
                 local freshEnemies = RefreshEnemyData();
-                EnemyDropdown_SetPendingValues(freshEnemies)
                 pcall(function()
                     if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
                 end)
@@ -4187,7 +4203,7 @@ if Reliable then
                         Config.SelectedEnemy = valuesList
                     end
                 end;
-                EnemyDropdown_SetValueOnlyFromConfig()
+                EnemyDropdown_RefreshInstant(freshEnemies)
                 IsLoadingConfig = false;
                 IsTeleporting = false;
             end);
@@ -4341,7 +4357,6 @@ task.spawn(function()
                         pcall(function() EnemyDropdown.Display() end)
                     end
                 end
-                EnemyDropdownNeedsRefresh = true
                 
                 -- Reset dropdown sementara (Visual feedback)
                 if EnemyDropdown and EnemyDropdown.SetTitle then
@@ -4354,7 +4369,6 @@ task.spawn(function()
                 task.spawn(function()
                     -- Proses ini sekarang aman karena sudah ada "task.wait" di dalam RefreshEnemyData
                     local freshEnemies = RefreshEnemyData()
-                    EnemyDropdown_SetPendingValues(freshEnemies)
                     
                     -- Update Dropdown UI
                     pcall(function()
@@ -4380,7 +4394,7 @@ task.spawn(function()
                             Config.SelectedEnemy = valuesList
                         end
                     end
-                    EnemyDropdown_SetValueOnlyFromConfig()
+                    EnemyDropdown_RefreshInstant(freshEnemies)
                     
                     IsLoadingConfig = false
                 end)
@@ -5552,11 +5566,6 @@ function Optimizer.Update_MegaBoss_Logic(pData)
             if isMaxed then
                 newTitle = name .. " [MAX]"
                 newDesc = string.format("<b>Maxed</b>\nBuff: +%s%%", Utils.ToText(currentBuff))
-                if not toggle.Locked then 
-                    toggle:Lock("Already Maxed") 
-                    Config["AutoMegaBossUp_" .. name] = false
-                    toggle:Set(false)
-                end
             else
                 newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
                 newDesc = string.format("%s%s %s/%s\nBuff: +%s%%", 
@@ -5912,7 +5921,6 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
                         Config.SelectedEnemy = { displayTargetName }
                         Config.AutoFarm = true 
                         EnemyDropdown_SetValueOnlyFromConfig()
-                        EnemyDropdownNeedsRefresh = true
                     end
                     hasActionTaken = true 
                 end
