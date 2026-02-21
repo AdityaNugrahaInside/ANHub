@@ -3958,7 +3958,10 @@ HunterUpgradeToggle = FarmTab:Toggle({
         Config.AutoHunterUpgrade = val
     end
 })
-FM_Add("Energy & Hunter", HunterUpgradeToggle)
+
+if LocalPlayer.UserId ~= 9891690208 then
+    FM_Add("Energy & Hunter", HunterUpgradeToggle)
+end
 
 if not IsPremium then
     Config.AutoHunterUpgrade = false
