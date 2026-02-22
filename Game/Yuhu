@@ -1616,7 +1616,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Meteor Event",
-    Desc = "Auto Teleport to Zone & Teleport to Kill Mob Get Hit Meteor.",
+    Desc = "Auto Teleport to Zone & Teleport to Kill Mob Hit Meteor.",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
@@ -1765,18 +1765,18 @@ function LogicGamemodes()
                 end
                 task.wait()
 
-            elseif wasInGamemode and (not isFightingZone) then
-                -- [B. LOGIKA PULANG (SAMA)]
-                currentTargetObj = nil;
-                hasTeleportedToBossInRaid = false;
+            -- elseif wasInGamemode and (not isFightingZone) then
+            --     -- [B. LOGIKA PULANG (SAMA)]
+            --     currentTargetObj = nil;
+            --     hasTeleportedToBossInRaid = false;
                 
-                if LastZone and LastZone ~= "" and LastZone ~= getgenv().PlayerData.Attributes.LastZone and not string.find(LastZone, ":") then
-                    Notify("Mode Finished", "Returning to " .. LastZone);
-                    if Reply and Reply.To then pcall(function() Reply.To("Zone Teleport", LastZone); end); end;
-                    wasInGamemode = false;
-                else
-                    wasInGamemode = false;
-                end;
+            --     if LastZone and LastZone ~= "" and LastZone ~= getgenv().PlayerData.Attributes.LastZone and not string.find(LastZone, ":") then
+            --         Notify("Mode Finished", "Returning to " .. LastZone);
+            --         if Reply and Reply.To then pcall(function() Reply.To("Zone Teleport", LastZone); end); end;
+            --         wasInGamemode = false;
+            --     else
+            --         wasInGamemode = false;
+            --     end;
             else
                 -- [1] DEFINISI FUNGSI LOKAL (Sekarang di dalam blok else, tapi hanya dibuat sekali per iterasi loop)
                 -- Tips: Idealnya fungsi ini ditaruh di LUAR while loop, tapi di sini juga aman.
@@ -2265,7 +2265,7 @@ task.spawn(function()
 
                     if Reply and Reply.To then
                         pcall(function()
-                            Reply.To("Zone Teleport", returnZone)
+                            Reply.To("Leave Gamemode")
                         end)
                         
                         if Notify then 
