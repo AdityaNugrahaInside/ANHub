@@ -501,10 +501,8 @@ Window = UI:CreateWindow({
 function HookTimerVariable()
     task.spawn(function()        
         while not Window.Destroyed do
-            game:GetService("Players").LocalPlayer.PlayerGui.Screen.Hud.eventMessages.AutoReconnect:GetPropertyChangedSignal("Visible"):Connect(function()
-                game:GetService("Players").LocalPlayer.PlayerGui.Screen.Hud.eventMessages.AutoReconnect.Visible = false
-            end)
-            task.wait()
+            game:GetService("Players").LocalPlayer.PlayerGui.Screen.Hud.eventMessages.AutoReconnect.Visible = false
+            task.wait(0.5)
         end
     end)
 end
@@ -1588,7 +1586,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Meteor Event",
-    Desc = "Auto Teleport to Zone & Teleport to Kill Mobs Get Hit Meteor.",
+    Desc = "Auto Teleport to Zones & Teleport to Kill Mobs Get Hit Meteor.",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
