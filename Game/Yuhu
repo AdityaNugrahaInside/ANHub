@@ -76,6 +76,7 @@ CurrentZoneName = ""
 CurrentZoneEnemiesCache = {}
 CurrentZoneEnemiesSignature = ""
 EnemyDropdownLastAppliedSignature = ""
+EnemyRefreshToken = 0
 IsLoadingConfig = false
 MeteorState = {
     IsActive = false,
@@ -663,16 +664,26 @@ function RefreshEnemyData()
     if rawEnemies and CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
         
         local liveEnemiesSnapshot = {}
+        local totalCount = 0
         for k, v in pairs(rawEnemies) do
             liveEnemiesSnapshot[k] = v
+            totalCount = totalCount + 1
         end
 
         local added = {}
         local processCount = 0 
+        local yieldEvery = 6
+        if totalCount >= 80 then
+            yieldEvery = 3
+        elseif totalCount >= 40 then
+            yieldEvery = 4
+        elseif totalCount >= 20 then
+            yieldEvery = 5
+        end
         
         for uid, enemyObj in pairs(liveEnemiesSnapshot) do
             processCount = processCount + 1
-            if processCount % 10 == 0 then 
+            if processCount % yieldEvery == 0 then 
                 task.wait()
             end
 
@@ -710,6 +721,7 @@ function RefreshEnemyData()
                         local rewardSignature = BuildRewardsSignature(rewards)
                         local rewardImages = RewardImagesCache[rewardSignature]
                         if not rewardImages then
+                            task.wait()
                             rewardImages = GenerateCardRewards(rewards)
                             RewardImagesCache[rewardSignature] = rewardImages
                         end
@@ -4182,8 +4194,16 @@ if Reliable then
                     pcall(function() EnemyDropdown.Display() end)
                 end
             end
+            if EnemyDropdown and EnemyDropdown.SetTitle then
+                pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
+            end
+            EnemyRefreshToken = EnemyRefreshToken + 1
+            local token = EnemyRefreshToken
             task.spawn(function()
+                task.wait()
+                if EnemyRefreshToken ~= token then return end
                 local freshEnemies = RefreshEnemyData();
+                if EnemyRefreshToken ~= token then return end
                 pcall(function()
                     if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
                 end)
@@ -4201,6 +4221,7 @@ if Reliable then
                         Config.SelectedEnemy = valuesList
                     end
                 end;
+                if EnemyRefreshToken ~= token then return end
                 EnemyDropdown_RefreshInstant(freshEnemies)
                 IsLoadingConfig = false;
                 IsTeleporting = false;
@@ -4362,11 +4383,16 @@ task.spawn(function()
                 end
                 
                 IsLoadingConfig = true
+                EnemyRefreshToken = EnemyRefreshToken + 1
+                local token = EnemyRefreshToken
                 
                 -- Jalankan refresh data di thread terpisah agar Main Loop tidak macet
                 task.spawn(function()
+                    task.wait()
+                    if EnemyRefreshToken ~= token then return end
                     -- Proses ini sekarang aman karena sudah ada "task.wait" di dalam RefreshEnemyData
                     local freshEnemies = RefreshEnemyData()
+                    if EnemyRefreshToken ~= token then return end
                     
                     -- Update Dropdown UI
                     pcall(function()
@@ -4392,6 +4418,7 @@ task.spawn(function()
                             Config.SelectedEnemy = valuesList
                         end
                     end
+                    if EnemyRefreshToken ~= token then return end
                     EnemyDropdown_RefreshInstant(freshEnemies)
                     
                     IsLoadingConfig = false
