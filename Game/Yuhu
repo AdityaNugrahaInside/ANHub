@@ -23,6 +23,7 @@ local Essential = shared.Essential
 EnergyUpgrade = shared.EnergyUpgrade
 HunterUpgrade = shared.Hunter
 Materials = shared.Materials
+Currency = shared.Currency
 UnlocksPrices = shared.Unlocks
 YenUpgrades = shared.YenUpgrades
 YenUpgrades2 = shared.YenUpgrades2
@@ -262,7 +263,9 @@ if Reply and Reply.Connect then
         end
     end
 end
+
 if MainController then
+    getgenv().Controller = MainController
     getgenv().EnemiesData = MainController.Enemies
 end
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
@@ -593,6 +596,8 @@ function GenerateCardRewards(chanceRewardData)
         local itemData = nil
         if category == "Materials" and Materials[itemId] then
             itemData = Materials[itemId]
+        elseif category == "Currency" and Currency[itemId] then
+            itemData = Currency[itemId]
         elseif category == "Weapons" and Weapons[itemId] then
             itemData = Weapons[itemId]
         elseif category == "Accessories" and Accessories[itemId] then
@@ -610,9 +615,17 @@ function GenerateCardRewards(chanceRewardData)
                     imgId = tostring(imgId)
                 end
                 
-                local rarity = itemData.Rarity or "Common"
+                local rarity = itemData.Rarity or "Epic"
                 local itemName = itemData.Display or itemId
                 local chanceStr = "Rate:" .. tostring(chanceVal) .. "%"
+                if category == "Currency" then
+                    chanceStr = "x" .. tostring(chanceVal)
+                    chanceVal = 100
+                end
+                if itemId == "AvatarToken" then
+                    chanceStr = "x" .. tostring(chanceVal)
+                    chanceVal = 100
+                end
 
                 table.insert(rawCards, {
                     Image = imgId,
@@ -660,6 +673,7 @@ end
 function RefreshEnemyData()
     local uiList = {}
     local rawEnemies = getgenv().EnemiesData
+    local playerData = getgenv().PlayerData
 
     if rawEnemies and CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
         
@@ -714,8 +728,12 @@ function RefreshEnemyData()
                             if MegaBoss.ChanceRewards then for k, v in pairs(MegaBoss.ChanceRewards) do rewards[k] = v end end
                             if MegaBoss.Rewards then for _, itemStr in ipairs(MegaBoss.Rewards) do rewards[itemStr] = 100 end end
                         else
-                            if enemyObj.Config.ChanceReward then for k, v in pairs(enemyObj.Config.ChanceReward) do rewards[k] = v end end
                             rewards["Materials.AvatarToken"] = 5
+                            local v117 = shared.Zones[enemyObj.Config.Zone]
+                            local v118 = shared.Difficulties[enemyObj.Config.Difficult]
+                            local v119 = shared.LevelUp.GetRewardExp(v117.Order, v118.Order, playerData)
+                            rewards["Currency.Experience"] = v119
+                            if enemyObj.Config.ChanceReward then for k, v in pairs(enemyObj.Config.ChanceReward) do rewards[k] = v end end
                         end
                         
                         local rewardSignature = BuildRewardsSignature(rewards)
@@ -3951,10 +3969,7 @@ HunterUpgradeToggle = FarmTab:Toggle({
         Config.AutoHunterUpgrade = val
     end
 })
-
-if LocalPlayer.UserId ~= 9891690208 then
-    FM_Add("Energy & Hunter", HunterUpgradeToggle)
-end
+FM_Add("Energy & Hunter", HunterUpgradeToggle)
 
 if not IsPremium then
     Config.AutoHunterUpgrade = false
