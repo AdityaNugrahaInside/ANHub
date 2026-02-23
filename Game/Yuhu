@@ -963,12 +963,10 @@ function GetCurrentMapStatus()
     return "Unknown"
 end
 function CheckIsFightingZone()
-    local mapName = GetCurrentMapStatus()
-    -- Tambahkan IgnitionRaid ke dalam list keywords
-    local fightingKeywords = {"Dungeon", "Raid", "Defense", "SorcerersDefense", "PirateTower", "ShadowGate", "CapitalRaid", "MagicRaid", "SkullRaid", "IgnitionRaid", "SlimeRaid"} 
-
-    for _, keyword in ipairs(fightingKeywords) do
-        if string.find(mapName, keyword) then 
+    local controller = getgenv().Controller
+    if controller and controller.GetRunningGamemodeConfig then
+        local ok, cfg = pcall(function() return controller.GetRunningGamemodeConfig() end)
+        if ok and cfg then
             return true
         end
     end
@@ -1738,60 +1736,20 @@ function LogicGamemodes()
 
     while Config.AutoDungeon do
         if Window.Destroyed then break end;
-        
-        if not hrp or not hrp.Parent then
-             hrp = (LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart"))
-        end
 
+        local controller = getgenv().Controller
         local currentMap = GetCurrentMapStatus();
-        local inLobbyZone = false;
-        
-        if Workspace:FindFirstChild("Zones") and Workspace.Zones:FindFirstChild("Dungeon") then
-            if isPlayerInZone(Workspace.Zones.Dungeon) then
-                inLobbyZone = true;
-            end;
-        end;
-
-        if not string.find(currentMap, ":") and (currentMap == "Defense" or currentMap == "SorcerersDefense") then
-            inLobbyZone = true
-        end
 
         local EnemiesFolder = Workspace:FindFirstChild("Enemies")
         local hasEnemies = EnemiesFolder and #EnemiesFolder:GetChildren() > 0
-        local isFightingZone = false
+        local isFightingZone = CheckIsFightingZone()
 
-        if string.find(currentMap, ":") then
-            if string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") then
-                isFightingZone = true
-            end
-        else
-            local fixedZones = {
-                PirateTower = true,
-                ShadowGate = true,
-                SorcerersDefense = true,
-                CapitalRaid = true,
-                MagicRaid = true,
-                IgnitionRaid = true,
-                SkullRaid = true,                
-                Raid = true,
-                SlimeRaid = true
-            }
-            if fixedZones[currentMap] then
-                isFightingZone = true
-            end
-        end
-
-        if currentMap == "Defense" or currentMap == "SorcerersDefense" then
-            isFightingZone = hasEnemies
-        end
-
-        if currentMap ~= "Unknown" and not isFightingZone and not inLobbyZone and not string.find(currentMap, ":") and not wasInGamemode then
+        if currentMap ~= "Unknown" and not isFightingZone then
             LastZone = getgenv().PlayerData.Attributes.LastZone
         end
 
         if currentMap ~= "Unknown" then
             if isFightingZone then
-                wasInGamemode = true;
                 if Config.GM_AutoKill then
                     local isTargetStillAlive = false
                     if currentTargetObj and currentTargetObj.Parent and currentTargetObj.Root then
@@ -1799,8 +1757,8 @@ function LogicGamemodes()
                     end
                     if not isTargetStillAlive then currentTargetObj = nil end
 
-                    if not currentTargetObj and MainController and MainController.Enemies then
-                        for _, enemy in pairs(MainController.Enemies) do
+                    if not currentTargetObj and controller and controller.Enemies then
+                        for _, enemy in pairs(controller.Enemies) do
                             if enemy.Alive then currentTargetObj = enemy; break end
                         end
                     end
@@ -1852,19 +1810,11 @@ function LogicGamemodes()
                 end
                 task.wait()
 
-            -- elseif wasInGamemode and (not isFightingZone) then
-            --     -- [B. LOGIKA PULANG (SAMA)]
-            --     currentTargetObj = nil;
-            --     hasTeleportedToBossInRaid = false;
-                
-            --     if LastZone and LastZone ~= "" and LastZone ~= getgenv().PlayerData.Attributes.LastZone and not string.find(LastZone, ":") then
-            --         Notify("Mode Finished", "Returning to " .. LastZone);
-            --         if Reply and Reply.To then pcall(function() Reply.To("Zone Teleport", LastZone); end); end;
-            --         wasInGamemode = false;
-            --     else
-            --         wasInGamemode = false;
-            --     end;
             else
+                if controller and controller.InTransition then
+                    task.wait()
+                    continue
+                end
                 -- [1] DEFINISI FUNGSI LOKAL (Sekarang di dalam blok else, tapi hanya dibuat sekali per iterasi loop)
                 -- Tips: Idealnya fungsi ini ditaruh di LUAR while loop, tapi di sini juga aman.
                 local function ProcessGameMode(prefix, dbList, selectedList, requiredKey, allowJoin, allowOpen, selectionName)
@@ -1909,8 +1859,8 @@ function LogicGamemodes()
                     -- B. Cek Status Join/Open
                     for _, modeData in ipairs(modesToCheck) do
                         local modeID = modeData.ID
-                        local isJoinable = (MainController and MainController.IsJoinable and MainController.IsJoinable(modeID))
-                        local isOpened = (MainController and MainController.IsOpened and MainController.IsOpened(modeID))
+                        local isJoinable = (controller and controller.IsJoinable and controller.IsJoinable(modeID))
+                        local isOpened = (controller and controller.IsOpened and controller.IsOpened(modeID))
 
                         -- LOGIC JOIN
                         if allowJoin and isJoinable and (isOpened or not requiredKey) then
@@ -1925,7 +1875,6 @@ function LogicGamemodes()
                             local keyCount = (pData and pData.Materials and pData.Materials[requiredKey]) or 0
                             
                             if keyCount > 0 then
-                                Notify("Auto Open", "Creating " .. modeData.Name .. " (Using Key)", "key")
                                 if Reply and Reply.To then 
                                     if modeData.Phase then
                                         Reply.To("Open Gamemode", modeData.RawPrefix, modeData.Phase) 
@@ -1994,7 +1943,7 @@ local function LoadSingleGamemodeData(configModule, displayFallback, valueName, 
         local maxValue = module[maxKey] or 0
         local desc = maxLabel .. ": " .. maxValue .. " | HP Base: " .. Utils.ToText(hpBase)
         local rewardCards = GenerateCardRewards(module.ChanceReward) -- Ini berat, akan kita load bertahap
-        return {{ Title = module.Display or displayFallback, Value = valueName, Desc = desc, Images = rewardCards }}
+        return {{ Title = module.Display or displayFallback, Value = valueName, Desc = desc, Images = rewardCards, ReferenceZone = module.REFERENCE_ZONE }}
     end
     return {}
 end
@@ -2010,7 +1959,7 @@ function LoadDungeonData()
             local desc = "HP: " .. Utils.ToText(hpCalc)
             local rewardCards = GenerateCardRewards(phase.ChanceReward) -- Berat
 
-            table.insert(dungeonList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards })
+            table.insert(dungeonList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards, ReferenceZone = module.REFERENCE_ZONE })
             dungeonDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
             
             -- [ANTI LAG] Istirahat setiap proses 1 phase dungeon
@@ -2030,7 +1979,7 @@ function LoadRaidData()
             local desc = "HP: " .. Utils.ToText(hpCalc)
             local rewardCards = GenerateCardRewards(phase.ChanceReward) -- Berat
 
-            table.insert(raidList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards })
+            table.insert(raidList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards, ReferenceZone = module.REFERENCE_ZONE })
             raidDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
             
             -- [ANTI LAG] Istirahat setiap proses 1 phase raid
@@ -2049,7 +1998,7 @@ function LoadDefenseData()
             local desc = "HP: " .. Utils.ToText(hpCalc)
             local rewardCards = GenerateCardRewards(phase.ChanceReward)
 
-            table.insert(defenseList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards })
+            table.insert(defenseList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards, ReferenceZone = module.REFERENCE_ZONE })
             defenseDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
             
             -- [ANTI LAG] Istirahat setiap proses 1 phase defense
@@ -2058,31 +2007,58 @@ function LoadDefenseData()
     end
 end
 
-function BuildGameModesDropdownValues()
-    local out = {}
-    local function AddList(prefix, list, useColon)
-        if not list then return end
-        for _, item in ipairs(list) do
-            local rawVal = type(item) == "table" and (item.Value or item.Title) or tostring(item)
-            local itemTitle = item.Title or rawVal
-            local finalValue = useColon and (prefix .. ":" .. rawVal) or rawVal
-            local finalTitle = useColon and (prefix .. ": " .. itemTitle) or itemTitle
-
-            if rawVal then
-                table.insert(out, {
-                    Title = finalTitle, Value = finalValue,
-                    Desc = item.Desc, Images = item.Images
-                })
-            end
+local function IsGamemodeUnlocked(referenceZone)
+    if not referenceZone or referenceZone == "" then return true end
+    local pData = getgenv().PlayerData
+    local unlocked = pData and pData.UnlockedZones
+    if unlocked and unlocked[referenceZone] then
+        return true
+    end
+    if shared and shared.Zones then
+        local zoneInfo = shared.Zones[referenceZone]
+        if zoneInfo and not zoneInfo.Cost then
+            return true
         end
     end
+    return false
+end
 
-    AddList("Dungeon", dungeonList, true)
-    AddList("Raid", raidList, true)
-    AddList("Defense", defenseList, true)
-    local singleLists = {pirateTowerList, shadowGateList, sorcerersDefenseList, capitalRaidList, magicRaidList, ignitionRaidList, slimeRaidList}
-    for _, list in ipairs(singleLists) do
-        AddList("", list, false)
+local function AddGamemodeEntries(out, group)
+    local list = group.List
+    if not list then return end
+    for _, item in ipairs(list) do
+        if item.ReferenceZone and not IsGamemodeUnlocked(item.ReferenceZone) then
+            continue
+        end
+        local rawVal = type(item) == "table" and (item.Value or item.Title) or tostring(item)
+        if rawVal then
+            local itemTitle = item.Title or rawVal
+            local finalValue = group.UseColon and (group.Prefix .. ":" .. rawVal) or rawVal
+            local finalTitle = group.UseColon and (group.Prefix .. ": " .. itemTitle) or itemTitle
+            table.insert(out, {
+                Title = finalTitle, Value = finalValue,
+                Desc = item.Desc, Images = item.Images
+            })
+        end
+    end
+end
+
+function BuildGameModesDropdownValues()
+    local out = {}
+    local groups = {
+        { Prefix = "Dungeon", List = dungeonList, UseColon = true },
+        { Prefix = "Raid", List = raidList, UseColon = true },
+        { Prefix = "Defense", List = defenseList, UseColon = true },
+        { Prefix = "", List = pirateTowerList, UseColon = false },
+        { Prefix = "", List = shadowGateList, UseColon = false },
+        { Prefix = "", List = sorcerersDefenseList, UseColon = false },
+        { Prefix = "", List = capitalRaidList, UseColon = false },
+        { Prefix = "", List = magicRaidList, UseColon = false },
+        { Prefix = "", List = ignitionRaidList, UseColon = false },
+        { Prefix = "", List = slimeRaidList, UseColon = false }
+    }
+    for _, group in ipairs(groups) do
+        AddGamemodeEntries(out, group)
     end
     return out
 end
@@ -2310,6 +2286,8 @@ end
 
 if shared and shared.Events and shared.Events.Connect then
     local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
+        print(gamemodeId)
+        print(JSONPretty(payload,1))
         if not Config.AutoLeave or not payload then return end
         local currentVal = payload.Wave or payload.Floor or payload.Room
         if not currentVal then return end
@@ -2323,9 +2301,6 @@ if shared and shared.Events and shared.Events.Connect then
             pcall(function()
                 Reply.To("Leave Gamemode",true)
             end)
-            if Notify then
-                Notify("Auto Leave", tostring(modeName) .. " Reached ("..tostring(currentVal).." / "..tostring(targetLimit)..")! Leaving...")
-            end
         end
     end)
     TrackSharedConnection(conn)
@@ -3105,7 +3080,7 @@ task.spawn(function()
             
             local currentMap = GetCurrentMapStatus()
             -- Cari baris ini di sekitar baris 1452 dan ganti dengan ini:
-            local isFightingZone = (string.find(currentMap, ":") and (string.find(currentMap, "Dungeon") or string.find(currentMap, "Raid") or string.find(currentMap, "Defense") or string.find(currentMap, "SorcerersDefense") or currentMap == "PirateTower" or currentMap == "ShadowGate") or (currentMap == "PirateTower" or currentMap == "ShadowGate" or currentMap == "SorcerersDefense" or currentMap == "CapitalRaid" or currentMap == "MagicRaid" or currentMap == "IgnitionRaid" or currentMap == "SlimeRaid"))
+            local isFightingZone = CheckIsFightingZone()
 
             -- [PRIORITAS 1: MEGA BOSS]
             -- Jika Mega Boss Aktif (via Auto Mega Boss) DAN config equip Mega Boss dipilih
