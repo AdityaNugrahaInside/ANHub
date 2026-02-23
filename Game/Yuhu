@@ -78,6 +78,7 @@ CurrentZoneEnemiesCache = {}
 CurrentZoneEnemiesSignature = ""
 EnemyDropdownLastAppliedSignature = ""
 EnemyRefreshToken = 0
+EnemyDropdownPendingRefresh = true
 IsLoadingConfig = false
 MeteorState = {
     IsActive = false,
@@ -1581,6 +1582,38 @@ function EnemyDropdown_RefreshInstant(values)
         EnemyDropdownLastAppliedSignature = CurrentZoneEnemiesSignature
     elseif EnemyDropdown.Display then
         pcall(function() EnemyDropdown.Display() end)
+    end
+end
+
+function EnemyDropdown_RefreshIfChangedOnOpen()
+    if not EnemyDropdown or IsLoadingConfig or not EnemyDropdownPendingRefresh then return end
+    EnemyRefreshToken = EnemyRefreshToken + 1
+    local token = EnemyRefreshToken
+    task.spawn(function()
+        task.wait()
+        if EnemyRefreshToken ~= token then return end
+        local prevSignature = CurrentZoneEnemiesSignature
+        local freshEnemies = RefreshEnemyData()
+        if EnemyRefreshToken ~= token then return end
+        if CurrentZoneEnemiesSignature ~= prevSignature then
+            EnemyDropdown_RefreshInstant(freshEnemies)
+        elseif EnemyDropdown.Display then
+            pcall(function() EnemyDropdown.Display() end)
+        end
+        EnemyDropdownPendingRefresh = false
+    end)
+end
+
+do
+    local menu = EnemyDropdown and EnemyDropdown.DropdownMenu
+    local oldMenuOpen = menu and menu.Open
+    if oldMenuOpen then
+        menu.Open = function(self, ...)
+            if EnemyDropdown and not EnemyDropdown.Opened then
+                pcall(EnemyDropdown_RefreshIfChangedOnOpen)
+            end
+            return oldMenuOpen(self, ...)
+        end
     end
 end
 
@@ -4212,35 +4245,26 @@ if Reliable then
             if EnemyDropdown and EnemyDropdown.SetTitle then
                 pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
             end
-            EnemyRefreshToken = EnemyRefreshToken + 1
-            local token = EnemyRefreshToken
+            local savedEntry = Config.ZoneConfigurations[targetZoneName];
+            if savedEntry then
+                local valuesList = nil
+                if type(savedEntry) == "table" then
+                    if type(savedEntry.Values) == "table" then
+                        valuesList = savedEntry.Values
+                    elseif savedEntry.Value then
+                        valuesList = { savedEntry.Value }
+                    end
+                end
+                if valuesList then
+                    Config.SelectedEnemy = valuesList
+                end
+            end;
+            EnemyDropdownPendingRefresh = true
+            IsLoadingConfig = false;
             task.spawn(function()
-                task.wait()
-                if EnemyRefreshToken ~= token then return end
-                local freshEnemies = RefreshEnemyData();
-                if EnemyRefreshToken ~= token then return end
-                pcall(function()
-                    if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
-                end)
-                local savedEntry = Config.ZoneConfigurations[targetZoneName];
-                if savedEntry then
-                    local valuesList = nil
-                    if type(savedEntry) == "table" then
-                        if type(savedEntry.Values) == "table" then
-                            valuesList = savedEntry.Values
-                        elseif savedEntry.Value then
-                            valuesList = { savedEntry.Value }
-                        end
-                    end
-                    if valuesList then
-                        Config.SelectedEnemy = valuesList
-                    end
-                end;
-                if EnemyRefreshToken ~= token then return end
-                EnemyDropdown_RefreshInstant(freshEnemies)
-                IsLoadingConfig = false;
+                task.wait(0.2)
                 IsTeleporting = false;
-            end);
+            end)
         end
     end)
 end
@@ -4397,47 +4421,22 @@ task.spawn(function()
                     pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
                 end
                 
-                IsLoadingConfig = true
-                EnemyRefreshToken = EnemyRefreshToken + 1
-                local token = EnemyRefreshToken
-                
-                -- Jalankan refresh data di thread terpisah agar Main Loop tidak macet
-                task.spawn(function()
-                    task.wait()
-                    if EnemyRefreshToken ~= token then return end
-                    -- Proses ini sekarang aman karena sudah ada "task.wait" di dalam RefreshEnemyData
-                    local freshEnemies = RefreshEnemyData()
-                    if EnemyRefreshToken ~= token then return end
-                    
-                    -- Update Dropdown UI
-                    pcall(function()
-                        if EnemyDropdown then
-                            -- Kembalikan Judul
-                            if EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
-                        end
-                    end)
-                    
-                    -- Auto Select Enemy Terakhir (Saved Config)
-                    task.wait(0.2)
-                    local savedEntry = Config.ZoneConfigurations[detectedZone]
-                    if savedEntry then
-                        local valuesList = nil
-                        if type(savedEntry) == "table" then
-                            if type(savedEntry.Values) == "table" then
-                                valuesList = savedEntry.Values
-                            elseif savedEntry.Value then
-                                valuesList = { savedEntry.Value }
-                            end
-                        end
-                        if valuesList then
-                            Config.SelectedEnemy = valuesList
+                IsLoadingConfig = false
+                local savedEntry = Config.ZoneConfigurations[detectedZone]
+                if savedEntry then
+                    local valuesList = nil
+                    if type(savedEntry) == "table" then
+                        if type(savedEntry.Values) == "table" then
+                            valuesList = savedEntry.Values
+                        elseif savedEntry.Value then
+                            valuesList = { savedEntry.Value }
                         end
                     end
-                    if EnemyRefreshToken ~= token then return end
-                    EnemyDropdown_RefreshInstant(freshEnemies)
-                    
-                    IsLoadingConfig = false
-                end)
+                    if valuesList then
+                        Config.SelectedEnemy = valuesList
+                    end
+                end
+                EnemyDropdownPendingRefresh = true
             end
         end
     end
