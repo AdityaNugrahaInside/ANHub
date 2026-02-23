@@ -237,9 +237,15 @@ if not isfolder("ANUI") then makefolder("ANUI") end
 if not isfolder(FolderPath) then makefolder(FolderPath) end
 
 MainController = nil
-if Reply and Reply.Connect then
-    local Listeners = debug.getupvalue(Reply.Connect, 1)
+local function TryResolveMainController()
+    if MainController then return true end
+    if getgenv().Controller then
+        MainController = getgenv().Controller
+        return true
+    end
+    if not Reply or not Reply.Connect then return false end
 
+    local Listeners = debug.getupvalue(Reply.Connect, 1)
     if type(Listeners) ~= "table" or not Listeners["Data Sync Setup"] then
         for _, uv in pairs(debug.getupvalues(Reply.Connect)) do
             if type(uv) == "table" and uv["Data Sync Setup"] then
@@ -252,8 +258,7 @@ if Reply and Reply.Connect then
     if Listeners and Listeners["Data Sync Setup"] then
         for func, _ in pairs(Listeners["Data Sync Setup"]) do
             if type(func) == "function" then
-                local upvals = debug.getupvalues(func)
-                for _, val in pairs(upvals) do
+                for _, val in pairs(debug.getupvalues(func)) do
                     if type(val) == "table" and rawget(val, "Data") and rawget(val, "SyncChanged") then
                         MainController = val
                         break
@@ -263,11 +268,13 @@ if Reply and Reply.Connect then
             if MainController then break end
         end
     end
-end
 
-if MainController then
-    getgenv().Controller = MainController
-    getgenv().EnemiesData = MainController.Enemies
+    if MainController then
+        getgenv().Controller = MainController
+        getgenv().EnemiesData = MainController.Enemies
+        return true
+    end
+    return false
 end
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
 task.spawn(function()
@@ -338,15 +345,6 @@ function DiscoverRollTypes()
     table.sort(AllRollTypes)
 end
 DiscoverRollTypes()
-
-function ScanPlayerData()
-    if (getgenv()).PlayerData then
-        return
-    end
-    (getgenv()).PlayerData = MainController.Data
-end
-task.spawn(ScanPlayerData)
-
 function GetIcon(id)
     return string.format("rbxassetid://%s", id)
 end
@@ -502,6 +500,53 @@ Window = UI:CreateWindow({
         SaveKey = true
     }
 })
+
+SharedConnections = {}
+task.spawn(function()
+    task.wait(0.5)
+    local retries = 0
+    while not Window.Destroyed and not TryResolveMainController() and retries < 6 do
+        retries = retries + 1
+        task.wait(0.5)
+    end
+end)
+function ScanPlayerData()
+    if (getgenv()).PlayerData then
+        return
+    end
+    if not MainController or not MainController.Data then
+        return
+    end
+    (getgenv()).PlayerData = MainController.Data
+end
+task.spawn(function()
+    while not Window.Destroyed and not (getgenv()).PlayerData do
+        ScanPlayerData()
+        task.wait(0.5)
+    end
+end)
+
+function TrackSharedConnection(connection)
+    if not connection then return end
+    if type(connection) == "function" then
+        table.insert(SharedConnections, { Disconnect = connection })
+        return
+    end
+    if connection.Disconnect then
+        table.insert(SharedConnections, connection)
+    end
+end
+
+task.spawn(function()
+    while not Window.Destroyed do
+        task.wait(1)
+    end
+    for _, connection in ipairs(SharedConnections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+end)
 
 function HookTimerVariable()
     task.spawn(function()        
@@ -2239,88 +2284,52 @@ local function GetSafeReturnZone(pData)
     return "Starter Zone"
 end
 
--- [[ OPTIMIZED AUTO LEAVE LOGIC ]] --
-task.spawn(function()
-    -- 1. Tabel Konfigurasi: [Nama UI di Game] = "Nama Variable di Config Kita"
-    local AutoLeaveSettings = {
-        ["Dungeon"]          = "AutoLeave_Dungeon",
-        ["Raid"]             = "AutoLeave_Raid",
-        ["Defense"]          = "AutoLeave_Defense",
-        ["SorcerersDefense"] = "AutoLeave_Defense", -- Sorcerers pakai config Defense (sesuai kode lama)
-        ["PirateTower"]      = "AutoLeave_PirateTower",
-        ["ShadowGate"]       = "AutoLeave_ShadowGate",
-        ["CapitalRaid"]      = "AutoLeave_CapitalRaid",
-        ["MagicRaid"]        = "AutoLeave_MagicRaid",
-        ["IgnitionRaid"]     = "AutoLeave_IgnitionRaid",
-        ["SlimeRaid"]        = "AutoLeave_SlimeRaid" -- Mudah ditambahkan
-    }
+local AutoLeaveSettings = {
+    ["Dungeon"]          = "AutoLeave_Dungeon",
+    ["Raid"]             = "AutoLeave_Raid",
+    ["Defense"]          = "AutoLeave_Defense",
+    ["SorcerersDefense"] = "AutoLeave_Defense",
+    ["PirateTower"]      = "AutoLeave_PirateTower",
+    ["ShadowGate"]       = "AutoLeave_ShadowGate",
+    ["CapitalRaid"]      = "AutoLeave_CapitalRaid",
+    ["MagicRaid"]        = "AutoLeave_MagicRaid",
+    ["IgnitionRaid"]     = "AutoLeave_IgnitionRaid",
+    ["SlimeRaid"]        = "AutoLeave_SlimeRaid"
+}
+local AutoLeaveCooldown = {}
 
-    -- 2. Daftar kemungkinan nama container angka (Wave/Room/Floor)
-    local TextContainers = {"wave", "Wave", "room", "Room", "floor", "Floor"}
+local function GetAutoLeaveKeyFromId(id)
+    if not id then return nil end
+    for modeName, configKey in pairs(AutoLeaveSettings) do
+        if string.find(id, modeName) then
+            return configKey, modeName
+        end
+    end
+    return nil
+end
 
-    while not Window.Destroyed do
-        if Config.AutoLeave then
-            local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-            -- Pastikan path UI benar
-            local HudGamemode = PlayerGui and PlayerGui:FindFirstChild("Screen") and PlayerGui.Screen:FindFirstChild("Hud") and PlayerGui.Screen.Hud:FindFirstChild("gamemode")
-            
-            if HudGamemode and HudGamemode.Visible then
-                local currentVal = 0
-                local targetLimit = 999999
-                local modeActive = false
-                local detectedModeName = ""
-
-                -- LOOPING PINTAR: Cek semua mode sekaligus
-                for uiName, configKey in pairs(AutoLeaveSettings) do
-                    local modeUI = HudGamemode:FindFirstChild(uiName)
-                    
-                    if modeUI and modeUI.Visible then
-                        -- Jika UI Mode ditemukan, cari teks angkanya (Wave/Room/Floor)
-                        for _, subName in ipairs(TextContainers) do
-                            local container = modeUI:FindFirstChild(subName)
-                            if container and container:FindFirstChild("amount") then
-                                local txt = container.amount.Text
-                                currentVal = tonumber(string.match(txt, "%d+")) or 0
-                                targetLimit = Config[configKey] or 999999
-                                modeActive = true
-                                detectedModeName = uiName
-                                break -- Keluar dari loop Container
-                            end
-                        end
-                    end
-
-                    if modeActive then break end -- Keluar dari loop Mode jika sudah ketemu
-                end
-
-                -- [EKSEKUSI LEAVE]
-                if modeActive and currentVal >= targetLimit then
-                    -- Fungsi Helper Local untuk mencari zona pulang aman
-                    local function GetSafeReturnZone(pData)
-                        if IsSafeReturnZoneName(LastZone) then return LastZone end
-                        local attrLastZone = pData and pData.Attributes and pData.Attributes.LastZone
-                        if IsSafeReturnZoneName(attrLastZone) then return attrLastZone end
-                        return "Starter Zone"
-                    end
-
-                    local pData = getgenv().PlayerData
-                    local returnZone = GetSafeReturnZone(pData)
-
-                    if Reply and Reply.To then
-                        pcall(function()
-                            Reply.To("Leave Gamemode")
-                        end)
-                        
-                        if Notify then 
-                            Notify("Auto Leave", detectedModeName .. " Reached ("..currentVal.." / "..targetLimit..")! Leaving...") 
-                        end
-                        task.wait(5) -- Jeda agar tidak spam request
-                    end
-                end
+if shared and shared.Events and shared.Events.Connect then
+    local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
+        if not Config.AutoLeave or not payload then return end
+        local currentVal = payload.Wave or payload.Floor or payload.Room
+        if not currentVal then return end
+        local configKey, modeName = GetAutoLeaveKeyFromId(gamemodeId)
+        if not configKey then return end
+        local targetLimit = Config[configKey] or 999999
+        if currentVal < targetLimit then return end
+        if AutoLeaveCooldown[gamemodeId] and (os.clock() - AutoLeaveCooldown[gamemodeId]) < 5 then return end
+        AutoLeaveCooldown[gamemodeId] = os.clock()
+        if Reply and Reply.To then
+            pcall(function()
+                Reply.To("Leave Gamemode",true)
+            end)
+            if Notify then
+                Notify("Auto Leave", tostring(modeName) .. " Reached ("..tostring(currentVal).." / "..tostring(targetLimit)..")! Leaving...")
             end
         end
-        task.wait(1)
-    end
-end)
+    end)
+    TrackSharedConnection(conn)
+end
 FM_OnChange("Farm")
 
 GeneralManagerSection = FarmTab
@@ -6797,23 +6806,23 @@ task.spawn(function()
     end
 
     -- 1. [TRACKING] DAFTAR TARGET
-    shared.Reply.Connect("Enemy Incandescent", function(uid, isActive)
+    TrackSharedConnection(shared.Reply.Connect("Enemy Incandescent", function(uid, isActive)
         if isActive then
             IncandescentTargets[uid] = true
         else
             IncandescentTargets[uid] = nil
         end
-    end)
+    end))
 
-    shared.Reply.Connect("Enemy Die", function(uid)
+    TrackSharedConnection(shared.Reply.Connect("Enemy Die", function(uid)
         if IncandescentTargets[uid] then
             IncandescentTargets[uid] = nil
         end
-    end)
+    end))
 
-    shared.Reply.Connect("Enemies Changed", function()
+    TrackSharedConnection(shared.Reply.Connect("Enemies Changed", function()
         IncandescentTargets = {}
-    end)
+    end))
 
     -- 2. [ACTION] LOOP PEMBURU (PRIORITAS TERTINGGI)
     task.spawn(function()
@@ -6877,7 +6886,7 @@ task.spawn(function()
     end)
 
     -- 3. [EVENT] PINDAH MAP
-    shared.Reply.Connect("Meteor Shower Started", function(zoneName)
+    TrackSharedConnection(shared.Reply.Connect("Meteor Shower Started", function(zoneName)
         if Config.AutoMeteor then
             local currentMap = GetCurrentMapStatus()
             if currentMap ~= zoneName then
@@ -6888,10 +6897,10 @@ task.spawn(function()
                 if Reply and Reply.To then Reply.To("Zone Teleport", zoneName) end
             end
         end
-    end)
+    end))
 
     -- 4. [EVENT] METEOR SPAWN (DENGAN CEK PRIORITAS)
-    shared.Reply.Connect("Meteor Spawn", function(impactPosition, zoneName)
+    TrackSharedConnection(shared.Reply.Connect("Meteor Spawn", function(impactPosition, zoneName)
         if Config.AutoMeteor then
             local fallDuration = shared.MeteorEvent and shared.MeteorEvent.METEOR_FALL_DURATION or 5
             
@@ -6916,17 +6925,17 @@ task.spawn(function()
                 task.wait(0.5) 
             end
         end
-    end)
+    end))
 
     -- 5. [EVENT] SELESAI
-    shared.Reply.Connect("Meteor Shower Ended", function(zoneName)
+    TrackSharedConnection(shared.Reply.Connect("Meteor Shower Ended", function(zoneName)
         IncandescentTargets = {}
         if Config.AutoMeteor and LastZoneBeforeMeteor then
             if Notify then Notify("Meteor", "Event Ended. Returning...", "corner-up-left") end
             if Reply and Reply.To then Reply.To("Zone Teleport", LastZoneBeforeMeteor) end
             LastZoneBeforeMeteor = nil
         end
-    end)
+    end))
 end)
 
 function Optimizer.Update_ZoneQuest_Logic(pData)
