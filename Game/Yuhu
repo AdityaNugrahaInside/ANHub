@@ -929,6 +929,15 @@ function CheckIsFightingZone()
     end
     return false
 end
+function ResetMegaBossState()
+    MegaBossState.IsActive = false
+    MegaBossState.TargetZone = nil
+    MegaBossState.ReturnZone = nil
+    MegaBossState.BossDeadCheck = 0
+    MegaBossState.PendingTargetZone = nil
+    MegaBossState.PendingZoneDisplayName = nil
+    MegaBossState.PendingReceivedAt = 0
+end
 
 function GetPartPosition(obj)
     if typeof(obj) == "Instance" then
@@ -4356,6 +4365,10 @@ end)
 task.spawn(function()
     while not Window.Destroyed do
         task.wait(0.5)
+
+        if MegaBossState.IsActive and CheckIsFightingZone() then
+            ResetMegaBossState()
+        end
 
         if not Config.AutoMegaBoss then
             MegaBossState.PendingTargetZone = nil
