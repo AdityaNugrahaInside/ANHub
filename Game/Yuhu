@@ -935,20 +935,10 @@ function MaintainAutoStatus()
                 LastAutoSettingCheck = os.time()
             end;
         end;
-        
-        -- Loop tetap menunggu 1 detik agar tidak memberatkan thread,
-        -- tapi logic berat di atas sudah ditahan oleh if (os.time...)
         task.wait(1);
     end;
 end;
 task.spawn(MaintainAutoStatus);
-function isPlayerInZone(zone)
-    local chars = zone:FindFirstChild("Characters");
-    if chars and chars:FindFirstChild(LocalPlayer.Name) then
-        return true;
-    end;
-    return false;
-end;
 function GetCurrentMapStatus()
     local pData = getgenv().PlayerData
     
@@ -1062,7 +1052,6 @@ function LogicAutoFarm()
                 else
                     MegaBossState.BossDeadCheck = MegaBossState.BossDeadCheck + 1
                     if MegaBossState.BossDeadCheck > 50 then 
-                        Notify("Mega Boss", "Boss Defeated Returning...", "corner-up-left")
                         MegaBossState.IsActive = false
                         currentTargetObj = nil
                         
@@ -1673,9 +1662,6 @@ RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
     Callback = function()
-        if EnemyDropdown and EnemyDropdown.SetTitle then
-            pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
-        end
         task.spawn(function()
             local freshEnemies = RefreshEnemyData()
             EnemyDropdown_RefreshInstant(freshEnemies)
@@ -1864,7 +1850,6 @@ function LogicGamemodes()
 
                         -- LOGIC JOIN
                         if allowJoin and isJoinable and (isOpened or not requiredKey) then
-                            Notify("Auto Join", "Joining " .. modeData.Name, "swords")
                             if Reply and Reply.To then Reply.To("Join Gamemode",modeID) end
                             return true
                         end
@@ -3090,7 +3075,6 @@ task.spawn(function()
                         pcall(function()
                             Reply.To("Vault Equip Best", Config.AutoEquipVaultMegaBoss)
                         end)
-                        if Notify then Notify("Vault Auto", "Equip (MegaBoss): " .. tostring(Config.AutoEquipVaultMegaBoss)) end
                     end
                     LastVaultState = "MegaBoss"
                 end
@@ -3103,7 +3087,6 @@ task.spawn(function()
                             pcall(function()
                                 Reply.To("Vault Equip Best", Config.AutoEquipVaultMode)
                             end)
-                            if Notify then Notify("Vault Auto", "Equip (GameMode): " .. tostring(Config.AutoEquipVaultMode)) end
                         end
                         
                         LastVaultState = "GameMode"
@@ -3119,7 +3102,6 @@ task.spawn(function()
                             pcall(function()
                                 Reply.To("Vault Equip Best", Config.AutoEquipVaultFarm)
                             end)
-                            if Notify then Notify("Vault Auto", "Equip (Farm): " .. tostring(Config.AutoEquipVaultFarm)) end
                         end
                         
                         LastVaultState = "Farm"
@@ -3388,7 +3370,6 @@ ManualUpgradeGroup:Button({
                 end
 
                 Reply.To("Avatar Upgrade") 
-                Notify("Avatar", string.format("Sending 'Avatar Upgrade' request for %s.", avatarDisplayName))
             end)
         end
     end
@@ -3409,7 +3390,6 @@ ManualUpgradeGroup:Button({
                 end
                 
                 Reply.To("Avatar Max Upgrade")
-                Notify("Avatar", string.format("Sending 'Avatar Max Upgrade' request for %s.", avatarDisplayName))
             end)
         end
     end
@@ -4211,6 +4191,195 @@ SettingsTab:Button({
         });
     end
 });
+SettingsTab:Section({
+    Title = "Game Settings",
+    Icon = "sliders",
+    Opened = false
+});
+
+local SettingsDefinitions = nil
+local SettingsBuilt = false
+
+local SettingsDivisions = {"Sound", "Gameplay", "Visual", "Performance"}
+local SettingsGroups = {}
+for _, division in ipairs(SettingsDivisions) do
+    SettingsGroups[division] = {}
+end
+
+local SettingsTriOptions = {
+    { Title = "All", Value = 1 },
+    { Title = "Myself", Value = 2 },
+    { Title = "None", Value = 3 }
+}
+local SettingsTriIndex = { All = 1, Myself = 2, None = 3 }
+local SettingsUI = {}
+local SettingsLast = {}
+local SettingsInitDone = false
+local SettingsPending = {}
+
+local function GetSettingValue(name, fallback)
+    local pData = getgenv().PlayerData
+    local settings = pData and pData.Settings
+    if settings and settings[name] ~= nil then
+        return settings[name]
+    end
+    return fallback
+end
+
+local function BuildSettingsUI()
+    if not SettingsDefinitions then return end
+    for _, division in ipairs(SettingsDivisions) do
+        local groups = SettingsGroups[division]
+        if groups then
+            local list = {}
+            for name, info in pairs(SettingsDefinitions) do
+                if info.Division == division then
+                    table.insert(list, { Name = name, Info = info })
+                end
+            end
+            table.sort(list, function(a, b)
+                return (a.Info.Order or 0) < (b.Info.Order or 0)
+            end)
+            local groupIndex = 0
+            local itemCount = 0
+            local group = nil
+            local function NextGroup()
+                groupIndex = groupIndex + 1
+                itemCount = 0
+                local title = division
+                if groupIndex > 1 then
+                    title = division .. " (" .. tostring(groupIndex) .. ")"
+                end
+                group = SettingsTab:Group({ Title = title })
+                table.insert(groups, group)
+            end
+            for _, entry in ipairs(list) do
+                if not group or itemCount >= 2 then
+                    NextGroup()
+                end
+                local name = entry.Name
+                local info = entry.Info
+                if info.Type == "Slide" then
+                    local current = tonumber(GetSettingValue(name, 0)) or 0
+                    local element = group:Slider({
+                        Title = info.Display or name,
+                        Min = 0,
+                        Max = 100,
+                        Default = current,
+                        Flag = "GameSetting_" .. name,
+                        Callback = function(v)
+                            local num = tonumber(v) or 0
+                            SettingsPending[name] = num
+                        end
+                    })
+                    SettingsUI[name] = { Type = "Slide", Element = element }
+                    SettingsLast[name] = current
+                elseif info.Type == "Toggle" then
+                    local current = tonumber(GetSettingValue(name, 1)) or 1
+                    local element = group:Dropdown({
+                        Title = info.Display or name,
+                        Values = SettingsTriOptions,
+                        Value = SettingsTriOptions[current],
+                        AllowNone = false,
+                        Flag = "GameSetting_" .. name,
+                        Callback = function(val)
+                            local raw = type(val) == "table" and val.Value or val
+                            local num = tonumber(raw) or SettingsTriIndex[tostring(raw)] or 1
+                            SettingsPending[name] = num
+                        end
+                    })
+                    SettingsUI[name] = { Type = "Toggle", Element = element }
+                    SettingsLast[name] = current
+                elseif info.Type == "Bool" then
+                    local current = GetSettingValue(name, false) and true or false
+                    local element = group:Toggle({
+                        Title = info.Display or name,
+                        Default = current,
+                        Flag = "GameSetting_" .. name,
+                        Callback = function(v)
+                            SettingsPending[name] = v and true or false
+                        end
+                    })
+                    SettingsUI[name] = { Type = "Bool", Element = element }
+                    SettingsLast[name] = current
+                end
+                itemCount = itemCount + 1
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    while not Window.Destroyed and not SettingsBuilt do
+        if not SettingsDefinitions then
+            pcall(function() SettingsDefinitions = shared.Settings end)
+        end
+        if not SettingsDefinitions then
+            pcall(function()
+                local settingsModule = RS.Scripts.Configs.General.Settings
+                if settingsModule then
+                    SettingsDefinitions = require(settingsModule)
+                end
+            end)
+        end
+        if SettingsDefinitions then
+            BuildSettingsUI()
+            SettingsBuilt = true
+            break
+        end
+        task.wait(0.5)
+    end
+end)
+
+task.spawn(function()
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        local settings = pData and pData.Settings
+        if settings then
+            for name, desired in pairs(SettingsPending) do
+                local current = settings[name]
+                if current == nil or current ~= desired then
+                    if Reply and Reply.To then
+                        pcall(function()
+                            Reply.To("Settings", name, desired)
+                        end)
+                        task.wait(0.5)
+                    end
+                else
+                    SettingsPending[name] = nil
+                end
+            end
+            for name, entry in pairs(SettingsUI) do
+                local val = settings[name]
+                if val ~= nil and SettingsLast[name] ~= val then
+                    SettingsLast[name] = val
+                    if entry.Type == "Slide" then
+                        local num = tonumber(val) or 0
+                        if entry.Element and entry.Element.Set then
+                            entry.Element:Set(num)
+                        end
+                    elseif entry.Type == "Toggle" then
+                        local num = tonumber(val) or 1
+                        if entry.Element then
+                            entry.Element.Value = SettingsTriOptions[num]
+                            if entry.Element.Display then
+                                pcall(function() entry.Element.Display() end)
+                            end
+                        end
+                    elseif entry.Type == "Bool" then
+                        if entry.Element and entry.Element.Set then
+                            entry.Element:Set(val and true or false, false, true)
+                        end
+                    end
+                end
+            end
+            if not SettingsInitDone then
+                SettingsInitDone = true
+            end
+        end
+        task.wait(0.5)
+    end
+end)
 SecuritySection = SettingsTab:Section({
     Title = "Game Security",
     Icon = "shield",
@@ -4234,9 +4403,6 @@ if Reliable then
                 if EnemyDropdown.Display then
                     pcall(function() EnemyDropdown.Display() end)
                 end
-            end
-            if EnemyDropdown and EnemyDropdown.SetTitle then
-                pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
             end
             local savedEntry = Config.ZoneConfigurations[targetZoneName];
             if savedEntry then
@@ -4324,8 +4490,6 @@ task.spawn(function()
                 MegaBossState.PendingZoneDisplayName = nil
                 MegaBossState.PendingReceivedAt = 0
                 
-                if Notify then Notify("Mega Boss", "Spawned at " .. zoneDisplayName .. "! Teleporting...") end
-                
                 if Reliable and targetZoneID ~= currentZone then
                     pcall(function() Reply.To("Zone Teleport", targetZoneID) end)
                 end
@@ -4376,7 +4540,6 @@ task.spawn(function()
                 MegaBossState.BossDeadCheck = 0
 
                 local displayName = MegaBossState.PendingZoneDisplayName or tostring(pendingZone)
-                if Notify then Notify("Mega Boss", "Spawned at " .. displayName .. "! Teleporting...") end
 
                 if Reliable and pendingZone ~= currentZone then
                     pcall(function() Reply.To("Zone Teleport", pendingZone) end)
@@ -4411,11 +4574,6 @@ task.spawn(function()
                     if EnemyDropdown.Display then
                         pcall(function() EnemyDropdown.Display() end)
                     end
-                end
-                
-                -- Reset dropdown sementara (Visual feedback)
-                if EnemyDropdown and EnemyDropdown.SetTitle then
-                    pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
                 end
                 
                 IsLoadingConfig = false
@@ -5925,13 +6083,11 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
             if serverQuestData and ((serverQuestData.Status == "Completed") or (serverQuestData.Progress and serverQuestData.Progress >= questInfo.Required)) then
                 if Reliable then
                     pcall(function() Reply.To("Update HiddenQuests", strID) end)
-                    Notify("Hidden Quest", "Claiming Stage " .. currentStageIndex)
                     hasActionTaken = true
                 end
             elseif not serverQuestData then
                 if Reliable then
                     pcall(function() Reply.To("Update HiddenQuests", strID) end)
-                    Notify("Hidden Quest", "Starting Stage " .. currentStageIndex)
                     hasActionTaken = true 
                 end
             elseif serverQuestData.Status == "Progress" and questInfo.Event == "EnemyDefeated" and targetToFarm then
@@ -6746,7 +6902,6 @@ function Optimizer.Update_TimeRewards_Logic(pData)
                 pcall(function()
                     Reply.To("Collect Time Reward List", "Daily", dailyToClaim)
                 end)
-                if Notify then Notify("Rewards", "Claimed " .. #dailyToClaim .. " Daily Rewards!", "gift") end
                 claimed = true
             end
             
@@ -6754,7 +6909,6 @@ function Optimizer.Update_TimeRewards_Logic(pData)
                 pcall(function()
                     Reply.To("Collect Time Reward List", "Weekly", weeklyToClaim)
                 end)
-                if Notify then Notify("Rewards", "Claimed " .. #weeklyToClaim .. " Weekly Rewards!", "gift") end
                 claimed = true
             end
             
