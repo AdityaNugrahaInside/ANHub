@@ -2271,8 +2271,6 @@ end
 
 if shared and shared.Events and shared.Events.Connect then
     local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
-        print(gamemodeId)
-        print(JSONPretty(payload,1))
         if not Config.AutoLeave or not payload then return end
         local currentVal = payload.Wave or payload.Floor or payload.Room
         if not currentVal then return end
