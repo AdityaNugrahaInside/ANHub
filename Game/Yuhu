@@ -2773,9 +2773,7 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                                         end
                                     end)
 
-                                    if s then
-                                        task.wait(1.0)
-                                        
+                                    if s then                                        
                                         local newData = getgenv().PlayerData
                                         local newLevel = 0
                                         
@@ -2791,38 +2789,15 @@ function CreateUpgradeToggle(name, mod, isGachaUpgrade)
                                             if newData.CrateUpgrades then
                                                 newLevel = newData.CrateUpgrades[name] or 0
                                             end
-                                        end
-
-                                        if newLevel > oldLevel then
-                                            local now = os.time()
-                                            local hookKey = "Trainer_" .. name
-                                            
-                                            if not LastWebhookTime[hookKey] or (now - LastWebhookTime[hookKey]) >= 2 then
-                                                local cat = isGachaUpgrade and "Gacha" or "Trainer"
-                                                SendUpgradeWebhook(cat, name, newLevel, cost)
-                                                LastWebhookTime[hookKey] = now
-                                            end
-                                        end
-                                        
-                                        task.wait(0.5) 
-                                    else
-                                        task.wait(1.5)
+                                        end                                        
+                                        task.wait(0.3)
                                     end
-                                else
-                                    task.wait(1.5)
                                 end
-                            else
-                                task.wait(1)
                             end
-                        else
-                            task.wait(1)
                         end
+                        task.wait(0.1)
                     end
                 end)
-            else
-                if not isGachaUpgrade and Reply and Reply.To then
-                    pcall(function() Reply.To("Chance Upgrade", name, false) end)
-                end
             end
         end
     })
@@ -5167,7 +5142,7 @@ function Optimizer.Update_Trainer_Logic(pData)
         pcall(function()
             local toggle, mod, isGacha = data.Toggle, data.Mod, data.IsGacha
             local currentLvl, tokenKey = 0, ""
-            local itemName, currentImage, currentRarity = (mod.Display or name), "rbxassetid://84366761557806", "Common"
+            local itemName, currentImage, currentRarity = (mod.Display), "rbxassetid://84366761557806", "Common"
 
             if isGacha then
                 if pData.Attributes and pData.GachaLevel and pData.Attributes[name] then
@@ -5195,14 +5170,35 @@ function Optimizer.Update_Trainer_Logic(pData)
             local matInfo = Materials[tokenKey]
             local matDisplay = string.format("%s%s", (matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""), (matInfo and matInfo.Display or tokenKey))
 
+            local bonusesLine = ""
+            if mod.GetBonuses and mod.Type ~= "UpgradeGacha" then
+                local bonuses = mod.GetBonuses(currentLvl)
+                if type(bonuses) == "table" then
+                    local parts = {}
+                    for stat, val in pairs(bonuses) do
+                        table.insert(parts, string.format("%s: %s%%",stat,Utils.ToText(val)))
+                    end
+                    table.sort(parts)
+                    if #parts > 0 then
+                        bonusesLine = "" .. table.concat(parts, " | ")
+                    end
+                end
+            end
+
             local newTitle, newDesc, isMaxed = "", "", false
             if currentLvl >= maxLvl then
                 isMaxed = true; newTitle = itemName .. " [MAX]"; newDesc = "Max Level Reached"
+                if bonusesLine ~= "" then
+                    newDesc = newDesc .. "\n" .. bonusesLine
+                end
             else
                 local chanceVal = (mod.GetChance and mod.GetChance(currentLvl)) or 0
-                local chanceTxt = chanceVal > 0 and (" | Chance: " .. (math.floor(chanceVal * 10) / 10) .. "%") or ""
-                newTitle = string.format("%s [%d/%d]", name, currentLvl, maxLvl)
-                newDesc = string.format("Cost: %s%s\n%s: %s", Utils.ToText(cost), chanceTxt, matDisplay, Utils.ToText(currentMat))
+                local chanceTxt = chanceVal > 0 and ("Chance: " .. (math.floor(chanceVal * 10) / 10) .. "%") or ""
+                newTitle = string.format("%s [%d/%d]", itemName, currentLvl, maxLvl)
+                newDesc = string.format("%s\n%s: %s/%s", chanceTxt, matDisplay, Utils.ToText(currentMat), Utils.ToText(cost))
+                if bonusesLine ~= "" then
+                    newDesc = newDesc .. "\n" .. bonusesLine
+                end
             end
 
             local cache = Optimizer.Cache.Upgrade[name] or {}
