@@ -1238,7 +1238,7 @@ function LogicAutoFarm()
             end
 
             -- 4. Kirim serangan jika ada target dalam area
-            if #targetsToSend > 0 and LocalPlayer.UserId == 5465738868 then
+            if #targetsToSend > 0 and LocalPlayer.UserId ~= 9891690208 then
                 Reply.UnTo("Hit", targetsToSend)
                 lastHitTick = now -- Catatan: Pastikan variabel 'now' didefinisikan di lingkungan Anda
             end
@@ -4292,7 +4292,7 @@ local function BuildSettingsUI()
                     local current = GetSettingValue(name, false) and true or false
                     local element = group:Toggle({
                         Title = info.Display or name,
-                        Default = current,
+                        Value = current,
                         Flag = "GameSetting_" .. name,
                         Callback = function(v)
                             SettingsPending[name] = v and true or false
