@@ -2155,6 +2155,7 @@ local leaveConfigs = {
     {Title = "Magic Raid (Wave)", Key = "AutoLeave_MagicRaid", Default = 500, Flag = "Leave_MagicRaid_Cfg"},
     {Title = "Ignition Raid (Wave)", Key = "AutoLeave_IgnitionRaid", Default = 500, Flag = "Leave_IgnitionRaid_Cfg"},
     {Title = "Slime Raid (Wave)", Key = "AutoLeave_SlimeRaid", Default = 500, Flag = "Leave_SlimeRaid_Cfg"},
+    {Title = "Ghoul Raid (Wave)", Key = "AutoLeave_GhoulRaid", Default = 500, Flag = "Leave_GhoulRaid_Cfg"},
 }
 
 local currentLeaveGroup = nil
@@ -2189,7 +2190,8 @@ local AutoLeaveSettings = {
     ["CapitalRaid"]      = "AutoLeave_CapitalRaid",
     ["MagicRaid"]        = "AutoLeave_MagicRaid",
     ["IgnitionRaid"]     = "AutoLeave_IgnitionRaid",
-    ["SlimeRaid"]        = "AutoLeave_SlimeRaid"
+    ["SlimeRaid"]        = "AutoLeave_SlimeRaid",
+    ["GhoulRaid"]        = "AutoLeave_GhoulRaid",
 }
 local AutoLeaveCooldown = {}
 local AutoLeavedState = {}
