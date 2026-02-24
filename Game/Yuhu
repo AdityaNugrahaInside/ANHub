@@ -2206,24 +2206,24 @@ if shared and shared.Events and shared.Events.Connect then
         if not Config.AutoLeave or not payload then return end
         local currentVal = payload.Wave or payload.Floor or payload.Room
         if not currentVal then return end
-        local pData = getgenv() and getgenv().PlayerData
-        local byData = pData and pData.AutoLeaveGamemodes and pData.AutoLeaveGamemodes[gamemodeId]
-        if byData and byData.Wave then
-            if currentVal ~= byData.Wave then return end
-            if AutoLeavedState[gamemodeId] then return end
-            AutoLeavedState[gamemodeId] = true
-            if Reply and Reply.To then
-                pcall(function()
-                    Reply.To("Leave Gamemode", true)
-                end)
-            end
-            return
-        end
+        -- local pData = getgenv() and getgenv().PlayerData
+        -- local byData = pData and pData.AutoLeaveGamemodes and pData.AutoLeaveGamemodes[gamemodeId]
+        -- if byData and byData.Wave then
+        --     if currentVal ~= byData.Wave then return end
+        --     if AutoLeavedState[gamemodeId] then return end
+        --     AutoLeavedState[gamemodeId] = true
+        --     if Reply and Reply.To then
+        --         pcall(function()
+        --             Reply.To("Leave Gamemode", true)
+        --         end)
+        --     end
+        --     return
+        -- end
         local configKey = GetAutoLeaveKeyFromId(gamemodeId)
         if not configKey then return end
         local targetLimit = Config[configKey]
         if not targetLimit then return end
-        if currentVal ~= targetLimit then return end
+        if currentVal < targetLimit then return end
         if AutoLeaveCooldown[gamemodeId] and (os.clock() - AutoLeaveCooldown[gamemodeId]) < 5 then return end
         AutoLeaveCooldown[gamemodeId] = os.clock()
         if Reply and Reply.To then
@@ -5087,7 +5087,7 @@ function Optimizer.Update_Roll_Logic(pData)
         if isMaxed and not lastState.IsMaxed then
             pcall(function() 
                 toggle:Disable()
-                toggle:SetTitle(rollType .. " [MAX]")
+                toggle:SetTitle(config.Display .. " (" .. currentRarity .. ")")
             end)
             local c = Optimizer.Cache.Roll[rollType] or {}
             c.IsMaxed = true
