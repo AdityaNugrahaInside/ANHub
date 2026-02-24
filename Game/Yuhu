@@ -2192,15 +2192,13 @@ local AutoLeaveSettings = {
     ["SlimeRaid"]        = "AutoLeave_SlimeRaid"
 }
 local AutoLeaveCooldown = {}
+local AutoLeavedState = {}
 
 local function GetAutoLeaveKeyFromId(id)
     if not id then return nil end
-    for modeName, configKey in pairs(AutoLeaveSettings) do
-        if string.find(id, modeName) then
-            return configKey, modeName
-        end
-    end
-    return nil
+    local base = tostring(id):match("^([^:]+)")
+    if not base then return nil end
+    return AutoLeaveSettings[base], base
 end
 
 if shared and shared.Events and shared.Events.Connect then
@@ -2208,15 +2206,29 @@ if shared and shared.Events and shared.Events.Connect then
         if not Config.AutoLeave or not payload then return end
         local currentVal = payload.Wave or payload.Floor or payload.Room
         if not currentVal then return end
-        local configKey, modeName = GetAutoLeaveKeyFromId(gamemodeId)
+        local pData = getgenv() and getgenv().PlayerData
+        local byData = pData and pData.AutoLeaveGamemodes and pData.AutoLeaveGamemodes[gamemodeId]
+        if byData and byData.Wave then
+            if currentVal ~= byData.Wave then return end
+            if AutoLeavedState[gamemodeId] then return end
+            AutoLeavedState[gamemodeId] = true
+            if Reply and Reply.To then
+                pcall(function()
+                    Reply.To("Leave Gamemode", true)
+                end)
+            end
+            return
+        end
+        local configKey = GetAutoLeaveKeyFromId(gamemodeId)
         if not configKey then return end
-        local targetLimit = Config[configKey] or 999999
-        if currentVal < targetLimit then return end
+        local targetLimit = Config[configKey]
+        if not targetLimit then return end
+        if currentVal ~= targetLimit then return end
         if AutoLeaveCooldown[gamemodeId] and (os.clock() - AutoLeaveCooldown[gamemodeId]) < 5 then return end
         AutoLeaveCooldown[gamemodeId] = os.clock()
         if Reply and Reply.To then
             pcall(function()
-                Reply.To("Leave Gamemode",true)
+                Reply.To("Leave Gamemode", true)
             end)
         end
     end)
