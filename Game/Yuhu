@@ -5070,19 +5070,22 @@ function Optimizer.Update_Roll_Logic(pData)
         lastState.Count = currentCount
         Optimizer.Cache.Roll[rollType] = lastState
 
-        -- 5. Logika Auto Lock jika sudah MAX
+        -- 5. Disable Toggle jika sudah MAX
         local isMaxed = (config.List and #config.List > 0 and foundBestIndex >= #config.List)
         if isMaxed and not lastState.IsMaxed then
             pcall(function() 
-                toggle:Lock("Maximum Tier Reached")
-                toggle:SetTitle(rollType .. " [MAX]") 
-                if Config["AutoRoll" .. rollType] then 
-                    Config["AutoRoll" .. rollType] = false
-                    toggle:Set(false) 
-                end 
+                toggle:Disable()
+                toggle:SetTitle(rollType .. " [MAX]")
             end)
             local c = Optimizer.Cache.Roll[rollType] or {}
             c.IsMaxed = true
+            Optimizer.Cache.Roll[rollType] = c
+        elseif not isMaxed and lastState.IsMaxed then
+            pcall(function()
+                toggle:Enable()
+            end)
+            local c = Optimizer.Cache.Roll[rollType] or {}
+            c.IsMaxed = false
             Optimizer.Cache.Roll[rollType] = c
         end
     end
@@ -5205,11 +5208,10 @@ function Optimizer.Update_Trainer_Logic(pData)
             if cache.Title ~= newTitle then toggle:SetTitle(newTitle) end
             if cache.Desc ~= newDesc then toggle:SetDesc(newDesc) end
             
-            if isMaxed and not cache.IsMaxed then 
-                toggle:Lock("Already Maxed")
-                local k = isGacha and ("AutoUpgrade_"..name) or ("AutoChance_"..name)
-                Config[k] = false
-                toggle:Set(false) 
+            if isMaxed and not cache.IsMaxed then
+                toggle:Disable()
+            elseif not isMaxed and cache.IsMaxed then
+                toggle:Enable()
             end
             
             Optimizer.Cache.Upgrade[name] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed, Image = currentImage, Rarity = currentRarity }
@@ -5790,6 +5792,26 @@ function Optimizer.GenericUpgradeLogic(configList, currentLevels, upgradeModule,
     end
 end
 
+function Optimizer.ApplyDisableForMax(configList, currentLevels, toggleList, cachePrefix)
+    if not currentLevels then return end
+    for name, cfg in pairs(configList) do
+        local lvl = currentLevels[name] or 0
+        local max = cfg.MaxLevel or 999
+        local toggle = toggleList[name]
+        if toggle then
+            local key = cachePrefix .. name
+            local cache = Optimizer.Cache.Upgrade[key] or {}
+            local isMaxed = lvl >= max
+            if isMaxed and not cache.IsMaxed then
+                if toggle.Disable then toggle:Disable() end
+            elseif not isMaxed and cache.IsMaxed then
+                if toggle.Enable then toggle:Enable() end
+            end
+            Optimizer.Cache.Upgrade[key] = { IsMaxed = isMaxed }
+        end
+    end
+end
+
 function Optimizer.Update_Main_Data_Logic(pData)
     local cRank, cMastery = (pData.Attributes.Rank or 0), (pData.Attributes.Mastery or 0)
     local req, cBuff, nBuff = RankUp.GetRequirement(cRank), RankUp.GetBuff(cRank), RankUp.GetBuff(cRank+1)
@@ -5825,6 +5847,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
             (pData.Attributes.Yen or 0), -- Jumlah Uang
             GetIcon(139379806755218)     -- Icon Yen
         )
+        Optimizer.ApplyDisableForMax(YenUpgrades.Config, pData.YenUpgrades, YenUpgradeToggleUI, "Yen_")
     end
 
     -- 2. Jalankan Logika Token
@@ -5846,6 +5869,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
             (pData.Materials[tKey] or 0), -- Jumlah Token
             tIcon
         )
+        Optimizer.ApplyDisableForMax(TokenUpgrades.Config, pData.TokenUpgrades, TokenUpgradeToggleUI, "Token_")
     end
 
     -- 3. Jalankan Logika Capital Upgrades
@@ -5867,6 +5891,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
             (pData.Materials[cKey] or 0),   -- Jumlah Token Player
             cIcon                           -- Icon Token
         )
+        Optimizer.ApplyDisableForMax(CapitalsUpgradesConfig.Config, pData.CapitalsUpgrades, CapitalUpgradeToggles, "Capital_")
     end
 end
 
@@ -6125,6 +6150,16 @@ function Optimizer.Update_RarityPower_Logic(pData)
                     end
                     Optimizer.Cache["RP_"..powerName] = newDesc
                 end
+
+                local stateKey = "RP_STATE_" .. powerName
+                local stateCache = Optimizer.Cache[stateKey] or {}
+                local isFullyMaxed = isMaxRarity and isAtMaxLevel
+                if isFullyMaxed and not stateCache.IsMaxed then
+                    toggle:Disable()
+                elseif not isFullyMaxed and stateCache.IsMaxed then
+                    toggle:Enable()
+                end
+                Optimizer.Cache[stateKey] = { IsMaxed = isFullyMaxed }
             end
 
             -- 5. EKSEKUSI OTOMATIS
@@ -6315,10 +6350,10 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
         newTitle = displayName .. " [MAX]"
         newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", bonusText)
         
-        if not EnergyUpgradeToggle.Locked then
-            EnergyUpgradeToggle:Lock("Max level reached")
-            Config.AutoEnergyUpgrade = false
-            EnergyUpgradeToggle:Set(false)
+        local stateKey = "EnergyUp_Modular_Disabled"
+        if not Optimizer.Cache[stateKey] then
+            EnergyUpgradeToggle:Disable()
+            Optimizer.Cache[stateKey] = true
         end
     else
         newTitle = string.format("%s [%d/%d]", displayName, currentLvl, maxLvl)
@@ -6329,7 +6364,11 @@ function Optimizer.Update_EnergyUpgrade_Logic(pData)
             matIcon, matName, Utils.ToText(cost), Utils.ToText(myTokens)
         )
         
-        if EnergyUpgradeToggle.Locked then EnergyUpgradeToggle:Unlock() end
+        local stateKey = "EnergyUp_Modular_Disabled"
+        if Optimizer.Cache[stateKey] then
+            EnergyUpgradeToggle:Enable()
+            Optimizer.Cache[stateKey] = nil
+        end
     end
 
     -- Update UI dengan Cache (Optimasi Performa)
@@ -6408,10 +6447,10 @@ function Optimizer.Update_HunterUpgrade_Logic(pData)
         newTitle = displayName .. " [MAX]"
         newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", bonusText)
         
-        if not HunterUpgradeToggle.Locked then
-            HunterUpgradeToggle:Lock("Max level reached")
-            Config.AutoHunterUpgrade = false
-            HunterUpgradeToggle:Set(false)
+        local stateKey = "HunterUp_Modular_Disabled"
+        if not Optimizer.Cache[stateKey] then
+            HunterUpgradeToggle:Disable()
+            Optimizer.Cache[stateKey] = true
         end
     else
         newTitle = string.format("%s [%d/%d]", displayName, currentLvl, maxLvl)
@@ -6422,7 +6461,11 @@ function Optimizer.Update_HunterUpgrade_Logic(pData)
             matIcon, matName, Utils.ToText(cost), Utils.ToText(myTokens)
         )
         
-        if HunterUpgradeToggle.Locked then HunterUpgradeToggle:Unlock() end
+        local stateKey = "HunterUp_Modular_Disabled"
+        if Optimizer.Cache[stateKey] then
+            HunterUpgradeToggle:Enable()
+            Optimizer.Cache[stateKey] = nil
+        end
     end
 
     -- Update UI dengan Cache
@@ -6502,6 +6545,7 @@ function Optimizer.Update_YenUpgrade2_Logic(pData)
             (pData.Attributes.Yen or 0), -- Jumlah Yen player saat ini
             yenIcon                      -- Icon Yen
         )
+        Optimizer.ApplyDisableForMax(YenUpgrades2.Config, pData.YenUpgrades2, YenUpgrade2ToggleUI, "Yen2_")
     end
 end
 function Optimizer.Update_Relics_Logic(pData)
@@ -6657,9 +6701,9 @@ function Optimizer.Update_Relics_Logic(pData)
         
         -- 3. Lock jika MAX dan user ingin mematikan auto
         if isMaxed and not cacheData.IsMaxed then
-            toggle:Lock("Maxed")
-            Config["AutoRelic_" .. strID] = false
-            toggle:Set(false)
+            toggle:Disable()
+        elseif not isMaxed and cacheData.IsMaxed then
+            toggle:Enable()
         end
         
         Optimizer.Cache[cacheKey] = {
