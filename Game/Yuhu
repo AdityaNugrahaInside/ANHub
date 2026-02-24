@@ -5671,7 +5671,7 @@ function Optimizer.Update_MegaBoss_Logic(pData)
             local newTitle = ""
             local newDesc = ""
             local isMaxed = currentLvl >= maxLvl
-
+            
             if isMaxed then
                 newTitle = name .. " [MAX]"
                 newDesc = string.format("<b>Maxed</b>\nBuff: +%s%%", Utils.ToText(currentBuff))
@@ -5681,15 +5681,16 @@ function Optimizer.Update_MegaBoss_Logic(pData)
                     tokenIcon,tokenName, Utils.ToText(cost), Utils.ToText(myTokens), Utils.ToText(currentBuff))
                 if toggle.Locked then toggle:Unlock() end
             end
-
-            -- Update Cache Text agar tidak spam update UI
-            local cacheKey = "MB_"..name
-            local cacheData = Optimizer.Cache.Upgrade[cacheKey] or {}
-            
-            if cacheData.Title ~= newTitle then toggle:SetTitle(newTitle) end
-            if cacheData.Desc ~= newDesc then toggle:SetDesc(newDesc) end
-            
-            Optimizer.Cache.Upgrade[cacheKey] = { Title = newTitle, Desc = newDesc }
+            local titleKey = "MB_Title_" .. name
+            local descKey = "MB_Desc_" .. name
+            if _UIDescCache[titleKey] ~= newTitle then
+                toggle:SetTitle(newTitle)
+                _UIDescCache[titleKey] = newTitle
+            end
+            if _UIDescCache[descKey] ~= newDesc then
+                toggle:SetDesc(newDesc)
+                _UIDescCache[descKey] = newDesc
+            end
         end
 
         -- Logic Auto Upgrade
@@ -5711,6 +5712,7 @@ function Optimizer.Update_MegaBoss_Logic(pData)
             end
         end
     end
+    Optimizer.ApplyDisableForMax(MegaBossUpgradeConfig, myUpgrades, MegaBossToggles, "MB_")
 end
 
 _UIDescCache = {} 
