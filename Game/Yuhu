@@ -107,16 +107,9 @@ Config = {
     SelectedEnemy = nil,
     ZoneConfigurations = {},
     AutoGamemode = false,
-    TargetDungeon = {},
-    TargetRaid = {},
-    TargetCapitalRaid = {},
+    TargetGamemodes = {},
     AutoLeave_CapitalRaid = 1000,
-    TargetMagicRaid = {},
     AutoLeave_MagicRaid = 500,
-    TargetDefense = {},
-    TargetSorcerersDefense = {},
-    TargetPirateTower = {},
-    TargetShadowGate = {},
     TargetWave = 500,
     AutoEquipVaultMode = nil,
     AutoEquipVaultFarm = nil,
@@ -1803,39 +1796,25 @@ function LogicGamemodes()
                 end
                 -- [1] DEFINISI FUNGSI LOKAL (Sekarang di dalam blok else, tapi hanya dibuat sekali per iterasi loop)
                 -- Tips: Idealnya fungsi ini ditaruh di LUAR while loop, tapi di sini juga aman.
-                local function ProcessGameMode(prefix, dbList, selectedList, requiredKey, allowJoin, allowOpen, selectionName)
+                local function ProcessGameMode(modeKey, dbList, selectedList, allowJoin, allowOpen)
                     if not selectedList or #selectedList == 0 then return false end
                     if not allowJoin and not allowOpen then return false end
-
-                    if not dbList then
-                        local wanted = selectionName or prefix
-                        local normalizedWanted = tostring(wanted):gsub("%s+", ""):lower()
-                        local isSelected = false
-                        for _, s in ipairs(selectedList) do
-                            local normalized = tostring(s):gsub("%s+", ""):lower()
-                            if normalized == normalizedWanted then
-                                isSelected = true
-                                break
-                            end
-                        end
-                        if not isSelected then
-                            return false
-                        end
-                    end
+                    local meta = gamemodeMeta and gamemodeMeta[modeKey] or nil
+                    local requiredKey = meta and meta.Key or nil
                     
                     -- A. Siapkan Data Mode
                     local modesToCheck = {}
                     if not dbList then
                         -- Single Mode (Pirate/Shadow)
-                        table.insert(modesToCheck, {ID = prefix, Name = prefix, RawPrefix = prefix, Phase = nil})
+                        table.insert(modesToCheck, {ID = modeKey, Name = modeKey, RawPrefix = modeKey, Phase = nil})
                     else
                         -- Multi Mode (Dungeon/Raid/Defense)
                         for _, selectedName in pairs(selectedList) do
                             if dbList[selectedName] and dbList[selectedName].ID ~= nil then
                                 table.insert(modesToCheck, {
-                                    ID = prefix .. ":" .. tostring(dbList[selectedName].ID), 
+                                    ID = modeKey .. ":" .. tostring(dbList[selectedName].ID), 
                                     Name = selectedName,
-                                    RawPrefix = prefix,
+                                    RawPrefix = modeKey,
                                     Phase = dbList[selectedName].ID
                                 })
                             end
@@ -1878,28 +1857,24 @@ function LogicGamemodes()
                 local actionTaken = false
                 local allowJoin = Config.GM_AutoJoin
                 local allowOpen = Config.GM_AutoCreate
-                
-                -- Daftar prioritas pengecekan mode
-                local CheckList = {
-                    {ID="PirateTower",      DB=nil,       Cfg=Config.TargetPirateTower, Key="PirateTowerModeKey",      CanOpen=true,  SelName="PirateTower"},
-                    {ID="ShadowGate",       DB=nil,       Cfg=Config.TargetShadowGate,  Key="ShadowPortalModeKey",     CanOpen=true,  SelName="ShadowGate"},
-                    {ID="SorcerersDefense", DB=nil,       Cfg=Config.TargetSorcerersDefense, Key="SorcerersDefenseModeKey", CanOpen=true, SelName="SorcerersDefense"},
-                    {ID="Raid",             DB=raidDB,    Cfg=Config.TargetRaid,        Key="RaidModeKey",             CanOpen=true},
-                    {ID="CapitalRaid", DB=nil, Cfg=Config.TargetCapitalRaid, Key="CapitalRaidModeKey", CanOpen=true, SelName="CapitalRaid"},
-                    {ID="Defense",          DB=defenseDB, Cfg=Config.TargetDefense,     Key="DefenseModeKey",          CanOpen=true},
-                    {ID="MagicRaid", DB=nil, Cfg=Config.TargetMagicRaid, Key="MagicRaidModeKey", CanOpen=true, SelName="MagicRaid"},
-                    {ID="IgnitionRaid",     DB=nil,       Cfg=Config.TargetIgnitionRaid,Key="IgnitionRaidModeKey",     CanOpen=true,  SelName="IgnitionRaid"},
-                    {ID="SlimeRaid",     DB=nil,       Cfg=Config.TargetSlimeRaid,Key="SlimeRaidModeKey",     CanOpen=true,  SelName="SlimeRaid"},
-                    {ID="Dungeon",          DB=dungeonDB, Cfg=Config.TargetDungeon,     Key=nil,                       CanOpen=false}
-                }
+                local selectedMap = Config.TargetGamemodes or {}
+                local order = gamemodeOrder
+                if not order or #order == 0 then
+                    order = {}
+                    for key in pairs(selectedMap) do
+                        table.insert(order, key)
+                    end
+                    table.sort(order)
+                end
 
-                for _, mode in ipairs(CheckList) do
-                    -- Cek apakah mode ini boleh di-create (Config Global + Izin Mode)
-                    local canCreate = (allowOpen and mode.CanOpen)
-                    
-                    if ProcessGameMode(mode.ID, mode.DB, mode.Cfg, mode.Key, allowJoin, canCreate, mode.SelName) then
+                for _, modeKey in ipairs(order) do
+                    local selectedList = selectedMap[modeKey]
+                    local dbList = gamemodeDBs and gamemodeDBs[modeKey] or nil
+                    local meta = gamemodeMeta and gamemodeMeta[modeKey] or nil
+                    local canCreate = allowOpen and meta and meta.HasKey
+                    if ProcessGameMode(modeKey, dbList, selectedList, allowJoin, canCreate) then
                         actionTaken = true
-                        break -- Stop jika sudah join salah satu
+                        break
                     end
                 end
 
@@ -1913,83 +1888,91 @@ end;
 
 -- [[ OPTIMIZED GAMEMODE DATA LOADING ]] --
 
--- 1. Definisi Variabel List (Kosongkan dulu agar startup cepat)
-pirateTowerList, shadowGateList, capitalRaidList = nil, nil, nil
-magicRaidList, ignitionRaidList, slimeRaidList, sorcerersDefenseList = nil, nil, nil, nil
-dungeonList, dungeonDB = {}, {}
-raidList, raidDB = {}, {}
-defenseList, defenseDB = {}, {}
+gamemodeLists = {}
+gamemodeDBs = {}
+gamemodeMeta = {}
+gamemodeOrder = {}
 
--- Helper Function (Tetap)
-local function LoadSingleGamemodeData(configModule, displayFallback, valueName, maxKey, maxLabel)
-    local success, module = pcall(function() return require(configModule) end)
-    if success and module then
-        local hpBase = module.GetRecommendedPower(module.HealthBase) or 0
-        local maxValue = module[maxKey] or 0
-        local desc = maxLabel .. ": " .. maxValue .. " | HP Base: " .. Utils.ToText(hpBase)
-        local rewardCards = GenerateCardRewards(module.ChanceReward) -- Ini berat, akan kita load bertahap
-        return {{ Title = module.Display or displayFallback, Value = valueName, Desc = desc, Images = rewardCards, ReferenceZone = module.REFERENCE_ZONE }}
+local function BuildSingleEntryFromMode(modeKey, modeData)
+    local hpBase = 0
+    if modeData.GetRecommendedPower and modeData.HealthBase then
+        hpBase = modeData.GetRecommendedPower(modeData.HealthBase) or 0
     end
-    return {}
+    local desc = "Rec Power: " .. Utils.ToText(hpBase)
+    local rewardCards = GenerateCardRewards(modeData.ChanceReward)
+    return {
+        Title = modeData.Display or modeData.Name or modeKey,
+        Value = modeKey,
+        Desc = desc,
+        Images = rewardCards,
+        ReferenceZone = modeData.REFERENCE_ZONE
+    }
 end
 
--- [3. DUNGEON DATA]
-function LoadDungeonData()
-    local success, module = pcall(function() return require(RS.Scripts.Configs.Gamemodes.Dungeon) end)
-    if success and module and module.PHASES then
-        dungeonList, dungeonDB = {}, {}
-        for id, phase in ipairs(module.PHASES) do
-            local rName = phase.Name
-            local hpCalc = module.GetRecommendedPower(phase.HealthBase)
-            local desc = "HP: " .. Utils.ToText(hpCalc)
-            local rewardCards = GenerateCardRewards(phase.ChanceReward) -- Berat
-
-            table.insert(dungeonList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards, ReferenceZone = module.REFERENCE_ZONE })
-            dungeonDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
-            
-            -- [ANTI LAG] Istirahat setiap proses 1 phase dungeon
-            task.wait() 
-        end
+local function BuildPhaseEntriesFromMode(modeKey, modeData)
+    local list, db = {}, {}
+    if not (modeData and modeData.PHASES) then
+        return list, db
     end
+    for id, phase in ipairs(modeData.PHASES) do
+        local rName = phase.Name or tostring(id)
+        local hpCalc = modeData.GetRecommendedPower(phase.HealthBase)
+        local desc = "Rec Power: " .. Utils.ToText(hpCalc)
+        local rewardCards = GenerateCardRewards(phase.ChanceReward)
+        local display = modeData.Display or modeData.Name or modeKey
+        table.insert(list, { Title = display .. ": " .. rName, Desc = desc, Value = modeKey .. ":" .. rName, Images = rewardCards, ReferenceZone = modeData.REFERENCE_ZONE })
+        db[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
+        task.wait()
+    end
+    return list, db
 end
 
--- [4. RAID DATA]
-function LoadRaidData()
-    local success, module = pcall(function() return require(RS.Scripts.Configs.Gamemodes.Raid) end)
-    if success and module and module.PHASES then
-        raidList, raidDB = {}, {}
-        for id, phase in ipairs(module.PHASES) do
-            local rName = phase.Name
-            local hpCalc = module.GetRecommendedPower(phase.HealthBase)
-            local desc = "HP: " .. Utils.ToText(hpCalc)
-            local rewardCards = GenerateCardRewards(phase.ChanceReward) -- Berat
+local function LoadGamemodeListsFromShared()
+    if not (shared and shared.Gamemodes and shared.Gamemodes.GetList) then
+        return false
+    end
+    gamemodeLists = {}
+    gamemodeDBs = {}
+    gamemodeMeta = {}
+    gamemodeOrder = {}
 
-            table.insert(raidList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards, ReferenceZone = module.REFERENCE_ZONE })
-            raidDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
-            
-            -- [ANTI LAG] Istirahat setiap proses 1 phase raid
-            task.wait()
+    local list = shared.Gamemodes:GetList()
+    local function loadEntry(modeKey, modeData)
+        local data = shared.Gamemodes:Get(modeKey) or modeData
+        if data then
+            gamemodeMeta[modeKey] = {
+                Display = data.Display or data.Name or modeKey,
+                Key = data.KEY,
+                HasKey = data.KEY ~= nil,
+                HasPhases = data.PHASES ~= nil
+            }
+            if data.PHASES then
+                local entries, db = BuildPhaseEntriesFromMode(modeKey, data)
+                gamemodeLists[modeKey] = entries
+                gamemodeDBs[modeKey] = db
+            else
+                gamemodeLists[modeKey] = { BuildSingleEntryFromMode(modeKey, data) }
+            end
         end
     end
-end
-
-function LoadDefenseData()
-    local success, module = pcall(function() return require(RS.Scripts.Configs.Gamemodes.Defense) end)
-    if success and module and module.PHASES then
-        defenseList, defenseDB = {}, {}
-        for id, phase in ipairs(module.PHASES) do
-            local rName = phase.Name
-            local hpCalc = module.GetRecommendedPower(phase.HealthBase)
-            local desc = "HP: " .. Utils.ToText(hpCalc)
-            local rewardCards = GenerateCardRewards(phase.ChanceReward)
-
-            table.insert(defenseList, { Title = rName, Desc = desc, Value = rName, Images = rewardCards, ReferenceZone = module.REFERENCE_ZONE })
-            defenseDB[rName] = { ID = id, Times = phase.START_TIMES, BaseDesc = desc }
-            
-            -- [ANTI LAG] Istirahat setiap proses 1 phase defense
-            task.wait()
+    if type(list) == "table" then
+        for modeKey, modeData in pairs(list) do
+            loadEntry(modeKey, modeData)
+        end
+    elseif type(list) == "function" then
+        for modeKey, modeData in list do
+            loadEntry(modeKey, modeData)
         end
     end
+    for modeKey in pairs(gamemodeLists) do
+        table.insert(gamemodeOrder, modeKey)
+    end
+    table.sort(gamemodeOrder, function(a, b)
+        local ad = gamemodeMeta[a] and gamemodeMeta[a].Display or a
+        local bd = gamemodeMeta[b] and gamemodeMeta[b].Display or b
+        return tostring(ad) < tostring(bd)
+    end)
+    return true
 end
 
 local function IsGamemodeUnlocked(referenceZone)
@@ -2008,42 +1991,23 @@ local function IsGamemodeUnlocked(referenceZone)
     return false
 end
 
-local function AddGamemodeEntries(out, group)
-    local list = group.List
+local function AddGamemodeEntries(out, list)
     if not list then return end
     for _, item in ipairs(list) do
         if item.ReferenceZone and not IsGamemodeUnlocked(item.ReferenceZone) then
             continue
         end
-        local rawVal = type(item) == "table" and (item.Value or item.Title) or tostring(item)
-        if rawVal then
-            local itemTitle = item.Title or rawVal
-            local finalValue = group.UseColon and (group.Prefix .. ":" .. rawVal) or rawVal
-            local finalTitle = group.UseColon and (group.Prefix .. ": " .. itemTitle) or itemTitle
-            table.insert(out, {
-                Title = finalTitle, Value = finalValue,
-                Desc = item.Desc, Images = item.Images
-            })
-        end
+        table.insert(out, {
+            Title = item.Title, Value = item.Value,
+            Desc = item.Desc, Images = item.Images
+        })
     end
 end
 
 function BuildGameModesDropdownValues()
     local out = {}
-    local groups = {
-        { Prefix = "Dungeon", List = dungeonList, UseColon = true },
-        { Prefix = "Raid", List = raidList, UseColon = true },
-        { Prefix = "Defense", List = defenseList, UseColon = true },
-        { Prefix = "", List = pirateTowerList, UseColon = false },
-        { Prefix = "", List = shadowGateList, UseColon = false },
-        { Prefix = "", List = sorcerersDefenseList, UseColon = false },
-        { Prefix = "", List = capitalRaidList, UseColon = false },
-        { Prefix = "", List = magicRaidList, UseColon = false },
-        { Prefix = "", List = ignitionRaidList, UseColon = false },
-        { Prefix = "", List = slimeRaidList, UseColon = false }
-    }
-    for _, group in ipairs(groups) do
-        AddGamemodeEntries(out, group)
+    for _, modeKey in ipairs(gamemodeOrder) do
+        AddGamemodeEntries(out, gamemodeLists[modeKey])
     end
     return out
 end
@@ -2058,38 +2022,22 @@ GameModesDrop = FM_Add("GameModes", FarmTab:Dropdown({
     ImageSize = UDim2.fromOffset(20, 20),
     ImagePadding = 6,
     Callback = function(val)
-        local dungeonT, raidT, defenseT, pirateT, shadowT, sorcerersT, capitalRaidT, magicRaidT, ignitionRaidT, slimeRaidT = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}
-        local singleTargetMap = {
-            PirateTower = pirateT, ShadowGate = shadowT, SorcerersDefense = sorcerersT,
-            CapitalRaid = capitalRaidT, MagicRaid = magicRaidT, IgnitionRaid = ignitionRaidT, SlimeRaid = slimeRaidT,
-        }
-
+        local selectedByMode = {}
         for _, v in pairs(val) do
             local raw = type(v) == "table" and v.Value or v
             if type(raw) == "string" then
                 local mode, name = raw:match("^([^:]+):(.+)$")
                 if mode and name then
-                    if mode == "Dungeon" then table.insert(dungeonT, name)
-                    elseif mode == "Raid" then table.insert(raidT, name)
-                    elseif mode == "Defense" then table.insert(defenseT, name)
-                    end
+                    selectedByMode[mode] = selectedByMode[mode] or {}
+                    table.insert(selectedByMode[mode], name)
                 else
-                    local bucket = singleTargetMap[raw]
-                    if bucket then table.insert(bucket, raw) end
+                    selectedByMode[raw] = selectedByMode[raw] or {}
+                    table.insert(selectedByMode[raw], raw)
                 end
             end
         end
 
-        Config.TargetDungeon = dungeonT
-        Config.TargetRaid = raidT
-        Config.TargetDefense = defenseT
-        Config.TargetPirateTower = pirateT
-        Config.TargetShadowGate = shadowT
-        Config.TargetSorcerersDefense = sorcerersT
-        Config.TargetCapitalRaid = capitalRaidT
-        Config.TargetMagicRaid = magicRaidT
-        Config.TargetIgnitionRaid = ignitionRaidT
-        Config.TargetSlimeRaid = slimeRaidT
+        Config.TargetGamemodes = selectedByMode
         
         pcall(Optimizer.Update_Gamemode_Dropdowns)
     end
@@ -2101,24 +2049,36 @@ task.spawn(function()
     -- Tampilkan status loading di Dropdown (Optional visual feedback)
     if GameModesDrop and GameModesDrop.SetTitle then pcall(function() GameModesDrop:SetTitle("Loading Modes...") end) end
 
-    -- Load Single Modes satu per satu dengan jeda
-    pirateTowerList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.PirateTower, "Pirate Tower", "PirateTower", "MAX_FLOOR", "Max Floors"); task.wait()
-    shadowGateList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.ShadowGate, "Shadow Gate", "ShadowGate", "MAX_WAVE", "Max Waves"); task.wait()
-    sorcerersDefenseList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SorcerersDefense, "Sorcerers Defense", "SorcerersDefense", "MAX_WAVE", "Max Waves"); task.wait()
-    capitalRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.CapitalRaid, "Capital Raid", "CapitalRaid", "MAX_WAVE", "Max Waves"); task.wait()
-    magicRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.MagicRaid, "Magic Raid", "MagicRaid", "MAX_WAVE", "Max Waves"); task.wait()
-    ignitionRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.IgnitionRaid, "Ignition Raid", "IgnitionRaid", "MAX_WAVE", "Max Waves"); task.wait()
-    slimeRaidList = LoadSingleGamemodeData(RS.Scripts.Configs.Gamemodes.SlimeRaid, "Slime Raid", "SlimeRaid", "MAX_WAVE", "Max Waves"); task.wait()
-
-    -- Load Multi Modes (Dungeon/Raid) yang sudah dioptimasi di atas
-    LoadDungeonData(); task.wait()
-    LoadRaidData(); task.wait()
-    LoadDefenseData(); task.wait()
+    while not (shared and shared.Gamemodes and shared.Gamemodes.GetList) do
+        task.wait()
+    end
+    LoadGamemodeListsFromShared()
 
     -- Setelah semua data siap, Refresh Dropdown
     if GameModesDrop and GameModesDrop.Refresh then
         GameModesDrop:Refresh(BuildGameModesDropdownValues())
         if GameModesDrop.SetTitle then pcall(function() GameModesDrop:SetTitle("Select GameModes") end) end
+    end
+end)
+
+task.spawn(function()
+    local lastHash = ""
+    while not Window.Destroyed do
+        local pData = getgenv().PlayerData
+        local unlocked = pData and pData.UnlockedZones
+        if unlocked and GameModesDrop and GameModesDrop.Refresh then
+            local keys = {}
+            for k in pairs(unlocked) do
+                table.insert(keys, tostring(k))
+            end
+            table.sort(keys)
+            local hash = table.concat(keys, "|")
+            if hash ~= lastHash then
+                lastHash = hash
+                GameModesDrop:Refresh(BuildGameModesDropdownValues())
+            end
+        end
+        task.wait(1)
     end
 end)
 
@@ -2219,32 +2179,6 @@ for _, cfg in ipairs(leaveConfigs) do
 
     leaveCounter = leaveCounter + 1
 end
-
-local function IsSafeReturnZoneName(zoneName)
-    if not zoneName or zoneName == "" or zoneName == "Unknown" then return false end
-    if string.find(zoneName, ":") then return false end
-    if zoneName == "Dungeon" then return false end
-    if zoneName == "Raid" then return false end
-    if zoneName == "Defense" then return false end
-    if zoneName == "SorcerersDefense" then return false end
-    if zoneName == "PirateTower" then return false end
-    if zoneName == "ShadowGate" then return false end
-    if zoneName == "CapitalRaid" then return false end
-    if zoneName == "MagicRaid" then return false end
-    return true
-end
-
-local function GetSafeReturnZone(pData)
-    if IsSafeReturnZoneName(LastZone) then
-        return LastZone
-    end
-    local attrLastZone = pData and pData.Attributes and pData.Attributes.LastZone
-    if IsSafeReturnZoneName(attrLastZone) then
-        return attrLastZone
-    end
-    return "Starter Zone"
-end
-
 local AutoLeaveSettings = {
     ["Dungeon"]          = "AutoLeave_Dungeon",
     ["Raid"]             = "AutoLeave_Raid",
@@ -4648,55 +4582,40 @@ function Optimizer.Update_Gamemode_Dropdowns()
     Optimizer.Cache.LastGamemodeUpdate = now
 
     -- [BAGIAN 2] Update Deskripsi UTAMA (Format 2 Item Per Baris)
-    local summaryItems = {} 
-    
-    local function AddSummary(list, db, shortName)
-        if not list then return end
-        for _, name in pairs(list) do
-            local status = ""
-            if db and db[name] and db[name].Times then
-                local t = GetNextTime(db[name].Times)
-                if t <= 0 or t >= 60 then 
-                    status = "(<font color='#00ff00'>OPEN</font>)" 
-                else 
-                    status = "(<font color='#ffaa00'>"..t.."m</font>)" 
+    local summaryItems = {}
+    local selectedMap = Config.TargetGamemodes or {}
+    local order = gamemodeOrder
+    if not order or #order == 0 then
+        order = {}
+        for key in pairs(selectedMap) do
+            table.insert(order, key)
+        end
+        table.sort(order)
+    end
+    for _, modeKey in ipairs(order) do
+        local selectedList = selectedMap[modeKey]
+        if selectedList and #selectedList > 0 then
+            local meta = gamemodeMeta and gamemodeMeta[modeKey] or nil
+            local display = meta and meta.Display or modeKey
+            local db = gamemodeDBs and gamemodeDBs[modeKey] or nil
+            if db then
+                for _, name in pairs(selectedList) do
+                    local status = ""
+                    if db[name] and db[name].Times then
+                        local t = GetNextTime(db[name].Times)
+                        if t <= 0 or t >= 60 then
+                            status = "(<font color='#00ff00'>OPEN</font>)"
+                        else
+                            status = "(<font color='#ffaa00'>"..t.."m</font>)"
+                        end
+                    end
+                    local str = string.format("• %s %s %s", display, name, status)
+                    table.insert(summaryItems, str)
                 end
             else
-                status = "" 
+                table.insert(summaryItems, "• " .. display)
             end
-            
-            -- Simpan string item ke tabel
-            local str = string.format("• %s %s %s", shortName, name, status)
-            table.insert(summaryItems, str)
         end
-    end
-
-    -- Masukkan semua pilihan
-    AddSummary(Config.TargetDungeon, dungeonDB, "Dgn")
-    AddSummary(Config.TargetRaid, raidDB, "Raid")
-    AddSummary(Config.TargetDefense, defenseDB, "Def")
-    
-    if Config.TargetPirateTower and #Config.TargetPirateTower > 0 then
-        table.insert(summaryItems, "• Pirate Tower")
-    end
-    if Config.TargetShadowGate and #Config.TargetShadowGate > 0 then
-        table.insert(summaryItems, "• Shadow Gate")
-    end
-    if Config.TargetSorcerersDefense and #Config.TargetSorcerersDefense > 0 then
-        table.insert(summaryItems, "• Sorcerers Defense")
-    end
-    -- TAMBAHKAN INI AGAR MUNCUL DI DESKRIPSI UI
-    if Config.TargetCapitalRaid and #Config.TargetCapitalRaid > 0 then
-        table.insert(summaryItems, "• Capital Raid")
-    end
-    if Config.TargetMagicRaid and #Config.TargetMagicRaid > 0 then
-            table.insert(summaryItems, "• Magic Raid")
-    end
-    if Config.TargetIgnitionRaid and #Config.TargetIgnitionRaid > 0 then
-        table.insert(summaryItems, "• Ignition Raid")
-    end
-    if Config.TargetSlimeRaid and #Config.TargetSlimeRaid > 0 then
-        table.insert(summaryItems, "• Slime Raid")
     end
 
     -- [LOGIKA FORMAT BARU DISINI]
