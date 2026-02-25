@@ -2458,10 +2458,25 @@ do
         local TP_UpgGroup = FarmTab:Group({Title = "Upgrades"})
         FM_Add("Trade Post", TP_UpgGroup)
     end
-    local TP_ItemGroup = FarmTab:Group({Title = "Items"})
-    FM_Add("Trade Post", TP_ItemGroup)
+    TradePostBuyToggles = TradePostBuyToggles or {}
     if TradePost and TradePost.Items then
+        local tpItemCount = 0
+        local currentItemGroup = nil
+        local tpItems = {}
         for id, item in pairs(TradePost.Items) do
+            table.insert(tpItems, { id = id, item = item })
+        end
+        table.sort(tpItems, function(a, b)
+            local aName = a.item.Name or tostring(a.id)
+            local bName = b.item.Name or tostring(b.id)
+            return aName < bName
+        end)
+        for _, entry in ipairs(tpItems) do
+            local id, item = entry.id, entry.item
+            if tpItemCount % 2 == 0 then
+                currentItemGroup = FarmTab:Group({ Title = (tpItemCount == 0 and "Items" or "") })
+                FM_Add("Trade Post", currentItemGroup)
+            end
             local meta = nil
             pcall(function()
                 meta = shared[item.Class] and shared[item.Class][item.Name]
@@ -2469,19 +2484,22 @@ do
             local title = (meta and meta.Display) or item.Name
             local icon = (meta and meta.Template) and GetIcon(meta.Template) or nil
             local costText = Utils.ToText(item.Cost or 0)
-            local b = TP_ItemGroup:Button({
+            local t = currentItemGroup:Toggle({
                 Title = title,
                 Desc = "Cost: " .. costText,
-                Icon = icon,
+                Image = icon,
                 ImageSize = 36,
-                Callback = function()
-                    pcall(function()
-                        Reply.To("TradePost Buy", id)
-                    end)
+                Flag = "AutoTradeBuy_" .. tostring(id),
+                Callback = function(val)
+                    Config["AutoTradeBuy_" .. tostring(id)] = val
                 end
             })
-            TradePostUI.Items[id] = b
+            TradePostBuyToggles[id] = t
+            tpItemCount = tpItemCount + 1
         end
+    else
+        local TP_ItemGroup = FarmTab:Group({ Title = "Items" })
+        FM_Add("Trade Post", TP_ItemGroup)
     end
 end
 end
@@ -6023,6 +6041,34 @@ function Optimizer.Update_Main_Data_Logic(pData)
     end
 end
 
+function Optimizer.Update_TradePost_Buy_Logic(pData)
+    if not TradePost or not TradePost.Items then return end
+    local tpKey = (TradePost.TOKEN_NAME or "TradeToken")
+    local have = (pData.Materials and pData.Materials[tpKey]) or 0
+    Optimizer.Cache.TradeBuy = Optimizer.Cache.TradeBuy or {}
+    for id, item in pairs(TradePost.Items) do
+        local t = TradePostBuyToggles and TradePostBuyToggles[id]
+        local cost = item.Cost or 0
+        local desc = "Cost: " .. Utils.ToText(cost) .. " | Have: " .. Utils.ToText(have)
+        local key = "TradeBuy_" .. tostring(id)
+        local cache = Optimizer.Cache[key] or {}
+        if t and t.SetDesc then
+            if cache.Desc ~= desc then
+                t:SetDesc(desc)
+                cache.Desc = desc
+            end
+        end
+        Optimizer.Cache[key] = cache
+        if Config["AutoTradeBuy_" .. tostring(id)] and have >= cost and Reliable then
+            local now = os.time()
+            if not Optimizer.Cache.TradeBuy[id] or (now - Optimizer.Cache.TradeBuy[id]) >= 1 then
+                pcall(function() Reply.To("TradePost Buy", id) end)
+                Optimizer.Cache.TradeBuy[id] = now
+            end
+        end
+    end
+end
+
 -- ============================================================================
 -- [SECRET QUESTS UI - REVISED SINGLE PARAGRAPH]
 -- ============================================================================
@@ -7388,6 +7434,7 @@ task.spawn(function()
             pcall(Optimizer.Update_TimeRewards_Logic, pData)
             pcall(Optimizer.Update_ZoneQuest_Logic, pData)
             pcall(Optimizer.Update_Titles_Logic, pData)
+            pcall(Optimizer.Update_TradePost_Buy_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
             if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
