@@ -2488,7 +2488,7 @@ do
                 Title = title,
                 Desc = "Cost: " .. costText,
                 Image = icon,
-                ImageSize = 36,
+                ImageSize = 24,
                 Flag = "AutoTradeBuy_" .. tostring(id),
                 Callback = function(val)
                     Config["AutoTradeBuy_" .. tostring(id)] = val
