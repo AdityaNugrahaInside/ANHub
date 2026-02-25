@@ -6455,8 +6455,12 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
             local cost = AvatarCurses.TokenCost * multi
             local owned = pData.Materials[AvatarCurses.TokenName] or 0
             if owned >= cost and Reliable then
-                Reply.To("Avatar Curse Roll")
-                task.wait(1)
+                local now = os.time()
+                local k = "CurseRoll_9891690208"
+                if not Optimizer.Cache[k] or (now - Optimizer.Cache[k]) > 1 then
+                    Reply.To("Avatar Curse Roll")
+                    Optimizer.Cache[k] = now
+                end
             end
         end
     end
@@ -6484,8 +6488,12 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
             local owned = pData.Materials[AvatarCurses.TokenName] or 0
             
             if owned >= cost and Reliable then
-                Reply.To("Avatar Curse Roll")
-                task.wait(1)
+                local now = os.time()
+                local k = "CurseRoll_Auto"
+                if not Optimizer.Cache[k] or (now - Optimizer.Cache[k]) > 1 then
+                    Reply.To("Avatar Curse Roll")
+                    Optimizer.Cache[k] = now
+                end
             end
         end
     end
