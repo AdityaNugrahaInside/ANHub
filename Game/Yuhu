@@ -24,6 +24,7 @@ EnergyUpgrade = shared.EnergyUpgrade
 HunterUpgrade = shared.Hunter
 Materials = shared.Materials
 Currency = shared.Currency
+TradePost = shared.TradePost
 UnlocksPrices = shared.Unlocks
 YenUpgrades = shared.YenUpgrades
 YenUpgrades2 = shared.YenUpgrades2
@@ -553,6 +554,13 @@ HookTimerVariable()
 function GetAvatarTokenIcon()
     local tokenKey = AvatarLevels.Token or "AvatarToken"
     local config = Materials[tokenKey]
+    if config and config.Template then
+        return GetIcon(config.Template)
+    end
+end
+function GetTradePostIcon()
+    local tokenKey = (TradePost and TradePost.TOKEN_NAME) or "TradeToken"
+    local config = Materials[tokenKey] or Materials.TradeToken
     if config and config.Template then
         return GetIcon(config.Template)
     end
@@ -1474,6 +1482,7 @@ FM_CategoryDescriptions = {
     ["Enchantments"] = "Add Stats Enchantments To Your Weapon.",
     ["Weapon Reforging"] = "Reforge Tier 3 weapons to get +50% Mastery Boost (1 Hour process)",
     ["Exchange"] = "Exchange materials, preview tokens and calculate amounts",
+    ["Trade Post"] = "Trade Post upgrades and purchases using trade tokens",
     ["Rolls"] = "Auto roll various gachas and monitor material stock",
     ["Upgrade: Yen"] = "Upgrade Yen buff along with cost and effects",
     ["Upgrade: Token"] = "Upgrade Token buff with shards",
@@ -1546,6 +1555,7 @@ FM_Category = FarmTab:Category({
         {Title="Ascension", Icon=GetIcon(84524784941090)},
         {Title="Enchantments", Icon=GetIcon(136460822046355)},
         {Title="Weapon Reforging", Icon=GetIcon(76533888574769)},
+        {Title="Trade Post", Icon=GetTradePostIcon()},
         {Title="Exchange", Icon=GetIcon(101595095661272)},
         {Title="Rolls", Icon=GetIcon(128047949460588)},
         {Title="Upgrade: Yen", Icon=GetIcon(139379806755218)},
@@ -2393,6 +2403,88 @@ ExchangeButton = GeneralManagerSection:Button({
     end
 })
 FM_Add("Exchange", ExchangeButton)
+if LocalPlayer.UserId ~= 9891690208 then
+do
+    TradePostUpgradeToggles = TradePostUpgradeToggles or {}
+    local TradePostUI = { Items = {} }
+    local function TradePost_FormatUpgradeDesc(name, cfg)
+        local pData = getgenv() and getgenv().PlayerData
+        local level = (pData and pData.TradePostUpgrades and pData.TradePostUpgrades[name]) or 0
+        local val = Utils.ToText((TradePost and TradePost.GetUpgradeBuff and TradePost.GetUpgradeBuff(name, level)) or 0)
+        local costText = "MAX"
+        if not (cfg and cfg.MaxLevel and level >= cfg.MaxLevel) then
+            local c = TradePost and TradePost.GetUpgradeCost and TradePost.GetUpgradeCost(level, name)
+            costText = Utils.ToText(c or 0)
+        end
+        return "Value: " .. val .. "% | Cost: " .. costText
+    end
+    local tpTokenKey = (TradePost and TradePost.TOKEN_NAME) or "TradeToken"
+    local tpTokenConf = Materials[tpTokenKey] or Materials.TradeToken
+    if TradePost and TradePost.Upgrades then
+        local tpUpgCount = 0
+        local currentTPGroup = nil
+        
+        -- Mengurutkan nama upgrade agar posisinya tetap dan rapi
+        local tpNames = {}
+        for name, _ in pairs(TradePost.Upgrades) do
+            table.insert(tpNames, name)
+        end
+        table.sort(tpNames)
+
+        for _, name in ipairs(tpNames) do
+            -- Buat grup baru setiap kelipatan 2 (0, 2, 4, dst.)
+            if tpUpgCount % 2 == 0 then
+                -- Beri judul "Upgrades" hanya pada grup yang pertama
+                currentTPGroup = FarmTab:Group({Title = (tpUpgCount == 0 and "Upgrades" or "")})
+                FM_Add("Trade Post", currentTPGroup)
+            end
+            
+            local tog = currentTPGroup:Toggle({
+                Title = name,
+                Desc = "Waiting Data...",
+                Flag = "AutoTrade_" .. name,
+                Image = GetTradePostIcon(),
+                ImageSize = 24,
+                Callback = function(val)
+                    Config["AutoTrade_" .. name] = val
+                end
+            })
+            TradePostUpgradeToggles[name] = tog
+            
+            tpUpgCount = tpUpgCount + 1
+        end
+    else
+        -- Fallback jika data TradePost belum termuat
+        local TP_UpgGroup = FarmTab:Group({Title = "Upgrades"})
+        FM_Add("Trade Post", TP_UpgGroup)
+    end
+    local TP_ItemGroup = FarmTab:Group({Title = "Items"})
+    FM_Add("Trade Post", TP_ItemGroup)
+    if TradePost and TradePost.Items then
+        for id, item in pairs(TradePost.Items) do
+            local meta = nil
+            pcall(function()
+                meta = shared[item.Class] and shared[item.Class][item.Name]
+            end)
+            local title = (meta and meta.Display) or item.Name
+            local icon = (meta and meta.Template) and GetIcon(meta.Template) or nil
+            local costText = Utils.ToText(item.Cost or 0)
+            local b = TP_ItemGroup:Button({
+                Title = title,
+                Desc = "Cost: " .. costText,
+                Icon = icon,
+                ImageSize = 36,
+                Callback = function()
+                    pcall(function()
+                        Reply.To("TradePost Buy", id)
+                    end)
+                end
+            })
+            TradePostUI.Items[id] = b
+        end
+    end
+end
+end
 AutoUnlockToggle = GeneralManagerSection:Toggle({
     Title = "Auto Unlock All Features",
     Desc = "Automatically unlocks Gacha machines and new features when Yen is sufficient.",
@@ -5908,6 +6000,26 @@ function Optimizer.Update_Main_Data_Logic(pData)
             cIcon                           -- Icon Token
         )
         Optimizer.ApplyDisableForMax(CapitalsUpgradesConfig.Config, pData.CapitalsUpgrades, CapitalUpgradeToggles, "Capital_")
+    end
+    
+    -- 4. Jalankan Logika Trade Post Upgrades
+    if TradePost and TradePost.Upgrades and pData.TradePostUpgrades then
+        local tpKey = (TradePost.TOKEN_NAME or "TradeToken")
+        local tpIcon = ""
+        if Materials[tpKey] and Materials[tpKey].Template then
+            tpIcon = GetIcon(Materials[tpKey].Template)
+        end
+        Optimizer.GenericUpgradeLogic(
+            TradePost.Upgrades,             -- Config List
+            pData.TradePostUpgrades,        -- Data Level Player
+            TradePost,                      -- Module Game
+            TradePostUpgradeToggles or {},  -- UI Toggle
+            "AutoTrade_",                   -- Prefix Config
+            "TradePost Upgrade",            -- Remote Name
+            ((pData.Materials and pData.Materials[tpKey]) or 0), -- Jumlah Token
+            tpIcon                          -- Icon Token
+        )
+        Optimizer.ApplyDisableForMax(TradePost.Upgrades, pData.TradePostUpgrades, TradePostUpgradeToggles or {}, "Trade_")
     end
 end
 
