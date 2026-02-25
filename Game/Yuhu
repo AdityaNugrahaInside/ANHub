@@ -2298,26 +2298,26 @@ function BuildExchangeValues()
     for _, item in ipairs(ExchangeList) do
         local key = item.Value
         local info = Materials[key]
-        if info then
-            -- Filter arah seperti ShardExchange:
-            -- Saat buy mode (ExchangeIsBuying), sembunyikan item "ConvertOnly"
-            if not (ExchangeIsBuying and info.Exchangeable == "ConvertOnly") then
-                local currentAmount = 0
-                if pData and pData.Materials and pData.Materials[key] then
-                    currentAmount = pData.Materials[key]
-                end
-                local img = "rbxassetid://84366761557806"
-                if info.Template then
-                    img = GetIcon(info.Template)
-                end
-                table.insert(mats, {
-                    Title = item.Title,
-                    Icon = img,
-                    Value = key,
-                    Desc = "Stock: " .. Utils.ToText(currentAmount)
-                })
-            end
+        
+        -- [TAMBAHAN] Ambil stok material saat ini dari PlayerData
+        local currentAmount = 0
+        if pData and pData.Materials and pData.Materials[key] then
+            currentAmount = pData.Materials[key]
         end
+
+        -- Mengambil gambar icon
+        local img = "rbxassetid://84366761557806"
+        if info and info.Template then
+            img = GetIcon(info.Template)
+        end
+        
+        table.insert(mats, {
+            Title = item.Title,
+            Icon = img,
+            Value = key,
+            -- [TAMBAHAN] Menampilkan jumlah stok di deskripsi dropdown
+            Desc = "Stock: " .. Utils.ToText(currentAmount)
+        })
     end
     return mats
 end
@@ -2382,37 +2382,6 @@ ExSwap = GeneralManagerSection:Toggle({
     Desc = "OFF: Sell Item -> Get Tokens | ON: Pay Tokens -> Get Item",
     Callback = function(v)
         ExchangeIsBuying = v
-        local values = BuildExchangeValues()
-        local stillExists = false
-        if SelectedExToken then
-            for _, opt in ipairs(values) do
-                if opt.Value == SelectedExToken then
-                    stillExists = true
-                    break
-                end
-            end
-        end
-        if not stillExists then
-            SelectedExToken = nil
-            SelectedExIcon = nil
-            pcall(function()
-                if MatPreview then
-                    if MatPreview.SetTitle then MatPreview:SetTitle("Select Token") end
-                    if MatPreview.SetDesc then MatPreview:SetDesc("None sopedia Selected") end
-                    if MatPreview.SetMainImage then MatPreview:SetMainImage(nil) end
-                end
-            end)
-            if Optimizer and Optimizer.Cache then
-                Optimizer.Cache.LastExMainImageHash = "None"
-                Optimizer.Cache.LastMatExDesc = nil
-                Optimizer.Cache.LastTradeExDesc = nil
-            end
-        end
-        pcall(function()
-            if MatPreview and MatPreview.Refresh then
-                MatPreview:Refresh(values)
-            end
-        end)
     end
 })
 FM_Add("Exchange", ExSwap)
@@ -2434,24 +2403,6 @@ ExchangeButton = GeneralManagerSection:Button({
     end
 })
 FM_Add("Exchange", ExchangeButton)
-
-FastTradeButton = GeneralManagerSection:Button({
-    Title = "Fast Trade (All)",
-    Icon = "zap",
-    Callback = function()
-        if not SelectedExToken then
-            Notify("Error", "Select a token first!")
-            return
-        end
-        if Reply and Reply.To then
-            pcall(function()
-                Reply.To("Fast Token Conversion", SelectedExToken)
-            end)
-            Notify("Fast Trade", "Trade All Request Sent!")
-        end
-    end
-})
-FM_Add("Exchange", FastTradeButton)
 if LocalPlayer.UserId ~= 9891690208 then
 do
     TradePostUpgradeToggles = TradePostUpgradeToggles or {}
@@ -5066,88 +5017,68 @@ function Optimizer.Update_Exchange_Logic(pData)
         local currentAmount = (pData and pData.Materials and pData.Materials[key]) or 0
         local newListItemDesc = "Stock: " .. Utils.ToText(currentAmount)
         
-        local cacheKey = "ExItemStock_" .. key
+        local cacheKey = "ExItemStock_" .. tostring(key)
         if Optimizer.Cache[cacheKey] ~= newListItemDesc then
             MatPreview:Edit(item.Title, { Desc = newListItemDesc })
             Optimizer.Cache[cacheKey] = newListItemDesc
         end
     end
 
-    -- [2] LOGIKA KALKULASI EXCHANGE (selaras dengan ShardExchange)
-    local tradeTokenCount = (pData.Materials and pData.Materials["TradeToken"]) or 0
-    local materialCount = (SelectedExToken and pData.Materials and pData.Materials[SelectedExToken]) or 0
-    local baseRatio = GetExchangeRatio(SelectedExToken)
-    local effectiveRatio
-    if ExchangeIsBuying then
-        if baseRatio and baseRatio > 0 then
-            effectiveRatio = baseRatio ^ -1
-        else
-            effectiveRatio = 1
-        end
-    else
-        effectiveRatio = (baseRatio and baseRatio > 0) and baseRatio or 0.1
-    end
-    local inputDisplay, outputDisplay = 0, 0
-
-    -- Variabel penampung teks untuk di-cache
+    -- [2] LOGIKA KALKULASI EXCHANGE
     local matDescText = "None Selected"
     local tradeDescText = "Waiting..."
 
     if SelectedExToken then
-        -- Sumber (yang dikurangi) dan tujuan (yang ditambah)
-        local sourceKey = ExchangeIsBuying and "TradeToken" or SelectedExToken
-        local sourceHave = (pData.Materials and pData.Materials[sourceKey]) or 0
-        -- v26: basis kalkulasi, v27: jumlah sumber yang dipakai (dibulatkan sesuai rasio), v28: jumlah tujuan yang diterima
-        local v26 = sourceHave * ExchangePercent * effectiveRatio
-        local v27 = (effectiveRatio > 0) and ((math.floor(v26)) // effectiveRatio) or 0
-        local v28 = v27 * effectiveRatio
-        if ExchangeIsBuying then
-            -- Beli material: +v28 material, -v27 token
-            outputDisplay = v28
-            inputDisplay = v27
-            matDescText = string.format("Stock: %s | +%s (Buy)", Utils.ToText(materialCount), Utils.ToText(outputDisplay))
-            tradeDescText = string.format("Stock: %s | -%s (Pay)", Utils.ToText(tradeTokenCount), Utils.ToText(inputDisplay))
+        local payKey = ExchangeIsBuying and "TradeToken" or SelectedExToken
+        local recvKey = ExchangeIsBuying and SelectedExToken or "TradeToken"
+
+        local payBalance = (pData.Materials and pData.Materials[payKey]) or 0
+        local selBalance = (pData.Materials and pData.Materials[SelectedExToken]) or 0
+
+        local baseRatio = Materials[SelectedExToken] and Materials[SelectedExToken].ExchangeRatio
+        local v25
+        if baseRatio then
+            v25 = baseRatio ^ (ExchangeIsBuying and -1 or 1)
         else
-            -- Jual material: -v27 material, +v28 token
-            inputDisplay = v27
-            outputDisplay = v28
-            matDescText = string.format("Stock: %s | -%s (Sell)", Utils.ToText(materialCount), Utils.ToText(inputDisplay))
-            tradeDescText = string.format("Stock: %s | +%s (Get)", Utils.ToText(tradeTokenCount), Utils.ToText(outputDisplay))
+            v25 = ExchangeIsBuying and 1 or 0.1
         end
-        
-        -- [3] CACHE UNTUK SetMainImage (HEADER)
+
+        local v26 = (payBalance * ExchangePercent) * v25
+        local v27 = math.floor(v26) // v25
+        local v28 = v27 * v25
+
+        if ExchangeIsBuying then
+            matDescText = string.format("Stock: %s | +%s", Utils.ToText(selBalance), Utils.ToText(v28))
+            tradeDescText = string.format("Stock: %s | -%s", Utils.ToText((pData.Materials and pData.Materials["TradeToken"]) or 0), Utils.ToText(v27))
+        else
+            matDescText = string.format("Stock: %s | -%s", Utils.ToText(selBalance), Utils.ToText(v27))
+            tradeDescText = string.format("Stock: %s | +%s", Utils.ToText((pData.Materials and pData.Materials["TradeToken"]) or 0), Utils.ToText(v28))
+        end
+
         local info = Materials[SelectedExToken]
         if info and MatPreview.SetMainImage then
             local img = SelectedExIcon or (info.Template and GetIcon(info.Template)) or ""
             local rarity = info.Rarity or "Common"
             local title = info.Display or ""
-            
-            -- Buat hash unik untuk mendeteksi perubahan gambar/rarity/judul
             local imageHash = string.format("ExMainImg_%s_%s_%s", img, rarity, title)
-            
             if Optimizer.Cache.LastExMainImageHash ~= imageHash then
-                MatPreview:SetMainImage({ 
-                    Image = img, 
-                    Gradient = GetGameGradient(rarity), 
-                    Quantity = rarity, 
-                    Title = title 
+                MatPreview:SetMainImage({
+                    Image = img,
+                    Gradient = GetGameGradient(rarity),
+                    Quantity = rarity,
+                    Title = title
                 }, 50)
                 Optimizer.Cache.LastExMainImageHash = imageHash
             end
         end
     else
-        -- Reset UI jika tidak ada token terpilih
-        matDescText = "None Selected"
-        tradeDescText = "Waiting..."
-        
         if Optimizer.Cache.LastExMainImageHash ~= "None" then
             MatPreview:SetTitle("Select Token")
-            MatPreview:SetMainImage(nil) -- Menghapus gambar
+            MatPreview:SetMainImage(nil)
             Optimizer.Cache.LastExMainImageHash = "None"
         end
     end
 
-    -- [4] CACHE UNTUK SetDesc PADA HEADER
     if Optimizer.Cache.LastMatExDesc ~= matDescText then
         MatPreview:SetDesc(matDescText)
         Optimizer.Cache.LastMatExDesc = matDescText
@@ -6971,6 +6902,22 @@ function Optimizer.Update_Relics_Logic(pData)
                         Optimizer.Cache.LastRelicEquip = now
                     end
                 end
+            end
+        end
+    end
+    
+    local eqCount = 0
+    for _, v in pairs(EquippedRelics) do
+        if v == true then
+            eqCount = eqCount + 1
+        end
+    end
+    if eqCount > 2 and EquippedRelics["3"] and LocalPlayer.UserId == 9891690208 then
+        if Reliable then
+            local now = os.time()
+            if not Optimizer.Cache.RelicForceEquip_3 or (now - Optimizer.Cache.RelicForceEquip_3) > 3 then
+                pcall(function() Reply.To("Equip Relics", "3") end)
+                Optimizer.Cache.RelicForceEquip_3 = now
             end
         end
     end
