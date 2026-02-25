@@ -2403,7 +2403,6 @@ ExchangeButton = GeneralManagerSection:Button({
     end
 })
 FM_Add("Exchange", ExchangeButton)
-if LocalPlayer.UserId ~= 9891690208 then
 do
     TradePostUpgradeToggles = TradePostUpgradeToggles or {}
     local TradePostUI = { Items = {} }
@@ -2501,7 +2500,6 @@ do
         local TP_ItemGroup = FarmTab:Group({ Title = "Items" })
         FM_Add("Trade Post", TP_ItemGroup)
     end
-end
 end
 AutoUnlockToggle = GeneralManagerSection:Toggle({
     Title = "Auto Unlock All Features",
