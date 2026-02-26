@@ -2482,10 +2482,8 @@ do
             local icon = (meta and meta.Template) and GetIcon(meta.Template) or nil
             local costText = Utils.ToText(item.Cost or 0)
             local t = currentItemGroup:Toggle({
-                Title = title,
+                Title = title .. " " .. icon,
                 Desc = "Cost: " .. costText,
-                Image = icon,
-                ImageSize = 24,
                 Flag = "AutoTradeBuy_" .. tostring(id),
                 Callback = function(val)
                     Config["AutoTradeBuy_" .. tostring(id)] = val
@@ -2775,8 +2773,6 @@ for _, id in ipairs(SortedCraftIDs) do
     local toggle = FarmTab:Toggle({
         Title = data.Display,
         Desc = "Scanning data...",
-        Image = GetIcon(data.Template),
-        ImageSize = 30,
         Flag = "AutoCraft_"..id,
         Callback = function(val)
             Config["AutoCraft_"..id] = val
@@ -5218,7 +5214,7 @@ function Optimizer.Update_Craft_Logic(pData)
         local curBonusStr = FormatBonusString(data.Bonuses and data.Bonuses[currentLvl])
 
         if currentLvl >= maxLvl then
-            isMaxed = true; newTitle = data.Display .. " [MAX]"; newDesc = string.format("<b>Max Level Reached</b>\n\nActive Bonus:\n%s", curBonusStr)
+            isMaxed = true; newTitle = data.Display .. " " .. GetIcon(data.Template) .. " [MAX]"; newDesc = string.format("<b>Max Level Reached</b>\n\nActive Bonus:\n%s", curBonusStr)
         else
             local nextBonusStr = FormatBonusString(data.Bonuses and data.Bonuses[nextLvl])
             local costStr = "None"
@@ -5228,18 +5224,17 @@ function Optimizer.Update_Craft_Logic(pData)
                     local myAmt = pData.Materials[matName] or 0
                     local dName, dIcon = matName, ""
                     if Materials[matName] then dName = Materials[matName].Display; if Materials[matName].Template then dIcon = GetIcon(Materials[matName].Template) end end
-                    table.insert(parts, string.format("%s%s %s/%s", dIcon, dName, Utils.ToText(reqAmt), Utils.ToText(myAmt)))
+                    table.insert(parts, string.format("%s%s: %s/%s", dIcon, dName, Utils.ToText(reqAmt), Utils.ToText(myAmt)))
                 end
                 costStr = table.concat(parts, "\n")
             end
-            newTitle = string.format("%s [Lv %d -> %d]", data.Display, currentLvl, nextLvl)
+            newTitle = string.format("%s %s[Lv %d -> %d]", data.Display,GetIcon(data.Template), currentLvl, nextLvl)
             newDesc = string.format("%s\n\nCurrent [Lv %d]: %s\nNext [Lv %d]: %s", costStr, currentLvl, curBonusStr, nextLvl, nextBonusStr)
         end
 
         local lastState = Optimizer.Cache.Craft[id] or {}
         if lastState.Title ~= newTitle then toggle:SetTitle(newTitle) end
         if lastState.Desc ~= newDesc then toggle:SetDesc(newDesc) end
-        if isMaxed and not lastState.IsMaxed and toggle.SetMainImage then toggle:SetMainImage({ Image = GetIcon(data.Template), Quantity = "MAX", Title = data.Display, Gradient = GetGameGradient(data.Rarity) }, 50) end
         if lastState.Title ~= newTitle or lastState.Desc ~= newDesc or lastState.IsMaxed ~= isMaxed then Optimizer.Cache.Craft[id] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed } end
         
         if isMaxed and Config["AutoCraft_"..id] then Config["AutoCraft_"..id] = false; toggle:Set(false) end
@@ -6042,7 +6037,7 @@ function Optimizer.Update_TradePost_Buy_Logic(pData)
     for id, item in pairs(TradePost.Items) do
         local t = TradePostBuyToggles and TradePostBuyToggles[id]
         local cost = item.Cost or 0
-        local desc = "Cost: " .. Utils.ToText(cost) .. " | Have: " .. Utils.ToText(have)
+        local desc = string.format("%s%s: %s/%s",GetIcon(Materials[tpKey].Template),Materials[tpKey].Display,Utils.ToText(cost),Utils.ToText(have))
         local key = "TradeBuy_" .. tostring(id)
         local cache = Optimizer.Cache[key] or {}
         if t and t.SetDesc then
