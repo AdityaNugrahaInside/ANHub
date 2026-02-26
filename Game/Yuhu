@@ -1200,48 +1200,18 @@ function LogicAutoFarm()
                 end
             end)
         end
-        
-        local pData = getgenv().PlayerData
-        local liveEnemies = getgenv().EnemiesData
         local Controller = getgenv().Controller -- arg1 pada decompile
         
-        if pData and liveEnemies and shared.Reply and shared.Multiplier and Controller then
-            local inRangeEnemies = {}
-            
-            -- 1. Scan semua musuh yang berada dalam radius (Jalur Area)
-            for _, enemy in pairs(liveEnemies) do
-                if enemy.Alive and enemy.Root then
-                    local magnitude = (hrp.Position - enemy.Root.Position).Magnitude
-                    -- Logika Decompile: Jarak <= Max(Range Musuh, Attack Area Player)
-                    local attackArea = Controller.AttackArea or 0
-                    local enemyRange = (enemy.Config and enemy.Config.Range) or 0
-                    
-                    if math.max(enemyRange, attackArea) >= magnitude then
-                        table.insert(inRangeEnemies, {
-                            Enemy = enemy,
-                            Distance = magnitude
-                        })
-                    end
+        if Controller then
+            local v4 = {}
+            for _, v5 in Controller.EnemyTargets do
+                if v5.Alive then
+                    local v6 = v5.Uid
+                    table.insert(v4, v6)
                 end
             end
-
-            -- 2. Sort berdasarkan yang terdekat (Agar Hit tepat sasaran)
-            table.sort(inRangeEnemies, function(a, b) 
-                return a.Distance < b.Distance 
-            end)
-
-            -- 3. Ambil UID sesuai batas MaxAttackTargets
-            local targetsToSend = {}
-            local maxTargets = shared.Multiplier.Total.MaxAttackTargets(pData)
-            
-            for i = 1, math.min(maxTargets, #inRangeEnemies) do
-                table.insert(targetsToSend, inRangeEnemies[i].Enemy.Uid)
-            end
-
-            -- 4. Kirim serangan jika ada target dalam area
-            if #targetsToSend > 0 and LocalPlayer.UserId ~= 9891690208 then
-                Reply.UnTo("Hit", targetsToSend)
-                lastHitTick = now -- Catatan: Pastikan variabel 'now' didefinisikan di lingkungan Anda
+            if #v4 > 0 and LocalPlayer.UserId ~= 9891690208 then
+                Reply.UnTo("Hit", v4)
             end
         end
 
@@ -1690,7 +1660,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Meteor Event",
-    Desc = "Auto Teleport to Zone & Teleport to Kill Mob Hit Meteor.",
+    Desc = "Auto Teleport to Zone & Teleport to Kill Mob Hit Meteor",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
