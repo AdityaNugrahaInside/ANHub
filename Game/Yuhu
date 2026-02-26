@@ -2442,8 +2442,6 @@ do
                 Title = name,
                 Desc = "Waiting Data...",
                 Flag = "AutoTrade_" .. name,
-                Image = GetTradePostIcon(),
-                ImageSize = 24,
                 Callback = function(val)
                     Config["AutoTrade_" .. name] = val
                 end
