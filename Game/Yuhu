@@ -313,22 +313,14 @@ function DiscoverRollTypes()
     local set = {}
     local cfgRoot = ConfigsPath
     if not cfgRoot then return end
-    
-    local rollsFolder = cfgRoot:FindFirstChild("RollGachas")
-    if rollsFolder then
-        for _, child in pairs(rollsFolder:GetChildren()) do
-            if child:IsA("ModuleScript") then
-                set[child.Name] = true
-            end
+    for _, child in pairs(cfgRoot.RollGachas:GetChildren()) do
+        if child:IsA("ModuleScript") then
+            set[child.Name] = true
         end
     end
-    
-    local upgradesFolder = cfgRoot:FindFirstChild("RollGachaUpgrades")
-    if upgradesFolder then
-        for _, child in pairs(upgradesFolder:GetChildren()) do
-            if child:IsA("ModuleScript") then
-                set[child.Name] = true
-            end
+    for _, child in pairs(cfgRoot.RollGachaUpgrades:GetChildren()) do
+        if child:IsA("ModuleScript") then
+            set[child.Name] = true
         end
     end
     
@@ -2124,86 +2116,96 @@ LeaveMasterGroup:Toggle({
     end
 })
 
--- 2. Logika Pembagian 2 Input per Group
-local leaveConfigs = {
-    {Title = "Dungeon (Room)", Key = "AutoLeave_Dungeon", Default = 200, Flag = "Leave_Dungeon_Cfg"},
-    {Title = "Raid (Wave)", Key = "AutoLeave_Raid", Default = 500, Flag = "Leave_Raid_Cfg"},
-    {Title = "Defense (Wave)", Key = "AutoLeave_Defense", Default = 100, Flag = "Leave_Defense_Cfg"},
-    {Title = "Pirate Tower (Floor)", Key = "AutoLeave_PirateTower", Default = 100, Flag = "Leave_Pirate_Cfg"},
-    {Title = "Shadow Gate (Wave)", Key = "AutoLeave_ShadowGate", Default = 500, Flag = "Leave_Shadow_Cfg"},
-    {Title = "Capital Raid (Wave)", Key = "AutoLeave_CapitalRaid", Default = 1000, Flag = "Leave_Capital_Cfg"},
-    {Title = "Magic Raid (Wave)", Key = "AutoLeave_MagicRaid", Default = 500, Flag = "Leave_MagicRaid_Cfg"},
-    {Title = "Ignition Raid (Wave)", Key = "AutoLeave_IgnitionRaid", Default = 500, Flag = "Leave_IgnitionRaid_Cfg"},
-    {Title = "Slime Raid (Wave)", Key = "AutoLeave_SlimeRaid", Default = 500, Flag = "Leave_SlimeRaid_Cfg"},
-    {Title = "Ghoul Raid (Wave)", Key = "AutoLeave_GhoulRaid", Default = 500, Flag = "Leave_GhoulRaid_Cfg"},
-}
+Config.AutoLeaveMap = Config.AutoLeaveMap or {}
+local AutoLeaveUIGroup = FarmTab:Group({Title = "Auto Leave Targets"})
+FM_Add("GameModes", AutoLeaveUIGroup)
 
-local currentLeaveGroup = nil
-local leaveCounter = 0
-
-for _, cfg in ipairs(leaveConfigs) do
-    -- Setiap 2 item, buat group baru
-    if leaveCounter % 2 == 0 then
-        currentLeaveGroup = FarmTab:Group({})
-        FM_Add("GameModes", currentLeaveGroup)
+local function GM_GetProgressCap(modeKey, phaseId)
+    if not (shared and shared.Gamemodes and shared.Gamemodes.Get) then return 0 end
+    local data = shared.Gamemodes:Get(modeKey)
+    if not data then return 0 end
+    local d = data
+    if phaseId and data.PHASES then
+        d = data.PHASES[phaseId] or d
     end
-
-    currentLeaveGroup:Input({
-        Title = cfg.Title,
-        Value = tostring(Config[cfg.Key] or cfg.Default),
-        Numeric = true,
-        Flag = cfg.Flag,
-        Callback = function(txt) 
-            Config[cfg.Key] = tonumber(txt) or cfg.Default 
-        end
-    })
-
-    leaveCounter = leaveCounter + 1
+    local cap = (d and (d.MAX_WAVE or d.ROOM_AMOUNT or d.MAX_FLOOR)) or (data.MAX_WAVE or data.ROOM_AMOUNT or data.MAX_FLOOR) or 0
+    if type(cap) ~= "number" then cap = tonumber(cap) or 0 end
+    return cap
 end
-local AutoLeaveSettings = {
-    ["Dungeon"]          = "AutoLeave_Dungeon",
-    ["Raid"]             = "AutoLeave_Raid",
-    ["Defense"]          = "AutoLeave_Defense",
-    ["SorcerersDefense"] = "AutoLeave_Defense",
-    ["PirateTower"]      = "AutoLeave_PirateTower",
-    ["ShadowGate"]       = "AutoLeave_ShadowGate",
-    ["CapitalRaid"]      = "AutoLeave_CapitalRaid",
-    ["MagicRaid"]        = "AutoLeave_MagicRaid",
-    ["IgnitionRaid"]     = "AutoLeave_IgnitionRaid",
-    ["SlimeRaid"]        = "AutoLeave_SlimeRaid",
-    ["GhoulRaid"]        = "AutoLeave_GhoulRaid",
-}
+
+local function BuildAutoLeaveUI()
+    if not (gamemodeOrder and gamemodeLists) then return end
+    local currentALGroup = nil
+    local alCounter = 0
+    for _, modeKey in ipairs(gamemodeOrder) do
+        local entries = gamemodeLists[modeKey]
+        if entries and #entries > 0 then
+            for _, item in ipairs(entries) do
+                if item.ReferenceZone and not IsGamemodeUnlocked(item.ReferenceZone) then
+                    continue
+                end
+                if alCounter % 2 == 0 then
+                    if alCounter == 0 then
+                        currentALGroup = AutoLeaveUIGroup
+                    else
+                        currentALGroup = FarmTab:Group({})
+                        FM_Add("GameModes", currentALGroup)
+                    end
+                end
+                local id = nil
+                local phaseId = nil
+                local raw = tostring(item.Value)
+                local m, n = raw:match("^([^:]+):(.+)$")
+                if m and n then
+                    local db = gamemodeDBs[m]
+                    local rec = db and db[n]
+                    if rec and rec.ID then
+                        phaseId = rec.ID
+                        id = m .. ":" .. tostring(rec.ID)
+                    else
+                        id = m .. ":" .. tostring(n)
+                    end
+                else
+                    id = raw
+                end
+                currentALGroup:Input({
+                    Title = item.Title,
+                    Value = Config.AutoLeaveMap[id] and tostring(Config.AutoLeaveMap[id]) or "",
+                    Numeric = true,
+                    Flag = "AL_" .. id,
+                    Callback = function(txt)
+                        local v = math.floor(tonumber(txt) or 0)
+                        local cap = GM_GetProgressCap(m or id, phaseId)
+                        if cap > 0 and v > cap then v = cap end
+                        if v <= 0 then
+                            if Config.AutoLeaveMap then Config.AutoLeaveMap[id] = nil end
+                        else
+                            Config.AutoLeaveMap = Config.AutoLeaveMap or {}
+                            Config.AutoLeaveMap[id] = v
+                        end
+                    end
+                })
+                alCounter = alCounter + 1
+            end
+        end
+    end
+end
+
+task.spawn(function()
+    while #gamemodeOrder == 0 do
+        task.wait(0.5)
+    end
+    BuildAutoLeaveUI()
+end)
 local AutoLeaveCooldown = {}
 local AutoLeavedState = {}
-
-local function GetAutoLeaveKeyFromId(id)
-    if not id then return nil end
-    local base = tostring(id):match("^([^:]+)")
-    if not base then return nil end
-    return AutoLeaveSettings[base], base
-end
 
 if shared and shared.Events and shared.Events.Connect then
     local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
         if not Config.AutoLeave or not payload then return end
         local currentVal = payload.Wave or payload.Floor or payload.Room
         if not currentVal then return end
-        -- local pData = getgenv() and getgenv().PlayerData
-        -- local byData = pData and pData.AutoLeaveGamemodes and pData.AutoLeaveGamemodes[gamemodeId]
-        -- if byData and byData.Wave then
-        --     if currentVal ~= byData.Wave then return end
-        --     if AutoLeavedState[gamemodeId] then return end
-        --     AutoLeavedState[gamemodeId] = true
-        --     if Reply and Reply.To then
-        --         pcall(function()
-        --             Reply.To("Leave Gamemode", true)
-        --         end)
-        --     end
-        --     return
-        -- end
-        local configKey = GetAutoLeaveKeyFromId(gamemodeId)
-        if not configKey then return end
-        local targetLimit = Config[configKey]
+        local targetLimit = Config.AutoLeaveMap and Config.AutoLeaveMap[gamemodeId] or nil
         if not targetLimit then return end
         if currentVal < targetLimit then return end
         if AutoLeaveCooldown[gamemodeId] and (os.clock() - AutoLeaveCooldown[gamemodeId]) < 5 then return end
@@ -2758,30 +2760,18 @@ for _, id in ipairs(SortedCraftIDs) do
 end
 
 function LoadAllUpgradeModules()
-    local path1 = RS.Scripts.Configs:FindFirstChild("Trainers")
-    if path1 then
-        for _, m in pairs(path1:GetChildren()) do
-            if m:IsA("ModuleScript") then
-                local s, d = pcall(require, m)
-                if s and type(d) == "table" then
-                    ChanceModules[m.Name] = d
-                    table.insert(ChanceSortedNames, m.Name)
-                end
-            end
+    local v2 = game.ReplicatedStorage.Scripts.Configs
+    for _, v5 in v2.Trainers:GetChildren() do
+        if v5:IsA("ModuleScript") then
+            ChanceModules[v5.Name] = shared[v5.Name]
+            table.insert(ChanceSortedNames, v5.Name)
         end
     end
     table.sort(ChanceSortedNames)
-
-    local path2 = RS.Scripts.Configs:FindFirstChild("RollGachaUpgrades")
-    if path2 then
-        for _, m in pairs(path2:GetChildren()) do
-            if m:IsA("ModuleScript") then
-                local s, d = pcall(require, m)
-                if s and type(d) == "table" then
-                    UpgradeModules[m.Name] = d
-                    table.insert(UpgradeSortedNames, m.Name)
-                end
-            end
+    for _, v4 in v2.RollGachaUpgrades:GetChildren() do
+        if v4:IsA("ModuleScript") then
+            UpgradeModules[v4.Name] = shared[v4.Name]
+            table.insert(UpgradeSortedNames, v4.Name)
         end
     end
     table.sort(UpgradeSortedNames)
@@ -5222,81 +5212,105 @@ function Optimizer.Update_Craft_Logic(pData)
 end
 
 function Optimizer.Update_Trainer_Logic(pData)
-    for name, data in pairs(CombinedToggleUI) do
-        -- Gunakan pcall di dalam loop agar jika satu trainer error, yang lain tetap jalan
-        pcall(function()
-            local toggle, mod, isGacha = data.Toggle, data.Mod, data.IsGacha
-            local currentLvl, tokenKey = 0, ""
-            local itemName, currentImage, currentRarity = (mod.Display), "rbxassetid://84366761557806", "Common"
-
-            if isGacha then
-                if pData.Attributes and pData.GachaLevel and pData.Attributes[name] then
-                    local equippedIndex = pData.Attributes[name]
-                    if mod.List and mod.List[equippedIndex] then
-                        local iData = mod.List[equippedIndex]
-                        itemName, currentRarity = iData.Display, iData.Rarity
-                        if iData.Template then currentImage = GetIcon(iData.Template) end
-                    end
+    local function ReadState(name, mod, isGacha)
+        local itemName = mod.Display
+        local currentImage = "rbxassetid://84366761557806"
+        local currentRarity = "Common"
+        local currentLvl = 0
+        local tokenKey = ""
+        if isGacha then
+            if pData.Attributes and pData.GachaLevel and pData.Attributes[name] then
+                local equippedIndex = pData.Attributes[name]
+                if mod.List and mod.List[equippedIndex] then
+                    local iData = mod.List[equippedIndex]
+                    itemName = iData.Display or itemName
+                    currentRarity = iData.Rarity or currentRarity
+                    if iData.Template then currentImage = GetIcon(iData.Template) end
+                end
+                if pData.GachaLevel[name] then
                     currentLvl = pData.GachaLevel[name][tostring(equippedIndex)] or 0
                 end
-                if currentLvl == 0 then currentLvl = 1 end
-                tokenKey = mod.UpgradeMaterial or (name.."Token")
-            else
-                -- Cek apakah nama index sesuai (Wise vs WiseTrainer)
-                currentLvl = pData.CrateUpgrades[name] or pData.CrateUpgrades[name:gsub("Trainer", "")] or 0
-                if mod.ImageId then currentImage = GetIcon(mod.ImageId) end
-                tokenKey = mod.TOKEN_NAME or (name.."Token")
             end
-
-            -- Pastikan fungsi GetCost tersedia sebelum dipanggil
-            local cost = (mod.GetCost and mod.GetCost(currentLvl)) or 0
-            local maxLvl = (mod.MAX_LEVEL or mod.MaxLevel or 100)
-            local currentMat = pData.Materials[tokenKey] or 0
-            local matInfo = Materials[tokenKey]
-            local matDisplay = string.format("%s%s", (matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""), (matInfo and matInfo.Display or tokenKey))
-
-            local bonusesLine = ""
-            if mod.GetBonuses and mod.Type ~= "UpgradeGacha" then
-                local bonuses = mod.GetBonuses(currentLvl)
-                if type(bonuses) == "table" then
-                    local parts = {}
-                    for stat, val in pairs(bonuses) do
-                        table.insert(parts, string.format("%s: %s%%",stat,Utils.ToText(val)))
-                    end
-                    table.sort(parts)
-                    if #parts > 0 then
-                        bonusesLine = "" .. table.concat(parts, " | ")
-                    end
+            if currentLvl == 0 then currentLvl = 1 end
+            tokenKey = mod.UpgradeMaterial or (name .. "Token")
+        else
+            currentLvl = pData.CrateUpgrades[name] or pData.CrateUpgrades[name:gsub("Trainer", "")] or 0
+            if mod.ImageId then currentImage = GetIcon(mod.ImageId) end
+            tokenKey = mod.TOKEN_NAME or (name .. "Token")
+        end
+        local cost = (mod.GetCost and mod.GetCost(currentLvl)) or 0
+        local maxLvl = (mod.MAX_LEVEL or mod.MaxLevel or 100)
+        local currentMat = pData.Materials[tokenKey] or 0
+        local matInfo = Materials[tokenKey]
+        local matDisplay = string.format("%s%s", (matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""), (matInfo and matInfo.Display or tokenKey))
+        local bonusesLine = ""
+        if mod.GetBonuses and mod.Type ~= "UpgradeGacha" then
+            local bonuses = mod.GetBonuses(currentLvl)
+            if type(bonuses) == "table" then
+                local parts = {}
+                for stat, val in pairs(bonuses) do
+                    table.insert(parts, string.format("%s: %s%%", stat, Utils.ToText(val)))
+                end
+                table.sort(parts)
+                if #parts > 0 then
+                    bonusesLine = table.concat(parts, " | ")
                 end
             end
-
-            local newTitle, newDesc, isMaxed = "", "", false
-            if currentLvl >= maxLvl then
-                isMaxed = true; newTitle = itemName .. " [MAX]"; newDesc = "Max Level Reached"
-                if bonusesLine ~= "" then
-                    newDesc = newDesc .. "\n" .. bonusesLine
-                end
-            else
-                local chanceVal = (mod.GetChance and mod.GetChance(currentLvl)) or 0
-                local chanceTxt = chanceVal > 0 and ("Chance: " .. (math.floor(chanceVal * 10) / 10) .. "%") or ""
-                newTitle = string.format("%s [%d/%d]", itemName, currentLvl, maxLvl)
-                newDesc = string.format("%s\n%s: %s/%s", chanceTxt, matDisplay, Utils.ToText(currentMat), Utils.ToText(cost))
-                if bonusesLine ~= "" then
-                    newDesc = newDesc .. "\n" .. bonusesLine
-                end
+        end
+        local chanceVal = (mod.GetChance and mod.GetChance(currentLvl)) or 0
+        return {
+            itemName = itemName,
+            currentImage = currentImage,
+            currentRarity = currentRarity,
+            currentLvl = currentLvl,
+            maxLvl = maxLvl,
+            tokenKey = tokenKey,
+            currentMat = currentMat,
+            matDisplay = matDisplay,
+            cost = cost,
+            bonusesLine = bonusesLine,
+            chanceVal = chanceVal
+        }
+    end
+    local function FormatUI(ctx)
+        local isMaxed = false
+        local newTitle = ""
+        local newDesc = ""
+        if ctx.currentLvl >= ctx.maxLvl then
+            isMaxed = true
+            newTitle = ctx.itemName .. " [MAX]"
+            newDesc = "Max Level Reached"
+            if ctx.bonusesLine ~= "" then
+                newDesc = newDesc .. "\n" .. ctx.bonusesLine
             end
-
+        else
+            local chanceTxt = ""
+            if ctx.chanceVal and ctx.chanceVal > 0 then
+                local c = math.floor(ctx.chanceVal * 10) / 10
+                chanceTxt = "Chance: " .. c .. "%"
+            end
+            newTitle = string.format("%s [%d/%d]", ctx.itemName, ctx.currentLvl, ctx.maxLvl)
+            newDesc = string.format("%s\n%s: %s/%s", chanceTxt, ctx.matDisplay, Utils.ToText(ctx.currentMat), Utils.ToText(ctx.cost))
+            if ctx.bonusesLine ~= "" then
+                newDesc = newDesc .. "\n" .. ctx.bonusesLine
+            end
+        end
+        return newTitle, newDesc, isMaxed
+    end
+    for name, data in pairs(CombinedToggleUI) do
+        pcall(function()
+            local toggle, mod, isGacha = data.Toggle, data.Mod, data.IsGacha
+            local ctx = ReadState(name, mod, isGacha)
+            local newTitle, newDesc, isMaxed = FormatUI(ctx)
             local cache = Optimizer.Cache.Upgrade[name] or {}
             if cache.Title ~= newTitle then toggle:SetTitle(newTitle) end
             if cache.Desc ~= newDesc then toggle:SetDesc(newDesc) end
-            
             if isMaxed and not cache.IsMaxed then
                 toggle:Disable()
             elseif not isMaxed and cache.IsMaxed then
                 toggle:Enable()
             end
-            
-            Optimizer.Cache.Upgrade[name] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed, Image = currentImage, Rarity = currentRarity }
+            Optimizer.Cache.Upgrade[name] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed, Image = ctx.currentImage, Rarity = ctx.currentRarity }
         end)
     end
 end
@@ -6657,8 +6671,27 @@ function Optimizer.Update_AutoUnlock_Logic(pData)
 
     -- Melakukan looping berdasarkan data yang diambil dari modul game
     for itemName, cost in pairs(UnlocksPrices) do
-        -- 1. Lewati jika fitur bersifat Quest
-        if type(cost) == "string" and cost == "Quest" then continue end
+        if type(cost) == "string" and cost == "Quest" then
+            local conf = shared and shared[itemName]
+            if conf and conf.Quests and not pData.Unlocked[itemName] then
+                local questKey = tostring(itemName) .. "_Trainer"
+                local qData = pData.Quests and pData.Quests[questKey] or nil
+                local canRequest = (not qData) or (qData and qData.Status == "Completed")
+                if canRequest then
+                    Optimizer.Cache.TrainerQuest = Optimizer.Cache.TrainerQuest or {}
+                    local now = os.time()
+                    local last = Optimizer.Cache.TrainerQuest[itemName] or 0
+                    if (now - last) >= 2 then
+                        Optimizer.Cache.TrainerQuest[itemName] = now
+                        pcall(function()
+                            Reply.To("Update Quest", "Trainer", itemName)
+                        end)
+                        break
+                    end
+                end
+            end
+            continue
+        end
 
         -- 2. Cek apakah saldo Yen Anda mencukupi
         if currentYen >= cost then
