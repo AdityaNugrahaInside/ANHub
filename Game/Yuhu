@@ -557,6 +557,10 @@ function GetTradePostIcon()
     end
 end
 
+function GetJewelsIcon()
+    return GetIcon(128971502781431)
+end
+
 function LoadRollData(rollType)
     RollConfigs[rollType] = shared[rollType]
 end
@@ -1432,7 +1436,8 @@ FM_CategoryDescriptions = {
     ["Mega Boss"] = "Upgrade MegaBoss buff with shards",
     ["Rankup"] = "Rank progress, requirements, and bonuses",
     ["Trainers"] = "Trainer settings and enhancement",
-    ["Crafts"] = "Auto craft/upgrade items and equipment"
+    ["Crafts"] = "Auto craft/upgrade items and equipment",
+    ["Jewels"] = "Auto upgrade jewels and view costs"
 }
 function FM_GetElementFrame(elem)
     local f = rawget(elem, "ElementFrame") or (elem.UIElements and elem.UIElements.Main) or rawget(elem, "GroupFrame")
@@ -1508,6 +1513,7 @@ FM_Category = FarmTab:Category({
         {Title="Trainers", Icon=GetIcon(92875014242960)},
         {Title="Secret Quests", Icon=GetIcon(98394716892889)},
         {Title="Misc", Icon=GetIcon(128660194699457)},
+        {Title="Jewels", Icon=GetJewelsIcon()},
         {Title="Crafts", Icon=GetIcon(132575095676543)}
     },
     Callback = FM_OnChange
@@ -2781,6 +2787,54 @@ for _, id in ipairs(SortedCraftIDs) do
         UI = toggle,
         Data = data
     }
+end
+
+JewelsConfig = {}
+function LoadJewelsModule()
+    local success, module = pcall(function()
+        return require(RS.Scripts.Configs.Jewels)
+    end)
+    if success and type(module) == "table" then
+        JewelsConfig = module
+    else
+        JewelsConfig = {}
+    end
+end
+LoadJewelsModule()
+
+function CanAffordJewel(jewelId, nextLevel)
+    local data = JewelsConfig[jewelId]
+    if not data then return false end
+    local costData = data.Costs[nextLevel]
+    if not costData then return false end
+    local pData = (getgenv()).PlayerData
+    if not pData or not pData.Materials then return false end
+    for matName, amountNeeded in pairs(costData) do
+        local myAmount = pData.Materials[matName] or 0
+        if myAmount < amountNeeded then
+            return false
+        end
+    end
+    return true
+end
+
+SortedJewelIDs = {}
+for k, v in pairs(JewelsConfig) do table.insert(SortedJewelIDs, k) end
+table.sort(SortedJewelIDs, function(a,b) return tonumber(a) < tonumber(b) end)
+
+JewelsToggles = {}
+for _, id in ipairs(SortedJewelIDs) do
+    local data = JewelsConfig[id]
+    local toggle = FarmTab:Toggle({
+        Title = data.Display,
+        Desc = "Scanning data...",
+        Flag = "AutoJewel_"..id,
+        Callback = function(val)
+            Config["AutoJewel_"..id] = val
+        end
+    })
+    FM_Add("Jewels", toggle)
+    JewelsToggles[id] = { UI = toggle, Data = data }
 end
 
 function LoadAllUpgradeModules()
@@ -5220,6 +5274,61 @@ function Optimizer.Update_Craft_Logic(pData)
     end
 end
 
+function Optimizer.Update_Jewels_Logic(pData)
+    if not JewelsToggles or not pData then return end
+    for id, info in pairs(JewelsToggles) do
+        local data, toggle = info.Data, info.UI
+        local currentLvl = (pData.Jewels and pData.Jewels[id]) or 0
+        local maxLvl, nextLvl = data.MaxLevel, currentLvl + 1
+        local newTitle, newDesc, isMaxed = "", "", false
+        local curBonusStr = FormatBonusString(data.Bonuses and data.Bonuses[currentLvl])
+        if currentLvl >= maxLvl then
+            isMaxed = true
+            newTitle = data.Display .. " " .. GetIcon(data.Template) .. " [MAX]"
+            newDesc = string.format("<b>Max Level Reached</b>\n\nActive Bonus:\n%s", curBonusStr)
+        else
+            local nextBonusStr = FormatBonusString(data.Bonuses and data.Bonuses[nextLvl])
+            local costStr = "None"
+            if data.Costs[nextLvl] then
+                local parts = {}
+                for matName, reqAmt in pairs(data.Costs[nextLvl]) do
+                    local myAmt = (pData.Materials and pData.Materials[matName]) or 0
+                    local dName, dIcon = matName, ""
+                    if Materials[matName] then
+                        dName = Materials[matName].Display
+                        if Materials[matName].Template then dIcon = GetIcon(Materials[matName].Template) end
+                    end
+                    table.insert(parts, string.format("%s%s: %s/%s", dIcon, dName, Utils.ToText(reqAmt), Utils.ToText(myAmt)))
+                end
+                costStr = table.concat(parts, "\n")
+            end
+            newTitle = string.format("%s %s[Lv %d -> %d]", data.Display, GetIcon(data.Template), currentLvl, nextLvl)
+            newDesc = string.format("%s\n\nCurrent [Lv %d]: %s\nNext [Lv %d]: %s", costStr, currentLvl, curBonusStr, nextLvl, nextBonusStr)
+        end
+        Optimizer.Cache.Jewel = Optimizer.Cache.Jewel or {}
+        local lastState = Optimizer.Cache.Jewel[id] or {}
+        if toggle and toggle.SetTitle and lastState.Title ~= newTitle then toggle:SetTitle(newTitle) end
+        if toggle and toggle.SetDesc and lastState.Desc ~= newDesc then toggle:SetDesc(newDesc) end
+        if lastState.Title ~= newTitle or lastState.Desc ~= newDesc or lastState.IsMaxed ~= isMaxed then
+            Optimizer.Cache.Jewel[id] = { Title = newTitle, Desc = newDesc, IsMaxed = isMaxed }
+        end
+        if isMaxed and Config["AutoJewel_"..id] then
+            Config["AutoJewel_"..id] = false
+            if toggle and toggle.Set then pcall(function() toggle:Set(false) end) end
+        end
+        if Config["AutoJewel_"..id] and not isMaxed and CanAffordJewel(id, nextLvl) then
+            if Reliable then
+                local now = os.time()
+                local hk = "JewelUp_"..id
+                if not Optimizer.Cache[hk] or (now - Optimizer.Cache[hk]) > 1 then
+                    pcall(function() Reply.To("Upgrade Jewel", tostring(id)) end)
+                    Optimizer.Cache[hk] = now
+                end
+            end
+        end
+    end
+end
+
 function Optimizer.Update_Trainer_Logic(pData)
     local function ReadState(name, mod, isGacha)
         local itemName = mod.Display
@@ -6049,6 +6158,7 @@ function Optimizer.Update_TradePost_Buy_Logic(pData)
         end
     end
 end
+
 
 -- ============================================================================
 -- [SECRET QUESTS UI - REVISED SINGLE PARAGRAPH]
@@ -7455,6 +7565,7 @@ task.spawn(function()
             pcall(Optimizer.Update_AutoUnlock_Logic, pData)
             pcall(Optimizer.Update_Roll_Logic, pData)
             pcall(Optimizer.Update_Craft_Logic, pData)
+            pcall(Optimizer.Update_Jewels_Logic, pData)
             pcall(Optimizer.Update_Trainer_Logic, pData)
             pcall(Optimizer.Update_Vault_Logic, pData)
             pcall(Optimizer.Update_Avatar_Logic, pData)
