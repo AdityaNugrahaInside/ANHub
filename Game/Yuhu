@@ -551,33 +551,14 @@ function GetAvatarTokenIcon()
     end
 end
 function GetTradePostIcon()
-    local tokenKey = (TradePost and TradePost.TOKEN_NAME) or "TradeToken"
-    local config = Materials[tokenKey] or Materials.TradeToken
+    local config = Materials[TradePost.TOKEN_NAME]
     if config and config.Template then
         return GetIcon(config.Template)
     end
 end
 
 function LoadRollData(rollType)
-    local success, module = pcall(function()
-        return require(ConfigsPath.RollGachas[rollType])
-    end)
-    
-    if not success or not module then
-        success, module = pcall(function()
-            return require(ConfigsPath.RollGachaUpgrades[rollType])
-        end)
-    end
-
-    if success and module then
-        RollConfigs[rollType] = {
-            Display = module.Display,
-            Cost = module.Cost or 1,
-            MaterialKey = (module.Material or module.UpgradeMaterial) or (rollType .. "Token"),
-            ImageId = module.ImageId,
-            List = module.List
-        }
-    end
+    RollConfigs[rollType] = shared[rollType]
 end
 
 for _, rollType in ipairs(AllRollTypes) do
@@ -1269,7 +1250,7 @@ task.spawn(function()
                     
                     local config = RollConfigs[rollType]
                     local cost = (config.Cost or 10) * (pData.Gamepasses.Vip and 0.8 or 1)
-                    local tokenKey = config and config.MaterialKey or (rollType .. "Token")
+                    local tokenKey = config and config.Material or (rollType .. "Token")
                     local currentCount = pData.Materials[tokenKey] or 0
                     
                     if currentCount >= cost and pData.Unlocked[rollType] then
@@ -2170,9 +2151,7 @@ local function BuildAutoLeaveUI()
                 end
                 currentALGroup:Input({
                     Title = item.Title,
-                    Value = Config.AutoLeaveMap[id] and tostring(Config.AutoLeaveMap[id]) or "",
-                    Numeric = true,
-                    Flag = "AL_" .. id,
+                    Flag = item.Title,
                     Callback = function(txt)
                         local v = math.floor(tonumber(txt) or 0)
                         local cap = GM_GetProgressCap(m or id, phaseId)
@@ -2486,9 +2465,9 @@ for _, rollType in ipairs(AllRollTypes) do
         FM_Add("Rolls", _rollGroup)
     end;
     local config = RollConfigs[rollType]
-    local tokenKey = config and RollConfigs[rollType].MaterialKey;
+    local tokenKey = config and RollConfigs[rollType].Material;
     local displayName = (Materials[tokenKey] and Materials[tokenKey].Display) or rollType;
-    local currentCount = (((getgenv()).PlayerData and (getgenv()).PlayerData.Materials) and (getgenv()).PlayerData.Materials[tokenKey]) or 0;
+    local currentCount = (((getgenv()).PlayerData and (getgenv()).PlayerData.Materials) and (getgenv()).PlayerData.Materials[tokenKey]) or 0
     local configFlag = "AutoRoll" .. rollType;
     local myToggle = _rollGroup:Toggle({
         Title = config.Display,
@@ -2502,19 +2481,6 @@ for _, rollType in ipairs(AllRollTypes) do
     });
     RollToggleUI[rollType] = myToggle;
     _rollCount = _rollCount + 1;
-end;
-
-if not IsPremium then
-    for rollType, toggle in pairs(RollToggleUI) do
-        local configFlag = "AutoRoll" .. rollType
-        if Config[configFlag] then
-            Config[configFlag] = false
-        end
-        if toggle then
-            pcall(function() toggle:Set(false) end)
-            pcall(function() toggle:Lock("Need Premium User") end)
-        end
-    end
 end
 
 function GetStatsIcon()
@@ -2523,7 +2489,7 @@ function GetStatsIcon()
         icon = LocalPlayer.PlayerGui.Screen.Hud.left.buttons.StatPoints.button.icon.Image;
     end);
     return icon;
-end;
+end
 -- [[ GENERATOR UI OTOMATIS ]] --
 function CreateUpgradeSection(parentTab, categoryName, configData, flagPrefix, uiStorage, specificOrder)
     local group = nil
@@ -5043,28 +5009,13 @@ function Optimizer.Update_Exchange_Logic(pData)
 end
 
 function Optimizer.Update_Roll_Logic(pData)
-    if not IsPremium then
-        for rollType, toggle in pairs(RollToggleUI) do
-            local k = "AutoRoll" .. rollType
-            if Config[k] then
-                Config[k] = false
-            end
-            if toggle then
-                pcall(function() toggle:Set(false) end)
-                pcall(function() toggle:Lock("Need Premium User") end)
-            end
-        end
-        return
-    end
-
     if not pData.Vault then return end
     
     for rollType, toggle in pairs(RollToggleUI) do
         local config = RollConfigs[rollType]
-        if not config then continue end -- Lewati jika config tidak ada
-
-        local tokenKey = config.MaterialKey or (rollType .. "Token")
-        local currentCount = (pData.Materials and pData.Materials[tokenKey]) or 0
+        if not config then continue end
+        local tokenKey = config.Material
+        local currentCount = pData.Materials[tokenKey] or 0
         
         -- 1. Cari Index Tertinggi yang dimiliki di Vault
         local foundBestIndex = 0
@@ -5124,7 +5075,7 @@ function Optimizer.Update_Roll_Logic(pData)
                             Image = currentImage,
                             Title = currentItemName,
                             Gradient = GetGameGradient(rarityLabel)
-                        }, 50)
+                        }, 55)
                     end
                 end)
                 lastState.Image = currentImage
