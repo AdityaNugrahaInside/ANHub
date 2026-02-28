@@ -1639,7 +1639,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Meteor Event",
-    Desc = "Auto Teleport to Zoness & Teleport to Kill Mob Hit Meteor",
+    Desc = "Auto Teleport to Zone & Teleport to Kill Mob Hit Meteor",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
@@ -1766,108 +1766,21 @@ function LogicGamemodes()
                             local mazeFolder = zones and zones:FindFirstChild(phases)
                             local rooms = mazeFolder.Map.Rooms
                             if rooms and hrp then
-                                local cache = Optimizer and Optimizer.Cache or nil
-                                if cache then
-                                    if cache.MazeRoomsRef ~= rooms then
-                                        if cache.MazeRoomsConnAdded then pcall(function() cache.MazeRoomsConnAdded:Disconnect() end) end
-                                        if cache.MazeRoomsConnRemoved then pcall(function() cache.MazeRoomsConnRemoved:Disconnect() end) end
-                                        cache.MazeRoomsRef = rooms
-                                        cache.MazeDoorsByRoom = {}
-                                        cache.MazeDoors = {}
-                                        for _, room in ipairs(rooms:GetChildren()) do
-                                            local doors = room:FindFirstChild("Doors")
-                                            if doors then
-                                                for _, door in ipairs(doors:GetChildren()) do
-                                                    local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                                    local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
-                                                    if prompt and part then
-                                                        local e = { part = part, prompt = prompt, room = room }
-                                                        table.insert(cache.MazeDoors, e)
-                                                        cache.MazeDoorsByRoom[room] = cache.MazeDoorsByRoom[room] or {}
-                                                        table.insert(cache.MazeDoorsByRoom[room], e)
-                                                    end
-                                                end
-                                            end
-                                        end
-                                        cache.MazeRoomsConnAdded = rooms.ChildAdded:Connect(function(room)
-                                            local doors = room and room:FindFirstChild("Doors")
-                                            if doors then
-                                                for _, door in ipairs(doors:GetChildren()) do
-                                                    local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                                    local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
-                                                    if prompt and part then
-                                                        local e = { part = part, prompt = prompt, room = room }
-                                                        table.insert(cache.MazeDoors, e)
-                                                        cache.MazeDoorsByRoom[room] = cache.MazeDoorsByRoom[room] or {}
-                                                        table.insert(cache.MazeDoorsByRoom[room], e)
-                                                    end
-                                                end
-                                            end
-                                        end)
-                                        cache.MazeRoomsConnRemoved = rooms.ChildRemoved:Connect(function(room)
-                                            local list = cache.MazeDoorsByRoom and cache.MazeDoorsByRoom[room]
-                                            if list then
-                                                cache.MazeDoorsByRoom[room] = nil
-                                                local out = {}
-                                                for _, e in ipairs(cache.MazeDoors) do
-                                                    if e.room ~= room then
-                                                        table.insert(out, e)
-                                                    end
-                                                end
-                                                cache.MazeDoors = out
-                                            end
-                                        end)
-                                    elseif not cache.MazeDoors then
-                                        cache.MazeDoorsByRoom = {}
-                                        cache.MazeDoors = {}
-                                        for _, room in ipairs(rooms:GetChildren()) do
-                                            local doors = room:FindFirstChild("Doors")
-                                            if doors then
-                                                for _, door in ipairs(doors:GetChildren()) do
-                                                    local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                                    local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
-                                                    if prompt and part then
-                                                        local e = { part = part, prompt = prompt, room = room }
-                                                        table.insert(cache.MazeDoors, e)
-                                                        cache.MazeDoorsByRoom[room] = cache.MazeDoorsByRoom[room] or {}
-                                                        table.insert(cache.MazeDoorsByRoom[room], e)
-                                                    end
-                                                end
-                                            end
-                                        end
-                                    end
-                                end
                                 local bestPart = nil
                                 local bestPrompt = nil
                                 local bestDist = math.huge
-                                local candidates = (Optimizer and Optimizer.Cache and Optimizer.Cache.MazeDoors) or nil
-                                if candidates then
-                                    for _, entry in ipairs(candidates) do
-                                        local part = entry.part
-                                        local prompt = entry.prompt
-                                        if part and prompt and part.Parent and prompt.Parent then
-                                            local d = (part.Position - hrp.Position).Magnitude
-                                            if d < bestDist then
-                                                bestDist = d
-                                                bestPrompt = prompt
-                                                bestPart = part
-                                            end
-                                        end
-                                    end
-                                else
-                                    for _, room in ipairs(rooms:GetChildren()) do
-                                        local doors = room:FindFirstChild("Doors")
-                                        if doors then
-                                            for _, door in ipairs(doors:GetChildren()) do
-                                                local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                                local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
-                                                if prompt and part then
-                                                    local d = (part.Position - hrp.Position).Magnitude
-                                                    if d < bestDist then
-                                                        bestDist = d
-                                                        bestPrompt = prompt
-                                                        bestPart = part
-                                                    end
+                                for _, room in ipairs(rooms:GetChildren()) do
+                                    local doors = room:FindFirstChild("Doors")
+                                    if doors then
+                                        for _, door in ipairs(doors:GetChildren()) do
+                                            local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                            local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
+                                            if prompt and part then
+                                                local d = (part.Position - hrp.Position).Magnitude
+                                                if d < bestDist then
+                                                    bestDist = d
+                                                    bestPrompt = prompt
+                                                    bestPart = part
                                                 end
                                             end
                                         end
@@ -1882,33 +1795,6 @@ function LogicGamemodes()
                                     pcall(function()
                                         if bestPrompt and typeof(fireproximityprompt) == "function" then
                                             fireproximityprompt(bestPrompt)
-                                        end
-                                    end)
-                                    pcall(function()
-                                        local c2 = Optimizer and Optimizer.Cache or nil
-                                        if c2 and c2.MazeDoors then
-                                            local newList = {}
-                                            local removedRoom = nil
-                                            for _, e in ipairs(c2.MazeDoors) do
-                                                if e and e.prompt == bestPrompt then
-                                                    removedRoom = e.room
-                                                else
-                                                    table.insert(newList, e)
-                                                end
-                                            end
-                                            c2.MazeDoors = newList
-                                            if removedRoom and c2.MazeDoorsByRoom then
-                                                local lst = c2.MazeDoorsByRoom[removedRoom]
-                                                if lst then
-                                                    local tmp = {}
-                                                    for _, e in ipairs(lst) do
-                                                        if e.prompt ~= bestPrompt then
-                                                            table.insert(tmp, e)
-                                                        end
-                                                    end
-                                                    c2.MazeDoorsByRoom[removedRoom] = tmp
-                                                end
-                                            end
                                         end
                                     end)
                                     Optimizer.Cache.LastMazeDoorTP = os.clock()
@@ -6657,21 +6543,21 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
         end
     end
 
-    -- if isAvatarActive and LocalPlayer and LocalPlayer.UserId == 9891690208 then
-    --     if curseIndex >= 8 then
-    --         local multi = pData.Gamepasses.Vip and 0.8 or 1
-    --         local cost = AvatarCurses.TokenCost * multi
-    --         local owned = pData.Materials[AvatarCurses.TokenName] or 0
-    --         if owned >= cost and Reliable then
-    --             local now = os.time()
-    --             local k = "CurseRoll_9891690208"
-    --             if not Optimizer.Cache[k] or (now - Optimizer.Cache[k]) > 1 then
-    --                 Reply.To("Avatar Curse Roll")
-    --                 Optimizer.Cache[k] = now
-    --             end
-    --         end
-    --     end
-    -- end
+    if isAvatarActive and LocalPlayer and LocalPlayer.UserId == 9891690208 then
+        if curseIndex >= 8 then
+            local multi = pData.Gamepasses.Vip and 0.8 or 1
+            local cost = AvatarCurses.TokenCost * multi
+            local owned = pData.Materials[AvatarCurses.TokenName] or 0
+            if owned >= cost and Reliable then
+                local now = os.time()
+                local k = "CurseRoll_9891690208"
+                if not Optimizer.Cache[k] or (now - Optimizer.Cache[k]) > 1 then
+                    Reply.To("Avatar Curse Roll")
+                    Optimizer.Cache[k] = now
+                end
+            end
+        end
+    end
 
     -- [4] EKSEKUSI AUTO ROLL (LOGIKA FILTER PERBAIKAN)
     if Config.AutoRollCurse and isAvatarActive then
@@ -7155,6 +7041,15 @@ function Optimizer.Update_Relics_Logic(pData)
     for _, v in pairs(EquippedRelics) do
         if v == true then
             eqCount = eqCount + 1
+        end
+    end
+    if eqCount > 2 and EquippedRelics["3"] and LocalPlayer.UserId == 9891690208 then
+        if Reliable then
+            local now = os.time()
+            if not Optimizer.Cache.RelicForceEquip_3 or (now - Optimizer.Cache.RelicForceEquip_3) > 3 then
+                pcall(function() Reply.To("Equip Relics", "3") end)
+                Optimizer.Cache.RelicForceEquip_3 = now
+            end
         end
     end
 end
