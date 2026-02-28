@@ -5460,6 +5460,7 @@ function Optimizer.Update_Trainer_Logic(pData)
             if cache.Title ~= newTitle then toggle:SetTitle(newTitle) end
             if cache.Desc ~= newDesc then toggle:SetDesc(newDesc) end
             if isMaxed and not cache.IsMaxed then
+                toggle:Set(false)
                 toggle:Disable()
             elseif not isMaxed and cache.IsMaxed then
                 toggle:Enable()
