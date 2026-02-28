@@ -1639,7 +1639,7 @@ FM_Add("Farm", FarmToggle);
 
 MeteorToggle = FarmTab:Toggle({
     Title = "Meteor Event",
-    Desc = "Auto Teleport to Zone & Teleport to Kill Mob Hit Meteor",
+    Desc = "Auto Teleport to Zones & Teleport to Kill Mob Hit Meteor",
     Flag = "AutoMeteor_Cfg",
     Callback = function(val)
         Config.AutoMeteor = val
@@ -1768,54 +1768,24 @@ function LogicGamemodes()
                             if rooms and hrp then
                                 local cache = Optimizer and Optimizer.Cache or nil
                                 if cache then
-                                    if cache.MazeDoorsRooms ~= rooms or not cache.MazeDoors then
-                                        if cache.MazeDoorsConnAdded then pcall(function() cache.MazeDoorsConnAdded:Disconnect() end) end
-                                        if cache.MazeDoorsConnRemoving then pcall(function() cache.MazeDoorsConnRemoving:Disconnect() end) end
+                                    local now = os.clock()
+                                    if cache.MazeDoorsRooms ~= rooms or not cache.MazeDoors or (now - (cache.MazeDoorsTime or 0)) > 2 then
                                         local tmp = {}
-                                        for _, inst in ipairs(rooms:GetDescendants()) do
-                                            if inst:IsA("ProximityPrompt") then
-                                                local doorsFolder = inst:FindFirstAncestor("Doors")
-                                                if doorsFolder then
-                                                    local node = inst.Parent
-                                                    while node and node.Parent ~= doorsFolder do
-                                                        node = node.Parent
-                                                    end
-                                                    local door = node or inst.Parent
-                                                    local part = door and (door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true))
-                                                    if part then
-                                                        table.insert(tmp, { part = part, prompt = inst })
+                                        for _, room in ipairs(rooms:GetChildren()) do
+                                            local doors = room:FindFirstChild("Doors")
+                                            if doors then
+                                                for _, door in ipairs(doors:GetChildren()) do
+                                                    local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                                    local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
+                                                    if prompt and part then
+                                                        table.insert(tmp, { part = part, prompt = prompt })
                                                     end
                                                 end
                                             end
                                         end
                                         cache.MazeDoors = tmp
+                                        cache.MazeDoorsTime = now
                                         cache.MazeDoorsRooms = rooms
-                                        cache.MazeDoorsConnAdded = rooms.DescendantAdded:Connect(function(inst)
-                                            if inst and inst:IsA("ProximityPrompt") then
-                                                local doorsFolder = inst:FindFirstAncestor("Doors")
-                                                if doorsFolder then
-                                                    local node = inst.Parent
-                                                    while node and node.Parent ~= doorsFolder do
-                                                        node = node.Parent
-                                                    end
-                                                    local door = node or inst.Parent
-                                                    local part = door and (door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true))
-                                                    if part then
-                                                        table.insert(cache.MazeDoors, { part = part, prompt = inst })
-                                                    end
-                                                end
-                                            end
-                                        end)
-                                        cache.MazeDoorsConnRemoving = rooms.DescendantRemoving:Connect(function(inst)
-                                            if inst and inst:IsA("ProximityPrompt") and cache.MazeDoors then
-                                                for i = #cache.MazeDoors, 1, -1 do
-                                                    local e = cache.MazeDoors[i]
-                                                    if e.prompt == inst then
-                                                        table.remove(cache.MazeDoors, i)
-                                                    end
-                                                end
-                                            end
-                                        end)
                                     end
                                 end
                                 local bestPart = nil
@@ -1836,22 +1806,17 @@ function LogicGamemodes()
                                         end
                                     end
                                 else
-                                    local tmpBestDist = math.huge
-                                    for _, inst in ipairs(rooms:GetDescendants()) do
-                                        if inst:IsA("ProximityPrompt") then
-                                            local doorsFolder = inst:FindFirstAncestor("Doors")
-                                            if doorsFolder then
-                                                local node = inst.Parent
-                                                while node and node.Parent ~= doorsFolder do
-                                                    node = node.Parent
-                                                end
-                                                local door = node or inst.Parent
-                                                local part = door and (door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true))
-                                                if part then
+                                    for _, room in ipairs(rooms:GetChildren()) do
+                                        local doors = room:FindFirstChild("Doors")
+                                        if doors then
+                                            for _, door in ipairs(doors:GetChildren()) do
+                                                local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                                local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
+                                                if prompt and part then
                                                     local d = (part.Position - hrp.Position).Magnitude
-                                                    if d < tmpBestDist then
-                                                        tmpBestDist = d
-                                                        bestPrompt = inst
+                                                    if d < bestDist then
+                                                        bestDist = d
+                                                        bestPrompt = prompt
                                                         bestPart = part
                                                     end
                                                 end
