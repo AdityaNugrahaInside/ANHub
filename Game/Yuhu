@@ -22,6 +22,7 @@ repeat task.wait() until shared.Essential and shared.Reply
 local Essential = shared.Essential
 EnergyUpgrade = shared.EnergyUpgrade
 HunterUpgrade = shared.Hunter
+SpiritualUpgrade = shared.Spiritual
 Materials = shared.Materials
 Currency = shared.Currency
 TradePost = shared.TradePost
@@ -1495,7 +1496,7 @@ FM_Category = FarmTab:Category({
         {Title="Mega Boss", Icon=GetIcon(73239911812292)},
         {Title="Vault", Icon=GetIcon(90798559571883)},
         {Title="Relics", Icon=GetIcon(88061784222994)}, -- TAMBAHKAN INI
-        {Title="Energy & Hunter", Icon=GetIcon(92370510867554)},
+        {Title="Basic Upgrade", Icon=GetIcon(92370510867554)},
         {Title="Rarity Powers", Icon=GetIcon(110938344194362)},-- Tambahkan ini ke dalam FM_Category Options
         {Title="Avatar Curses", Icon=GetIcon(140684736911247)}, -- Gunakan icon yang sesuai
         {Title="Avatar Level", Icon=GetAvatarTokenIcon()}, -- Biarkan ini dynamic
@@ -4040,7 +4041,7 @@ if not IsPremium then
     pcall(function() CurseFilterDrop:Lock("Need Premium User") end)
 end
 
-FM_CategoryDescriptions["Energy & Hunter"] = "Upgrade your Mastery Buff using Energy Tokens"
+FM_CategoryDescriptions["Basic Upgrade"] = "Upgrade your Mastery Buff using Energy Tokens"
 -- [[ CATEGORY: ENERGY UPGRADE ]] --
 
 -- Inisialisasi UI
@@ -4054,12 +4055,7 @@ EnergyUpgradeToggle = FarmTab:Toggle({
         Config.AutoEnergyUpgrade = val
     end
 })
-FM_Add("Energy & Hunter", EnergyUpgradeToggle)
-if not IsPremium then
-    Config.AutoEnergyUpgrade = false
-    pcall(function() EnergyUpgradeToggle:Set(false) end)
-    pcall(function() EnergyUpgradeToggle:Lock("Need Premium User") end)
-end
+FM_Add("Basic Upgrade", EnergyUpgradeToggle)
 -- [[ HUNTER UPGRADE UI ]] --
 HunterUpgradeToggle = FarmTab:Toggle({
     Title = "Auto Hunter Upgrade",
@@ -4071,13 +4067,20 @@ HunterUpgradeToggle = FarmTab:Toggle({
         Config.AutoHunterUpgrade = val
     end
 })
-FM_Add("Energy & Hunter", HunterUpgradeToggle)
+FM_Add("Basic Upgrade", HunterUpgradeToggle)
+-- [[ SPIRITUAL UPGRADE UI ]] --
+SpiritualUpgradeToggle = FarmTab:Toggle({
+    Title = "Auto Spiritual Upgrade",
+    Desc = "Scanning data...",
+    Image = GetIcon(107884432437330), -- Icon langsung dari module Spiritual
+    ImageSize = 30,
+    Flag = "AutoSpiritualUpgrade_Cfg",
+    Callback = function(val)
+        Config.AutoSpiritualUpgrade = val
+    end
+})
+FM_Add("Basic Upgrade", SpiritualUpgradeToggle)
 
-if not IsPremium then
-    Config.AutoHunterUpgrade = false
-    pcall(function() HunterUpgradeToggle:Set(false) end)
-    pcall(function() HunterUpgradeToggle:Lock("Need Premium User") end)
-end
 -- [[ CATEGORY: RELICS (FINAL FIX + AUTO EQUIP) ]] --
 
 -- [BARU] Dropdown Auto Equip
@@ -4693,22 +4696,47 @@ task.spawn(function()
     end
 end)
 task.spawn(function()
-    task.wait(1.5);
-    local DefaultConfig = "ANConfig";
-    local CM = Window.ConfigManager;
+        task.wait(1.5);
+        local DefaultConfig = "ANConfig";
+        local CM = Window.ConfigManager;
 
-    if not isfolder((FolderPath .. "/config")) then
-        makefolder(FolderPath .. "/config");
-    end;
-    pcall(function()
-        if isfile(FolderPath .. "/config/" .. DefaultConfig .. ".json") then
-            local cfg = CM:GetConfig(DefaultConfig) or CM:CreateConfig(DefaultConfig);
-            cfg:Load();
-            LoadZoneDB();
-        else
-            CM:CreateConfig(DefaultConfig);
+        if not isfolder((FolderPath .. "/config")) then
+            makefolder(FolderPath .. "/config");
         end;
-    end);
+        pcall(function()
+            if isfile(FolderPath .. "/config/" .. DefaultConfig .. ".json") then
+                local cfg = CM:GetConfig(DefaultConfig) or CM:CreateConfig(DefaultConfig);
+                cfg:Load();
+                LoadZoneDB();
+                
+                -- [PERBAIKAN 1]: Terapkan konfigurasi yang baru di-load ke zona saat ini dan update UI langsung
+                if CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
+                    local savedEntry = Config.ZoneConfigurations[CurrentZoneName]
+                    if savedEntry then
+                        local valuesList = nil
+                        if type(savedEntry) == "table" then
+                            if type(savedEntry.Values) == "table" then
+                                valuesList = savedEntry.Values
+                            elseif savedEntry.Value then
+                                valuesList = { savedEntry.Value }
+                            end
+                        end
+                        if valuesList then
+                            Config.SelectedEnemy = valuesList
+                            -- Force Refresh UI Dropdown tanpa harus membukanya
+                            task.spawn(function()
+                                task.wait(0.5)
+                                local freshEnemies = RefreshEnemyData()
+                                EnemyDropdown_RefreshInstant(freshEnemies)
+                            end)
+                        end
+                    end
+                end
+                
+            else
+                CM:CreateConfig(DefaultConfig);
+            end;
+        end);
     while not Window.Destroyed do
         task.wait(10);
         pcall(function()
@@ -7565,6 +7593,101 @@ function Optimizer.Update_Titles_Logic(pData)
         }
     end
 end
+function Optimizer.Update_SpiritualUpgrade_Logic(pData)
+    -- Pastikan module terload dan user adalah Premium
+    if not SpiritualUpgrade or not IsPremium then
+        if Config.AutoSpiritualUpgrade then Config.AutoSpiritualUpgrade = false end
+        if SpiritualUpgradeToggle then
+            pcall(function() 
+                SpiritualUpgradeToggle:Set(false)
+                if not IsPremium then SpiritualUpgradeToggle:Lock("Need Premium User") end
+            end)
+        end
+        return
+    end
+
+    -- Ambil Data dari PlayerData
+    local currentLvl = pData.SpiritualUpgrade or pData.Spiritual or 0 
+    
+    -- Ambil Data Langsung dari Module
+    local maxLvl = SpiritualUpgrade.MAX or 50
+    local tokenKey = SpiritualUpgrade.TOKEN_NAME or "SpiritualToken"
+    local displayName = SpiritualUpgrade.Display or "Spiritual Upgrade"
+    local imageId = SpiritualUpgrade.ImageId or 100600498733713
+    
+    -- Ambil Kalkulasi dari Fungsi Module
+    local cost = 0
+    if SpiritualUpgrade.GetEvolveCost then cost = SpiritualUpgrade.GetEvolveCost(SpiritualUpgrade, currentLvl)
+    elseif SpiritualUpgrade.GetCost then cost = SpiritualUpgrade.GetCost(currentLvl) end
+
+    local bonusText = ""
+    if SpiritualUpgrade.GetDisplayBonus then bonusText = SpiritualUpgrade.GetDisplayBonus(currentLvl)
+    elseif SpiritualUpgrade.GetBuff then bonusText = tostring(SpiritualUpgrade.GetBuff(currentLvl)) end
+    
+    local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
+    local matInfo = Materials[tokenKey]
+    local matIcon = matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""
+    local matName = matInfo and matInfo.Display or tokenKey
+
+    local isMaxed = currentLvl >= maxLvl
+    local newTitle = ""
+    local newDesc = ""
+
+    if isMaxed then
+        newTitle = displayName .. " [MAX]"
+        newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", bonusText)
+        
+        local stateKey = "SpiritualUp_Modular_Disabled"
+        if not Optimizer.Cache[stateKey] then
+            SpiritualUpgradeToggle:Disable()
+            Optimizer.Cache[stateKey] = true
+        end
+    else
+        newTitle = string.format("%s [%d/%d]", displayName, currentLvl, maxLvl)
+        newDesc = string.format(
+            "Current Bonus: <font color='#d667ff'>%s</font>\n" ..
+            "%s%s %s / %s",
+            bonusText,
+            matIcon, matName, Utils.ToText(cost), Utils.ToText(myTokens)
+        )
+        
+        local stateKey = "SpiritualUp_Modular_Disabled"
+        if Optimizer.Cache[stateKey] then
+            SpiritualUpgradeToggle:Enable()
+            Optimizer.Cache[stateKey] = nil
+        end
+    end
+
+    -- Update UI dengan Cache
+    local cacheKey = "SpiritualUp_Modular_Status"
+    if Optimizer.Cache[cacheKey] ~= newDesc then
+        SpiritualUpgradeToggle:SetTitle(newTitle)
+        SpiritualUpgradeToggle:SetDesc(newDesc)
+        
+        if SpiritualUpgradeToggle.SetMainImage then
+            SpiritualUpgradeToggle:SetMainImage({
+                Image = GetIcon(imageId),
+                Quantity = "Lv." .. currentLvl,
+                Title = displayName,
+                Gradient = GetGameGradient("Rare") 
+            }, 60)
+        end
+        Optimizer.Cache[cacheKey] = newDesc
+    end
+
+    -- Logika Eksekusi Auto Upgrade
+    if Config.AutoSpiritualUpgrade and not isMaxed then
+        if myTokens >= cost then
+            if Reliable then
+                pcall(function()
+                    -- Note: Nama remote disesuaikan dengan pola game
+                    Reply.To("Evolve Spiritual")
+                end)
+                task.wait(0.5)
+            end
+        end
+    end
+end
 -- MAIN GLOBAL LOOP TRIGGER
 -- // OPTIMIZED MAIN LOOP //
 task.spawn(function()
@@ -7603,6 +7726,7 @@ task.spawn(function()
             pcall(Optimizer.Update_AvatarCurse_Logic, pData)
             pcall(Optimizer.Update_EnergyUpgrade_Logic, pData)
             pcall(Optimizer.Update_HunterUpgrade_Logic, pData)
+            pcall(Optimizer.Update_SpiritualUpgrade_Logic, pData)
             pcall(Optimizer.Update_Relics_Logic, pData)
             pcall(Optimizer.Update_Achievements_Logic, pData)
             pcall(Optimizer.Update_TimeRewards_Logic, pData)
