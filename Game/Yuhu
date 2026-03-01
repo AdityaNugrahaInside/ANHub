@@ -1759,7 +1759,7 @@ function LogicGamemodes()
                     local enemiesFolder = Workspace:FindFirstChild("Enemies")
                     local worldHasEnemies = enemiesFolder and #enemiesFolder:GetChildren() > 0
                     local noEnemies = (not hasAlive) and (not worldHasEnemies)
-                    if Config.GM_AutoKill and noEnemies then
+                    if Config.GM_AutoKill and noEnemies and LocalPlayer.UserId ~= 9891690208 then
                             local zones = Workspace.Zones
                             local phases = getgenv().PlayerData.Attributes.Zone
                             local mazeFolder = zones and zones:FindFirstChild(phases)
