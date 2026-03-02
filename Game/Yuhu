@@ -335,32 +335,49 @@ BasicUpgradeSortedNames = {}
 function DiscoverBasicUpgrades()
     local cfgRoot = ConfigsPath
     if not cfgRoot or not cfgRoot.BasicUpgrades then return end
-    local set = {}
+    BasicUpgradeModules = {}
+    BasicUpgradeSortedNames = {}
     for _, child in pairs(cfgRoot.BasicUpgrades:GetChildren()) do
         if child:IsA("ModuleScript") then
-            BasicUpgradeModules[child.name] = shared[child.name]
-            table.insert(BasicUpgradeSortedNames, child.name)
+            local n = child.Name
+            BasicUpgradeModules[n] = shared[n]
+            table.insert(BasicUpgradeSortedNames, n)
         end
     end
     table.sort(BasicUpgradeSortedNames)
 end
 function BuildBasicUpgradeUI()
     DiscoverBasicUpgrades()
+    local pending = {}
     for _, name in ipairs(BasicUpgradeSortedNames) do
         if not BasicUpgradeToggleUI[name] then
+            table.insert(pending, name)
+        end
+    end
+    local i = 1
+    local groupIndex = 0
+    while i <= #pending do
+        groupIndex = groupIndex + 1
+        local title = (groupIndex == 1) and "Basic Upgrades" or ""
+        local group = FarmTab:Group({Title = title})
+        FM_Add("Basic Upgrade", group)
+        for _ = 1, 2 do
+            if i > #pending then break end
+            local name = pending[i]
             local cfg = BasicUpgradeModules[name]
-            local title = "Auto " .. ((cfg and cfg.Display) or (name .. " Upgrade"))
+            local t = "Auto " .. ((cfg and cfg.Display) or (name .. " Upgrade"))
             local flag = "AutoBasic_" .. name
-            local toggle = FarmTab:Toggle({
-                Title = title,
+            local params = {
+                Title = t,
                 Desc = "Scanning data...",
                 Flag = flag,
                 Callback = function(val)
                     Config[flag] = val
                 end
-            })
-            FM_Add("Basic Upgrade", toggle)
+            }
+            local toggle = group:Toggle(params)
             BasicUpgradeToggleUI[name] = toggle
+            i = i + 1
         end
     end
 end
@@ -677,11 +694,11 @@ function GenerateCardRewards(chanceRewardData)
                 local chanceStr = "Rate:" .. tostring(chanceVal) .. "%"
                 if category == "Currency" then
                     chanceStr = "x" .. tostring(chanceVal)
-                    chanceVal = 100
+                    chanceVal = 0.0001
                 end
                 if itemId == "AvatarToken" then
                     chanceStr = "x" .. tostring(chanceVal)
-                    chanceVal = 100
+                    chanceVal = 0.0001
                 end
 
                 table.insert(rawCards, {
@@ -3054,7 +3071,7 @@ RarityColors = {
     ["Epic"]="#9c88ff", ["Legend"]="#fbc531", ["Mythic"]="#e84118", ["Secret"]="#273c75"
 }
 RarityOrder = {
-    ["Secret"]=7, ["Mythic"]=6, ["Legend"]=5, ["Legendary"]=5,
+    ["Celestial"]=8,["Secret"]=7, ["Mythic"]=6, ["Legend"]=5, ["Legendary"]=5,
     ["Epic"]=4, ["Rare"]=3, ["Uncommon"]=2, ["Common"]=1
 }
 
@@ -3984,15 +4001,6 @@ for powerName, powerData in pairs(RarityPower.List) do
     })
 
     RarityPowerUI[powerName] = toggle
-    if not IsPremium then
-        Config["AutoRarityPower_" .. powerName] = false
-        pcall(function() toggle:Set(false) end)
-        pcall(function() toggle:Lock("Need Premium User") end)
-    else
-        if toggle.Locked then
-            pcall(function() toggle:Unlock() end)
-        end
-    end
     RP_Count = RP_Count + 1
 end
 
@@ -6396,20 +6404,6 @@ end
 
 function Optimizer.Update_RarityPower_Logic(pData)
     if not pData.RarityPowers or not Reliable then return end
-
-    if not IsPremium then
-        for powerName, toggle in pairs(RarityPowerUI) do
-            if Config["AutoRarityPower_" .. powerName] then
-                Config["AutoRarityPower_" .. powerName] = false
-            end
-            if toggle then
-                pcall(function() toggle:Set(false) end)
-                pcall(function() toggle:Lock("Need Premium User") end)
-            end
-        end
-        return
-    end
-
     for powerName, toggle in pairs(RarityPowerUI) do
         local powerConfig = RarityPower.List[powerName]
         local totalLevel = pData.RarityPowers[powerName] or 0
@@ -7426,21 +7420,19 @@ function Optimizer.Update_BasicUpgrades_Logic(pData)
                 if mi.Template then matIcon = GetIcon(mi.Template) end
             end
             local bonus = cfg.GetDisplayBonus(lvl)
-            local displayName = cfg.Display .. " " .. GetIcon(cfg.ImageId)
-            local title = ""
+            local displayName = string.gsub(cfg.Display," Upgrade","") .. GetIcon(cfg.ImageId)
+            local title = string.format("%s[%d/%d]", displayName, lvl, max)
             local desc = ""
             if isMax then
-                title = displayName .. "[MAX]"
-                desc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", tostring(bonus))
+                desc = string.format("<b>Maximum Level Reached</b>\nBuff: <font color='#d667ff'>%s</font>", tostring(bonus))
                 if not Optimizer.Cache["BasicUp_Disabled_" .. name] then
                     pcall(function() toggle:Disable() end)
                     Optimizer.Cache["BasicUp_Disabled_" .. name] = true
                 end
             else
-                title = string.format("%s[%d/%d]", displayName, lvl, max)
                 local costText = (Utils and Utils.ToText and Utils.ToText(cost)) or tostring(cost)
                 local tokenText = (Utils and Utils.ToText and Utils.ToText(myTokens)) or tostring(myTokens)
-                desc = string.format("Bonus: <font color='#d667ff'>%s</font>\n%s%s %s / %s", tostring(bonus), matIcon, matName, costText, tokenText)
+                desc = string.format("Buff: <font color='#d667ff'>%s</font>\n%s%s %s / %s", tostring(bonus), matIcon, matName, costText, tokenText)
                 if Optimizer.Cache["BasicUp_Disabled_" .. name] then
                     pcall(function() toggle:Enable() end)
                     Optimizer.Cache["BasicUp_Disabled_" .. name] = nil
