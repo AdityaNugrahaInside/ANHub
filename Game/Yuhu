@@ -20,9 +20,6 @@ repeat task.wait() until shared.Essential and shared.Reply
 
 -- Referensi lokal ke modul game
 local Essential = shared.Essential
-EnergyUpgrade = shared.EnergyUpgrade
-HunterUpgrade = shared.Hunter
-SpiritualUpgrade = shared.Spiritual
 Materials = shared.Materials
 Currency = shared.Currency
 TradePost = shared.TradePost
@@ -332,6 +329,41 @@ function DiscoverRollTypes()
     table.sort(AllRollTypes)
 end
 DiscoverRollTypes()
+BasicUpgradeModules = {}
+BasicUpgradeToggleUI = {}
+BasicUpgradeSortedNames = {}
+function DiscoverBasicUpgrades()
+    local cfgRoot = ConfigsPath
+    if not cfgRoot or not cfgRoot.BasicUpgrades then return end
+    local set = {}
+    for _, child in pairs(cfgRoot.BasicUpgrades:GetChildren()) do
+        if child:IsA("ModuleScript") then
+            BasicUpgradeModules[child.name] = shared[child.name]
+            table.insert(BasicUpgradeSortedNames, child.name)
+        end
+    end
+    table.sort(BasicUpgradeSortedNames)
+end
+function BuildBasicUpgradeUI()
+    DiscoverBasicUpgrades()
+    for _, name in ipairs(BasicUpgradeSortedNames) do
+        if not BasicUpgradeToggleUI[name] then
+            local cfg = BasicUpgradeModules[name]
+            local title = "Auto " .. ((cfg and cfg.Display) or (name .. " Upgrade"))
+            local flag = "AutoBasic_" .. name
+            local toggle = FarmTab:Toggle({
+                Title = title,
+                Desc = "Scanning data...",
+                Flag = flag,
+                Callback = function(val)
+                    Config[flag] = val
+                end
+            })
+            FM_Add("Basic Upgrade", toggle)
+            BasicUpgradeToggleUI[name] = toggle
+        end
+    end
+end
 function GetIcon(id)
     return string.format("rbxassetid://%s", id)
 end
@@ -4042,44 +4074,7 @@ if not IsPremium then
 end
 
 FM_CategoryDescriptions["Basic Upgrade"] = "Upgrade your Mastery Buff using Energy Tokens"
--- [[ CATEGORY: ENERGY UPGRADE ]] --
-
--- Inisialisasi UI
-EnergyUpgradeToggle = FarmTab:Toggle({
-    Title = "Auto Energy Upgrade",
-    Desc = "Scanning data...",
-    Image = GetIcon(137070555439430),
-    ImageSize = 30,
-    Flag = "AutoEnergyUpgrade_Cfg",
-    Callback = function(val)
-        Config.AutoEnergyUpgrade = val
-    end
-})
-FM_Add("Basic Upgrade", EnergyUpgradeToggle)
--- [[ HUNTER UPGRADE UI ]] --
-HunterUpgradeToggle = FarmTab:Toggle({
-    Title = "Auto Hunter Upgrade",
-    Desc = "Scanning data...",
-    Image = "rbxassetid://91774759519522", -- Default icon, akan terupdate otomatis
-    ImageSize = 30,
-    Flag = "AutoHunterUpgrade_Cfg",
-    Callback = function(val)
-        Config.AutoHunterUpgrade = val
-    end
-})
-FM_Add("Basic Upgrade", HunterUpgradeToggle)
--- [[ SPIRITUAL UPGRADE UI ]] --
-SpiritualUpgradeToggle = FarmTab:Toggle({
-    Title = "Auto Spiritual Upgrade",
-    Desc = "Scanning data...",
-    Image = GetIcon(107884432437330), -- Icon langsung dari module Spiritual
-    ImageSize = 30,
-    Flag = "AutoSpiritualUpgrade_Cfg",
-    Callback = function(val)
-        Config.AutoSpiritualUpgrade = val
-    end
-})
-FM_Add("Basic Upgrade", SpiritualUpgradeToggle)
+BuildBasicUpgradeUI()
 
 -- [[ CATEGORY: RELICS (FINAL FIX + AUTO EQUIP) ]] --
 
@@ -6658,194 +6653,6 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
         end
     end
 end
-
-function Optimizer.Update_EnergyUpgrade_Logic(pData)
-    -- Pastikan module terload dan user adalah Premium
-    if not EnergyUpgrade or not IsPremium then
-        if Config.AutoEnergyUpgrade then Config.AutoEnergyUpgrade = false end
-        if EnergyUpgradeToggle then
-            pcall(function() 
-                EnergyUpgradeToggle:Set(false)
-                if not IsPremium then EnergyUpgradeToggle:Lock("Need Premium User") end
-            end)
-        end
-        return
-    end
-
-    -- Ambil Data dari PlayerData
-    -- Berdasarkan decompile, index level biasanya sama dengan nama sistemnya
-    local currentLvl = pData.EnergyUpgrade or 0 
-    
-    -- Ambil Data Langsung dari Module (Modular)
-    local maxLvl = EnergyUpgrade.MAX
-    local tokenKey = EnergyUpgrade.TOKEN_NAME
-    local displayName = EnergyUpgrade.Display
-    local imageId = EnergyUpgrade.ImageId
-    
-    -- Ambil Kalkulasi dari Fungsi Module
-    local cost = EnergyUpgrade.GetEvolveCost(EnergyUpgrade, currentLvl)
-    local bonusText = EnergyUpgrade.GetDisplayBonus(currentLvl)
-    
-    local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
-    local matInfo = Materials[tokenKey]
-    local matIcon = matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""
-    local matName = matInfo and matInfo.Display or tokenKey
-
-    local isMaxed = currentLvl >= maxLvl
-    local newTitle = ""
-    local newDesc = ""
-
-    if isMaxed then
-        newTitle = displayName .. " [MAX]"
-        newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", bonusText)
-        
-        local stateKey = "EnergyUp_Modular_Disabled"
-        if not Optimizer.Cache[stateKey] then
-            EnergyUpgradeToggle:Disable()
-            Optimizer.Cache[stateKey] = true
-        end
-    else
-        newTitle = string.format("%s [%d/%d]", displayName, currentLvl, maxLvl)
-        newDesc = string.format(
-            "Current Bonus: <font color='#d667ff'>%s</font>\n" ..
-            "%s%s %s / %s",
-            bonusText,
-            matIcon, matName, Utils.ToText(cost), Utils.ToText(myTokens)
-        )
-        
-        local stateKey = "EnergyUp_Modular_Disabled"
-        if Optimizer.Cache[stateKey] then
-            EnergyUpgradeToggle:Enable()
-            Optimizer.Cache[stateKey] = nil
-        end
-    end
-
-    -- Update UI dengan Cache (Optimasi Performa)
-    local cacheKey = "EnergyUp_Modular_Status"
-    if Optimizer.Cache[cacheKey] ~= newDesc then
-        EnergyUpgradeToggle:SetTitle(newTitle)
-        EnergyUpgradeToggle:SetDesc(newDesc)
-        
-        if EnergyUpgradeToggle.SetMainImage then
-            EnergyUpgradeToggle:SetMainImage({
-                Image = GetIcon(imageId),
-                Quantity = "Lv." .. currentLvl,
-                Title = displayName,
-                Gradient = GetGameGradient("Rare") 
-            }, 60)
-        end
-        Optimizer.Cache[cacheKey] = newDesc
-    end
-
-    -- Logika Eksekusi Auto Upgrade
-    if Config.AutoEnergyUpgrade and not isMaxed then
-        if myTokens >= cost then
-            if Reliable then
-                pcall(function()
-                    -- Mengirim remote sesuai instruksi decompile Interface.c
-                    Reply.To("Evolve EnergyUpgrade")
-                end)
-                
-                -- Anti-spam delay
-                task.wait(0.5) 
-            end
-        end
-    end
-end
-function Optimizer.Update_HunterUpgrade_Logic(pData)
-    -- Pastikan module terload dan user adalah Premium
-    if not HunterUpgrade or not IsPremium then
-        if Config.AutoHunterUpgrade then Config.AutoHunterUpgrade = false end
-        if HunterUpgradeToggle then
-            pcall(function() 
-                HunterUpgradeToggle:Set(false)
-                if not IsPremium then HunterUpgradeToggle:Lock("Need Premium User") end
-            end)
-        end
-        return
-    end
-
-    -- Ambil Data dari PlayerData (Biasanya HunterUpgrade atau Hunter)
-    local currentLvl = pData.HunterUpgrade or pData.Hunter or 0 
-    
-    -- Ambil Data Langsung dari Module (Modular)
-    local maxLvl = HunterUpgrade.MAX or 100
-    local tokenKey = HunterUpgrade.TOKEN_NAME or "HunterToken"
-    local displayName = HunterUpgrade.Display or "Hunter Upgrade"
-    local imageId = HunterUpgrade.ImageId or 84366761557806
-    
-    -- Ambil Kalkulasi dari Fungsi Module
-    local cost = 0
-    if HunterUpgrade.GetEvolveCost then cost = HunterUpgrade.GetEvolveCost(HunterUpgrade, currentLvl)
-    elseif HunterUpgrade.GetCost then cost = HunterUpgrade.GetCost(currentLvl) end
-
-    local bonusText = ""
-    if HunterUpgrade.GetDisplayBonus then bonusText = HunterUpgrade.GetDisplayBonus(currentLvl)
-    elseif HunterUpgrade.GetBuff then bonusText = tostring(HunterUpgrade.GetBuff(currentLvl)) end
-    
-    local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
-    local matInfo = Materials[tokenKey]
-    local matIcon = matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""
-    local matName = matInfo and matInfo.Display or tokenKey
-
-    local isMaxed = currentLvl >= maxLvl
-    local newTitle = ""
-    local newDesc = ""
-
-    if isMaxed then
-        newTitle = displayName .. " [MAX]"
-        newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", bonusText)
-        
-        local stateKey = "HunterUp_Modular_Disabled"
-        if not Optimizer.Cache[stateKey] then
-            HunterUpgradeToggle:Disable()
-            Optimizer.Cache[stateKey] = true
-        end
-    else
-        newTitle = string.format("%s [%d/%d]", displayName, currentLvl, maxLvl)
-        newDesc = string.format(
-            "Current Bonus: <font color='#d667ff'>%s</font>\n" ..
-            "%s%s %s / %s",
-            bonusText,
-            matIcon, matName, Utils.ToText(cost), Utils.ToText(myTokens)
-        )
-        
-        local stateKey = "HunterUp_Modular_Disabled"
-        if Optimizer.Cache[stateKey] then
-            HunterUpgradeToggle:Enable()
-            Optimizer.Cache[stateKey] = nil
-        end
-    end
-
-    -- Update UI dengan Cache
-    local cacheKey = "HunterUp_Modular_Status"
-    if Optimizer.Cache[cacheKey] ~= newDesc then
-        HunterUpgradeToggle:SetTitle(newTitle)
-        HunterUpgradeToggle:SetDesc(newDesc)
-        
-        if HunterUpgradeToggle.SetMainImage then
-            HunterUpgradeToggle:SetMainImage({
-                Image = GetIcon(imageId),
-                Quantity = "Lv." .. currentLvl,
-                Title = displayName,
-                Gradient = GetGameGradient("Rare") 
-            }, 60)
-        end
-        Optimizer.Cache[cacheKey] = newDesc
-    end
-
-    -- Logika Eksekusi Auto Upgrade
-    if Config.AutoHunterUpgrade and not isMaxed then
-        if myTokens >= cost then
-            if Reliable then
-                pcall(function()
-                    -- Remote sesuai dengan instruksi Anda
-                    Reply.To("Evolve Hunter")
-                end)
-            end
-        end
-    end
-end
 function Optimizer.Update_AutoUnlock_Logic(pData)
     -- Pastikan fitur aktif dan data dasar tersedia 
     if not Config.AutoUnlockRolls or not Reliable or not pData.Attributes or not pData.Unlocked then return end
@@ -7593,97 +7400,68 @@ function Optimizer.Update_Titles_Logic(pData)
         }
     end
 end
-function Optimizer.Update_SpiritualUpgrade_Logic(pData)
-    -- Pastikan module terload dan user adalah Premium
-    if not SpiritualUpgrade or not IsPremium then
-        if Config.AutoSpiritualUpgrade then Config.AutoSpiritualUpgrade = false end
-        if SpiritualUpgradeToggle then
-            pcall(function() 
-                SpiritualUpgradeToggle:Set(false)
-                if not IsPremium then SpiritualUpgradeToggle:Lock("Need Premium User") end
-            end)
-        end
-        return
-    end
-
-    -- Ambil Data dari PlayerData
-    local currentLvl = pData.SpiritualUpgrade or pData.Spiritual or 0 
-    
-    -- Ambil Data Langsung dari Module
-    local maxLvl = SpiritualUpgrade.MAX or 50
-    local tokenKey = SpiritualUpgrade.TOKEN_NAME or "SpiritualToken"
-    local displayName = SpiritualUpgrade.Display or "Spiritual Upgrade"
-    local imageId = SpiritualUpgrade.ImageId or 100600498733713
-    
-    -- Ambil Kalkulasi dari Fungsi Module
-    local cost = 0
-    if SpiritualUpgrade.GetEvolveCost then cost = SpiritualUpgrade.GetEvolveCost(SpiritualUpgrade, currentLvl)
-    elseif SpiritualUpgrade.GetCost then cost = SpiritualUpgrade.GetCost(currentLvl) end
-
-    local bonusText = ""
-    if SpiritualUpgrade.GetDisplayBonus then bonusText = SpiritualUpgrade.GetDisplayBonus(currentLvl)
-    elseif SpiritualUpgrade.GetBuff then bonusText = tostring(SpiritualUpgrade.GetBuff(currentLvl)) end
-    
-    local myTokens = pData.Materials and pData.Materials[tokenKey] or 0
-    local matInfo = Materials[tokenKey]
-    local matIcon = matInfo and matInfo.Template and GetIcon(matInfo.Template) or ""
-    local matName = matInfo and matInfo.Display or tokenKey
-
-    local isMaxed = currentLvl >= maxLvl
-    local newTitle = ""
-    local newDesc = ""
-
-    if isMaxed then
-        newTitle = displayName .. " [MAX]"
-        newDesc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", bonusText)
-        
-        local stateKey = "SpiritualUp_Modular_Disabled"
-        if not Optimizer.Cache[stateKey] then
-            SpiritualUpgradeToggle:Disable()
-            Optimizer.Cache[stateKey] = true
-        end
-    else
-        newTitle = string.format("%s [%d/%d]", displayName, currentLvl, maxLvl)
-        newDesc = string.format(
-            "Current Bonus: <font color='#d667ff'>%s</font>\n" ..
-            "%s%s %s / %s",
-            bonusText,
-            matIcon, matName, Utils.ToText(cost), Utils.ToText(myTokens)
-        )
-        
-        local stateKey = "SpiritualUp_Modular_Disabled"
-        if Optimizer.Cache[stateKey] then
-            SpiritualUpgradeToggle:Enable()
-            Optimizer.Cache[stateKey] = nil
-        end
-    end
-
-    -- Update UI dengan Cache
-    local cacheKey = "SpiritualUp_Modular_Status"
-    if Optimizer.Cache[cacheKey] ~= newDesc then
-        SpiritualUpgradeToggle:SetTitle(newTitle)
-        SpiritualUpgradeToggle:SetDesc(newDesc)
-        
-        if SpiritualUpgradeToggle.SetMainImage then
-            SpiritualUpgradeToggle:SetMainImage({
-                Image = GetIcon(imageId),
-                Quantity = "Lv." .. currentLvl,
-                Title = displayName,
-                Gradient = GetGameGradient("Rare") 
-            }, 60)
-        end
-        Optimizer.Cache[cacheKey] = newDesc
-    end
-
-    -- Logika Eksekusi Auto Upgrade
-    if Config.AutoSpiritualUpgrade and not isMaxed then
-        if myTokens >= cost then
-            if Reliable then
+function Optimizer.Update_BasicUpgrades_Logic(pData)
+    for _, name in ipairs(BasicUpgradeSortedNames) do
+        local cfg = BasicUpgradeModules[name]
+        local toggle = BasicUpgradeToggleUI[name]
+        if cfg and toggle then
+            local lvl = pData[name] or pData[name .. "Upgrade"] or 0
+            local max = cfg.MAX or 0
+            local cost = nil
+            if cfg.GetEvolveCost then
+                local ok, res = pcall(cfg.GetEvolveCost, cfg, lvl)
+                if ok then cost = res end
+            end
+            local isMax = false
+            if max > 0 and lvl >= max then isMax = true end
+            if cost == false or cost == nil then isMax = true end
+            local tokenKey = cfg.TOKEN_NAME
+            local myTokens = 0
+            local matIcon = ""
+            local matName = tokenKey or ""
+            if tokenKey and pData.Materials then myTokens = pData.Materials[tokenKey] or 0 end
+            if tokenKey and Materials and Materials[tokenKey] then
+                local mi = Materials[tokenKey]
+                matName = mi.Display or tokenKey
+                if mi.Template then matIcon = GetIcon(mi.Template) end
+            end
+            local bonus = cfg.GetDisplayBonus(lvl)
+            local displayName = cfg.Display .. " " .. GetIcon(cfg.ImageId)
+            local title = ""
+            local desc = ""
+            if isMax then
+                title = displayName .. "[MAX]"
+                desc = string.format("<b>Maximum Level Reached</b>\nTotal Buff: <font color='#d667ff'>%s</font>", tostring(bonus))
+                if not Optimizer.Cache["BasicUp_Disabled_" .. name] then
+                    pcall(function() toggle:Disable() end)
+                    Optimizer.Cache["BasicUp_Disabled_" .. name] = true
+                end
+            else
+                title = string.format("%s[%d/%d]", displayName, lvl, max)
+                local costText = (Utils and Utils.ToText and Utils.ToText(cost)) or tostring(cost)
+                local tokenText = (Utils and Utils.ToText and Utils.ToText(myTokens)) or tostring(myTokens)
+                desc = string.format("Bonus: <font color='#d667ff'>%s</font>\n%s%s %s / %s", tostring(bonus), matIcon, matName, costText, tokenText)
+                if Optimizer.Cache["BasicUp_Disabled_" .. name] then
+                    pcall(function() toggle:Enable() end)
+                    Optimizer.Cache["BasicUp_Disabled_" .. name] = nil
+                end
+            end
+            local cacheKey = "BasicUp_Status_" .. name
+            if Optimizer.Cache[cacheKey] ~= desc then
                 pcall(function()
-                    -- Note: Nama remote disesuaikan dengan pola game
-                    Reply.To("Evolve Spiritual")
+                    toggle:SetTitle(title)
+                    toggle:SetDesc(desc)
                 end)
-                task.wait(0.5)
+                Optimizer.Cache[cacheKey] = desc
+            end
+            if IsPremium and Config["AutoBasic_" .. name] and not isMax and cost and myTokens >= cost and Reliable then
+                local tkey = "BasicUp_Throttle_" .. name
+                local now = os.clock()
+                local last = Optimizer.Cache[tkey] or 0
+                if (now - last) >= 0.5 then
+                    pcall(function() Reply.To("Evolve " .. name) end)
+                    Optimizer.Cache[tkey] = now
+                end
             end
         end
     end
@@ -7724,9 +7502,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Gamemode_Dropdowns)
             pcall(Optimizer.Update_RarityPower_Logic, pData)
             pcall(Optimizer.Update_AvatarCurse_Logic, pData)
-            pcall(Optimizer.Update_EnergyUpgrade_Logic, pData)
-            pcall(Optimizer.Update_HunterUpgrade_Logic, pData)
-            pcall(Optimizer.Update_SpiritualUpgrade_Logic, pData)
+            pcall(Optimizer.Update_BasicUpgrades_Logic, pData)
             pcall(Optimizer.Update_Relics_Logic, pData)
             pcall(Optimizer.Update_Achievements_Logic, pData)
             pcall(Optimizer.Update_TimeRewards_Logic, pData)
