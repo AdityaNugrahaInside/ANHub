@@ -328,9 +328,9 @@ if LocalPlayer.UserId == 9891690208 then
         end
     end)
 end
--- if LocalPlayer.UserId == 9891690208 then
---     return
--- end
+if LocalPlayer.UserId == 9891690208 then
+    return
+end
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
 task.spawn(function()
