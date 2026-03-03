@@ -322,9 +322,9 @@ if LocalPlayer.UserId == 9891690208 then
                     end                
                     Reply.To("Convert Tokens", "EnchantmentToken", true, 1)
                 end
-                Reply.To("Enchantments Roll") 
-                task.wait() -- Sangat disarankan: tambahkan wait agar game tidak crash/freeze
+                Reply.To("Enchantments Roll")
             end
+            task.wait()
         end
     end)
 end
