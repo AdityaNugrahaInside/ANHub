@@ -1813,22 +1813,23 @@ function LogicGamemodes()
                 end
                 do
                     local phases = getgenv().PlayerData.Attributes.Zone
-                    if not BlacklistedIDs[LocalPlayer.UserId] and Config.GM_AutoKill and IsPremium and string.find(phases, "Maze") then                        
-                                local controller = getgenv().Controller
-                                local hasAlive = false
-                                if controller and controller.Enemies then
-                                    for _, enemy in pairs(controller.Enemies) do
-                                        if enemy and (enemy.Alive or (enemy.Data and (enemy.Data.Health or 0) > 0)) then
-                                            hasAlive = true
-                                            break
-                                        end
-                                    end
+                    if not BlacklistedIDs[LocalPlayer.UserId] and Config.GM_AutoKill and IsPremium and string.find(phases, "Maze") then
+                        local controller = getgenv().Controller
+                        local hasAlive = false
+                        if controller and controller.Enemies then
+                            for _, enemy in pairs(controller.Enemies) do
+                                if enemy and (enemy.Alive or (enemy.Data and (enemy.Data.Health or 0) > 0)) then
+                                    hasAlive = true
+                                    break
                                 end
-                                local enemiesFolder = Workspace:FindFirstChild("Enemies")
-                                local worldHasEnemies = enemiesFolder and #enemiesFolder:GetChildren() > 0
-                                local noEnemies = (not hasAlive) and (not worldHasEnemies)
-                                if not noEnemies then return
+                            end
+                        end
+                        local enemiesFolder = Workspace:FindFirstChild("Enemies")
+                        local worldHasEnemies = enemiesFolder and #enemiesFolder:GetChildren() > 0
+                        local noEnemies = (not hasAlive) and (not worldHasEnemies)
+                        if noEnemies then 
                                 local zones = Workspace.Zones
+                                local phases = getgenv().PlayerData.Attributes.Zone
                                 local mazeFolder = zones and zones:FindFirstChild(phases)
                                 local rooms = mazeFolder.Map.Rooms
                                 if rooms and hrp then
@@ -1904,6 +1905,7 @@ function LogicGamemodes()
                                         Optimizer.Cache.LastMazeDoorTP = os.clock()
                                     end
                                 end
+                            end
                     end
                 end
                 task.wait()
