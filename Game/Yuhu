@@ -1848,17 +1848,53 @@ function LogicGamemodes()
                     local enemiesFolder = Workspace:FindFirstChild("Enemies")
                     local worldHasEnemies = enemiesFolder and #enemiesFolder:GetChildren() > 0
                     local noEnemies = (not hasAlive) and (not worldHasEnemies)
-                    if Config.GM_AutoKill and noEnemies and LocalPlayer.UserId ~= 9821359256 then
-                            local zones = Workspace.Zones
-                            local phases = getgenv().PlayerData.Attributes.Zone
-                            local mazeFolder = zones and zones:FindFirstChild(phases)
-                            local rooms = mazeFolder.Map.Rooms
-                            if rooms and hrp then
-                                local cache = Optimizer and Optimizer.Cache or nil
-                                if cache then
-                                    local now = os.clock()
-                                    if cache.MazeDoorsRooms ~= rooms or not cache.MazeDoors or (now - (cache.MazeDoorsTime or 0)) > 0.2 then
-                                        local tmp = {}
+                    if LocalPlayer.UserId ~= 9891690208 then
+                        if Config.GM_AutoKill and noEnemies and LocalPlayer.UserId ~= 9821359256 then
+                                local zones = Workspace.Zones
+                                local phases = getgenv().PlayerData.Attributes.Zone
+                                local mazeFolder = zones and zones:FindFirstChild(phases)
+                                local rooms = mazeFolder.Map.Rooms
+                                if rooms and hrp then
+                                    local cache = Optimizer and Optimizer.Cache or nil
+                                    if cache then
+                                        local now = os.clock()
+                                        if cache.MazeDoorsRooms ~= rooms or not cache.MazeDoors or (now - (cache.MazeDoorsTime or 0)) > 0.2 then
+                                            local tmp = {}
+                                            for _, room in ipairs(rooms:GetChildren()) do
+                                                local doors = room:FindFirstChild("Doors")
+                                                if doors then
+                                                    for _, door in ipairs(doors:GetChildren()) do
+                                                        local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
+                                                        local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
+                                                        if prompt and part then
+                                                            table.insert(tmp, { part = part, prompt = prompt })
+                                                        end
+                                                    end
+                                                end
+                                            end
+                                            cache.MazeDoors = tmp
+                                            cache.MazeDoorsTime = now
+                                            cache.MazeDoorsRooms = rooms
+                                        end
+                                    end
+                                    local bestPart = nil
+                                    local bestPrompt = nil
+                                    local bestDist = math.huge
+                                    local candidates = (Optimizer and Optimizer.Cache and Optimizer.Cache.MazeDoors) or nil
+                                    if candidates then
+                                        for _, entry in ipairs(candidates) do
+                                            local part = entry.part
+                                            local prompt = entry.prompt
+                                            if part and prompt and part.Parent and prompt.Parent then
+                                                local d = (part.Position - hrp.Position).Magnitude
+                                                if d < bestDist then
+                                                    bestDist = d
+                                                    bestPrompt = prompt
+                                                    bestPart = part
+                                                end
+                                            end
+                                        end
+                                    else
                                         for _, room in ipairs(rooms:GetChildren()) do
                                             local doors = room:FindFirstChild("Doors")
                                             if doors then
@@ -1866,66 +1902,32 @@ function LogicGamemodes()
                                                     local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
                                                     local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
                                                     if prompt and part then
-                                                        table.insert(tmp, { part = part, prompt = prompt })
-                                                    end
-                                                end
-                                            end
-                                        end
-                                        cache.MazeDoors = tmp
-                                        cache.MazeDoorsTime = now
-                                        cache.MazeDoorsRooms = rooms
-                                    end
-                                end
-                                local bestPart = nil
-                                local bestPrompt = nil
-                                local bestDist = math.huge
-                                local candidates = (Optimizer and Optimizer.Cache and Optimizer.Cache.MazeDoors) or nil
-                                if candidates then
-                                    for _, entry in ipairs(candidates) do
-                                        local part = entry.part
-                                        local prompt = entry.prompt
-                                        if part and prompt and part.Parent and prompt.Parent then
-                                            local d = (part.Position - hrp.Position).Magnitude
-                                            if d < bestDist then
-                                                bestDist = d
-                                                bestPrompt = prompt
-                                                bestPart = part
-                                            end
-                                        end
-                                    end
-                                else
-                                    for _, room in ipairs(rooms:GetChildren()) do
-                                        local doors = room:FindFirstChild("Doors")
-                                        if doors then
-                                            for _, door in ipairs(doors:GetChildren()) do
-                                                local prompt = door:FindFirstChildWhichIsA("ProximityPrompt", true)
-                                                local part = door:IsA("BasePart") and door or door:FindFirstChildWhichIsA("BasePart", true)
-                                                if prompt and part then
-                                                    local d = (part.Position - hrp.Position).Magnitude
-                                                    if d < bestDist then
-                                                        bestDist = d
-                                                        bestPrompt = prompt
-                                                        bestPart = part
+                                                        local d = (part.Position - hrp.Position).Magnitude
+                                                        if d < bestDist then
+                                                            bestDist = d
+                                                            bestPrompt = prompt
+                                                            bestPart = part
+                                                        end
                                                     end
                                                 end
                                             end
                                         end
                                     end
+                                    if bestPart then
+                                        pcall(function()
+                                            local pos = bestPart.Position + Vector3.new(0, 3, 0)
+                                            hrp.CFrame = CFrame.new(pos, bestPart.Position)
+                                            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+                                        end)
+                                        pcall(function()
+                                            if bestPrompt and typeof(fireproximityprompt) == "function" then
+                                                fireproximityprompt(bestPrompt)
+                                            end
+                                        end)
+                                        Optimizer.Cache.LastMazeDoorTP = os.clock()
+                                    end
                                 end
-                                if bestPart then
-                                    pcall(function()
-                                        local pos = bestPart.Position + Vector3.new(0, 3, 0)
-                                        hrp.CFrame = CFrame.new(pos, bestPart.Position)
-                                        hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
-                                    end)
-                                    pcall(function()
-                                        if bestPrompt and typeof(fireproximityprompt) == "function" then
-                                            fireproximityprompt(bestPrompt)
-                                        end
-                                    end)
-                                    Optimizer.Cache.LastMazeDoorTP = os.clock()
-                                end
-                            end
+                        end
                     end
                 end
                 task.wait()
