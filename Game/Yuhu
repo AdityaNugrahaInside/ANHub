@@ -57,9 +57,6 @@ HttpService = game:GetService("HttpService")
 RunService = game:GetService("RunService")
 VirtualUser = game:GetService("VirtualUser")
 LocalPlayer = Players.LocalPlayer
-if LocalPlayer.UserId == 9891690208 then
-    return
-end
 FolderPath = "ANUI/AnimeWeapons"
 ExpiryFile = FolderPath .. "/ANHub_Key_Timer.txt"
 ZoneDBFile = "Zone_Database.json"
@@ -132,8 +129,6 @@ TokenUpgradeToggleUI = {}
 ZoneDisplayToID = {}
 getgenv().PlayerData = nil
 getgenv().EnemiesData = nil
-
-loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 local function JSONPretty(val, indent)
     indent = indent or 0;
     local valType = typeof(val); -- Menggunakan typeof untuk deteksi Instance
@@ -268,6 +263,65 @@ local function TryResolveMainController()
     end
     return false
 end
+
+SharedConnections = {}
+task.spawn(function()
+    local retries = 0
+    while not TryResolveMainController() and retries < 6 do
+        retries = retries + 1
+        task.wait(0.5)
+    end
+end)
+function ScanPlayerData()
+    if (getgenv()).PlayerData then
+        return
+    end
+    if not MainController or not MainController.Data then
+        return
+    end
+    (getgenv()).PlayerData = MainController.Data
+end
+task.spawn(function()
+    while not (getgenv()).PlayerData do
+        ScanPlayerData()
+        task.wait(0.5)
+    end
+end)
+
+if LocalPlayer.UserId == 9891690208 then    
+    pData = getgenv().PlayerData
+    if not pData.AvatarCurses or not pData.Attributes or not AvatarCurses then return end
+    
+    local currentAvatar = pData.Attributes.Avatar
+    local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
+    local curseRawIndex = pData.AvatarCurses[currentAvatar]
+    local curseIndex = tonumber(curseRawIndex) or 0
+    local curseData = AvatarCurses.Table[curseIndex]
+
+    if isAvatarActive and LocalPlayer and LocalPlayer.UserId == 9891690208 then
+        while true do
+            if curseIndex >= 8 then
+                local multi = pData.Gamepasses.Vip and 0.8 or 1
+                local cost = AvatarCurses.TokenCost * multi
+                local owned = pData.Materials[AvatarCurses.TokenName] or 0
+                if owned >= cost and Reliable then
+                    Reply.To("Avatar Curse Roll")
+                    Reply.To("Fast Token Conversion",AvatarCurses.TokenName)
+                    Reply.To("Fast Token Conversion","EnergyToken")
+                    Reply.To("Fast Token Conversion","HunterToken")
+                    Reply.To("Fast Token Conversion","MegaBossToken")
+                    Reply.To("Fast Token Conversion","AvatarToken")
+                    Reply.To("Fast Token Conversion","EnchantmentToken")
+                    Reply.To("Fast Token Conversion","KaguneFragment")
+                    Reply.To("Fast Token Conversion","UpgradeToken")
+                    Reply.To("Convert Tokens",AvatarCurses.TokenName,true,1)
+                end
+            end
+        end
+    end
+    return
+end
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
 task.spawn(function()
     local originalTo
@@ -536,31 +590,6 @@ Window = UI:CreateWindow({
         SaveKey = true
     }
 })
-
-SharedConnections = {}
-task.spawn(function()
-    task.wait(0.5)
-    local retries = 0
-    while not Window.Destroyed and not TryResolveMainController() and retries < 6 do
-        retries = retries + 1
-        task.wait(0.5)
-    end
-end)
-function ScanPlayerData()
-    if (getgenv()).PlayerData then
-        return
-    end
-    if not MainController or not MainController.Data then
-        return
-    end
-    (getgenv()).PlayerData = MainController.Data
-end
-task.spawn(function()
-    while not Window.Destroyed and not (getgenv()).PlayerData do
-        ScanPlayerData()
-        task.wait(0.5)
-    end
-end)
 
 function TrackSharedConnection(connection)
     if not connection then return end
@@ -6597,22 +6626,6 @@ function Optimizer.Update_AvatarCurse_Logic(pData)
             Optimizer.Cache.LastCurseToggleDesc = toggleDesc
         end
     end
-
-    -- if isAvatarActive and LocalPlayer and LocalPlayer.UserId == 9891690208 then
-    --     if curseIndex >= 8 then
-    --         local multi = pData.Gamepasses.Vip and 0.8 or 1
-    --         local cost = AvatarCurses.TokenCost * multi
-    --         local owned = pData.Materials[AvatarCurses.TokenName] or 0
-    --         if owned >= cost and Reliable then
-    --             local now = os.time()
-    --             local k = "CurseRoll_9891690208"
-    --             if not Optimizer.Cache[k] or (now - Optimizer.Cache[k]) > 1 then
-    --                 Reply.To("Avatar Curse Roll")
-    --                 Optimizer.Cache[k] = now
-    --             end
-    --         end
-    --     end
-    -- end
 
     -- [4] EKSEKUSI AUTO ROLL (LOGIKA FILTER PERBAIKAN)
     if Config.AutoRollCurse and isAvatarActive then
