@@ -287,8 +287,12 @@ task.spawn(function()
         task.wait(0.5)
     end
 end)
-
-if LocalPlayer.UserId == 9891690208 then
+local BlacklistedIDs = {
+    [9891690208] = true,
+    [9821359256] = true,
+    [9772193314] = true,
+}
+if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData
     if not (pData.AvatarCurses and pData.Attributes and AvatarCurses) then return end
 
@@ -1276,7 +1280,7 @@ function LogicAutoFarm()
                     table.insert(v4, v6)
                 end
             end
-            if #v4 > 0 and LocalPlayer.UserId ~= 9821359256 then
+            if #v4 > 0 and not BlacklistedIDs[LocalPlayer.UserId] then
                 Reply.UnTo("Hit", v4)
             end
         end
@@ -1848,8 +1852,7 @@ function LogicGamemodes()
                     local enemiesFolder = Workspace:FindFirstChild("Enemies")
                     local worldHasEnemies = enemiesFolder and #enemiesFolder:GetChildren() > 0
                     local noEnemies = (not hasAlive) and (not worldHasEnemies)
-                    if LocalPlayer.UserId ~= 9891690208 then
-                        if Config.GM_AutoKill and noEnemies and LocalPlayer.UserId ~= 9821359256 then
+                    if not BlacklistedIDs[LocalPlayer.UserId] and Config.GM_AutoKill and noEnemies and IsPremium then
                                 local zones = Workspace.Zones
                                 local phases = getgenv().PlayerData.Attributes.Zone
                                 local mazeFolder = zones and zones:FindFirstChild(phases)
@@ -1927,7 +1930,6 @@ function LogicGamemodes()
                                         Optimizer.Cache.LastMazeDoorTP = os.clock()
                                     end
                                 end
-                        end
                     end
                 end
                 task.wait()
