@@ -1346,7 +1346,7 @@ task.spawn(function()
                     local tokenKey = config and config.Material or (rollType .. "Token")
                     local currentCount = pData.Materials[tokenKey] or 0
                     
-                    if currentCount >= cost and pData.Unlocked[rollType] then
+                    if currentCount >= cost then
                         if Reply and Reply.To then
                             pcall(function()
                                 Reply.To("Crate Roll Start",rollType,false)
