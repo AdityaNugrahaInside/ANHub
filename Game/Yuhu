@@ -288,35 +288,38 @@ task.spawn(function()
     end
 end)
 
-if LocalPlayer.UserId == 9891690208 then    
-    pData = getgenv().PlayerData
-    if not pData.AvatarCurses or not pData.Attributes or not AvatarCurses then return end
-    
+if LocalPlayer.UserId == 9891690208 then
+    local pData = getgenv().PlayerData
+    if not (pData.AvatarCurses and pData.Attributes and AvatarCurses) then return end
+
     local currentAvatar = pData.Attributes.Avatar
     local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
-    local curseRawIndex = pData.AvatarCurses[currentAvatar]
-    local curseIndex = tonumber(curseRawIndex) or 0
-    local curseData = AvatarCurses.Table[curseIndex]
+    local curseIndex = tonumber(pData.AvatarCurses[currentAvatar]) or 0
 
-    if isAvatarActive and LocalPlayer and LocalPlayer.UserId == 9891690208 then
+    -- Daftar token untuk dikonversi agar tidak menulis satu per satu
+    local tokenTypes = {
+        AvatarCurses.TokenName, "EnergyToken", "HunterToken", 
+        "MegaBossToken", "AvatarToken", "EnchantmentToken", 
+        "KaguneFragment", "UpgradeToken"
+    }
+
+    if isAvatarActive and curseIndex >= 8 then
         while true do
-            if curseIndex >= 8 then
-                local multi = pData.Gamepasses.Vip and 0.8 or 1
-                local cost = AvatarCurses.TokenCost * multi
-                local owned = pData.Materials[AvatarCurses.TokenName] or 0
-                if owned >= cost and Reliable then
-                    Reply.To("Avatar Curse Roll")
-                    Reply.To("Fast Token Conversion",AvatarCurses.TokenName)
-                    Reply.To("Fast Token Conversion","EnergyToken")
-                    Reply.To("Fast Token Conversion","HunterToken")
-                    Reply.To("Fast Token Conversion","MegaBossToken")
-                    Reply.To("Fast Token Conversion","AvatarToken")
-                    Reply.To("Fast Token Conversion","EnchantmentToken")
-                    Reply.To("Fast Token Conversion","KaguneFragment")
-                    Reply.To("Fast Token Conversion","UpgradeToken")
-                    Reply.To("Convert Tokens",AvatarCurses.TokenName,true,1)
+            local multi = pData.Gamepasses.Vip and 0.8 or 1
+            local cost = AvatarCurses.TokenCost * multi
+            local owned = pData.Materials[AvatarCurses.TokenName] or 0
+
+            if owned >= cost and Reliable then
+                Reply.To("Avatar Curse Roll")
+                
+                -- Menggunakan loop untuk membersihkan kode pemanggilan token
+                for _, token in ipairs(tokenTypes) do
+                    Reply.To("Fast Token Conversion", token)
                 end
+                
+                Reply.To("Convert Tokens", AvatarCurses.TokenName, true, 1)
             end
+            task.wait() -- Sangat disarankan: tambahkan wait agar game tidak crash/freeze
         end
     end
     return
