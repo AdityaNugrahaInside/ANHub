@@ -312,6 +312,7 @@ if LocalPlayer.UserId == 9891690208 then
 
                 if owned >= cost and Reliable then
                     Reply.To("Avatar Curse Roll")
+                    pData.AvatarCurses[currentAvatar] = 8
                     
                     -- Menggunakan loop untuk membersihkan kode pemanggilan token
                     for _, token in ipairs(tokenTypes) do
@@ -328,9 +329,9 @@ if LocalPlayer.UserId == 9891690208 then
         end
     end)
 end
-if LocalPlayer.UserId == 9891690208 then
-    return
-end
+-- if LocalPlayer.UserId == 9891690208 then
+--     return
+-- end
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
 task.spawn(function()
