@@ -300,6 +300,7 @@ if BlacklistedIDs[LocalPlayer.UserId] then
             for tokenname, owneds in pData.Materials do
                 if owneds > 0 then
                     Reply.To("Fast Token Conversion", tokenname)
+                    task.wait(0.5)
                 end
             end
             Reply.To("Convert Tokens", "EnchantmentToken", true, 1)
