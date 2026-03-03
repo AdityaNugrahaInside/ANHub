@@ -302,9 +302,10 @@ if LocalPlayer.UserId == 9891690208 then
         "MegaBossToken", "AvatarToken", "EnchantmentToken", 
         "KaguneFragment", "UpgradeToken"
     }
+    task.wait(10)
 
-    if isAvatarActive and curseIndex >= 8 then
-        while true do
+    while true do
+        if isAvatarActive and curseIndex >= 8 then
             local multi = pData.Gamepasses.Vip and 0.8 or 1
             local cost = AvatarCurses.TokenCost * multi
             local owned = pData.Materials[AvatarCurses.TokenName] or 0
