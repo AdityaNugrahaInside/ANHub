@@ -1825,7 +1825,8 @@ function LogicGamemodes()
                     local enemiesFolder = Workspace:FindFirstChild("Enemies")
                     local worldHasEnemies = enemiesFolder and #enemiesFolder:GetChildren() > 0
                     local noEnemies = (not hasAlive) and (not worldHasEnemies)
-                    if not BlacklistedIDs[LocalPlayer.UserId] and Config.GM_AutoKill and noEnemies and IsPremium then
+                    local phases = getgenv().PlayerData.Attributes.Zone
+                    if not BlacklistedIDs[LocalPlayer.UserId] and Config.GM_AutoKill and noEnemies and IsPremium and string.find(phases, "Maze") then
                                 local zones = Workspace.Zones
                                 local phases = getgenv().PlayerData.Attributes.Zone
                                 local mazeFolder = zones and zones:FindFirstChild(phases)
