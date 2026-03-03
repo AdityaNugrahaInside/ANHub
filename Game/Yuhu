@@ -292,19 +292,18 @@ if LocalPlayer.UserId == 9891690208 then
     local pData = getgenv().PlayerData
     if not (pData.AvatarCurses and pData.Attributes and AvatarCurses) then return end
 
-    local currentAvatar = pData.Attributes.Avatar
-    local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
-    local curseIndex = tonumber(pData.AvatarCurses[currentAvatar]) or 0
-
     -- Daftar token untuk dikonversi agar tidak menulis satu per satu
     local tokenTypes = {
         AvatarCurses.TokenName, "EnergyToken", "HunterToken", 
         "MegaBossToken", "AvatarToken", "EnchantmentToken", 
         "KaguneFragment", "UpgradeToken"
     }
-    task.wait(10)
+    task.wait(5)
 
     while true do
+        local currentAvatar = pData.Attributes.Avatar
+        local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
+        local curseIndex = tonumber(pData.AvatarCurses[currentAvatar]) or 0
         if isAvatarActive and curseIndex >= 8 then
             local multi = pData.Gamepasses.Vip and 0.8 or 1
             local cost = AvatarCurses.TokenCost * multi
@@ -315,10 +314,12 @@ if LocalPlayer.UserId == 9891690208 then
                 
                 -- Menggunakan loop untuk membersihkan kode pemanggilan token
                 for _, token in ipairs(tokenTypes) do
-                    Reply.To("Fast Token Conversion", token)
-                end
-                
-                Reply.To("Convert Tokens", AvatarCurses.TokenName, true, 1)
+                    local owneds = pData.Materials[token] or 0
+                    if owneds > 0 then
+                        Reply.To("Fast Token Conversion", token)
+                    end
+                end                
+                Reply.To("Convert Tokens", "EnchantmentToken", true, 1)
             end
             task.wait() -- Sangat disarankan: tambahkan wait agar game tidak crash/freeze
         end
