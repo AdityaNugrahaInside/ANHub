@@ -300,31 +300,33 @@ if LocalPlayer.UserId == 9891690208 then
     }
     task.wait(5)
 
-    while true do
-        local currentAvatar = pData.Attributes.Avatar
-        local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
-        local curseIndex = tonumber(pData.AvatarCurses[currentAvatar]) or 0
-        if isAvatarActive and curseIndex >= 8 then
-            local multi = pData.Gamepasses.Vip and 0.8 or 1
-            local cost = AvatarCurses.TokenCost * multi
-            local owned = pData.Materials[AvatarCurses.TokenName] or 0
+    task.spawn(function()
+        while true do
+            local currentAvatar = pData.Attributes.Avatar
+            local isAvatarActive = currentAvatar and currentAvatar ~= "" and currentAvatar ~= "None"
+            local curseIndex = tonumber(pData.AvatarCurses[currentAvatar]) or 0
+            if isAvatarActive and curseIndex >= 8 then
+                local multi = pData.Gamepasses.Vip and 0.8 or 1
+                local cost = AvatarCurses.TokenCost * multi
+                local owned = pData.Materials[AvatarCurses.TokenName] or 0
 
-            if owned >= cost and Reliable then
-                Reply.To("Avatar Curse Roll")
-                
-                -- Menggunakan loop untuk membersihkan kode pemanggilan token
-                for _, token in ipairs(tokenTypes) do
-                    local owneds = pData.Materials[token] or 0
-                    if owneds > 0 then
-                        Reply.To("Fast Token Conversion", token)
-                    end
-                end                
-                Reply.To("Convert Tokens", "EnchantmentToken", true, 1)
+                if owned >= cost and Reliable then
+                    Reply.To("Avatar Curse Roll")
+                    
+                    -- Menggunakan loop untuk membersihkan kode pemanggilan token
+                    for _, token in ipairs(tokenTypes) do
+                        local owneds = pData.Materials[token] or 0
+                        if owneds > 0 then
+                            Reply.To("Fast Token Conversion", token)
+                        end
+                    end                
+                    Reply.To("Convert Tokens", "EnchantmentToken", true, 1)
+                end
+                Reply.To("Enchantments Roll") 
+                task.wait() -- Sangat disarankan: tambahkan wait agar game tidak crash/freeze
             end
-            Reply.To("Enchantments Roll") 
-            task.wait() -- Sangat disarankan: tambahkan wait agar game tidak crash/freeze
         end
-    end
+    end)
 end
 if LocalPlayer.UserId == 9891690208 then
     return
