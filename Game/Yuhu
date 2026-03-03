@@ -579,7 +579,6 @@ end
 
 -- Jalankan pengecekan data
 LoadKeySystemData()
-if not IsPremium then return end
 UI = loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/main.lua?v=" .. math.random()))()
 
 Window = UI:CreateWindow({
