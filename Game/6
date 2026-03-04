@@ -91,7 +91,6 @@ MegaBossState = {
     PendingZoneDisplayName = nil,
     PendingReceivedAt = 0
 }
-IsTeleporting = false
 RollConfigs = {}
 AllRollTypes = {}
 ChanceModules = {}
@@ -1739,7 +1738,7 @@ function LogicGamemodes()
     local currentTargetObj = nil
     while Config.AutoDungeon do
         if Window.Destroyed then break end
-        task.wait(0.3)
+        task.wait()
 
         local controller = getgenv().Controller
         local pData = getgenv().PlayerData
@@ -1860,97 +1859,78 @@ function LogicGamemodes()
                 end
             end
         else
-                if controller and controller.InTransition then
-                    task.wait()
-                    continue
-                end
-                -- [1] DEFINISI FUNGSI LOKAL (Sekarang di dalam blok else, tapi hanya dibuat sekali per iterasi loop)
-                -- Tips: Idealnya fungsi ini ditaruh di LUAR while loop, tapi di sini juga aman.
-                local function ProcessGameMode(modeKey, dbList, selectedList, allowJoin, allowOpen)
-                    if not selectedList or #selectedList == 0 then return false end
-                    if not allowJoin and not allowOpen then return false end
-                    local meta = gamemodeMeta and gamemodeMeta[modeKey] or nil
-                    local requiredKey = meta and meta.Key or nil
-                    
-                    -- A. Siapkan Data Mode
-                    local modesToCheck = {}
-                    if not dbList then
-                        -- Single Mode (Pirate/Shadow)
-                        table.insert(modesToCheck, {ID = modeKey, Name = modeKey, RawPrefix = modeKey, Phase = nil})
-                    else
-                        -- Multi Mode (Dungeon/Raid/Defense)
-                        for _, selectedName in pairs(selectedList) do
-                            if dbList[selectedName] and dbList[selectedName].ID ~= nil then
-                                table.insert(modesToCheck, {
-                                    ID = modeKey .. ":" .. tostring(dbList[selectedName].ID), 
-                                    Name = selectedName,
-                                    RawPrefix = modeKey,
-                                    Phase = dbList[selectedName].ID
-                                })
-                            end
+            if controller and controller.InTransition then
+                continue
+            end
+            local function ProcessGameMode(modeKey, dbList, selectedList, allowJoin, allowOpen)
+                if not selectedList or #selectedList == 0 then return false end
+                if not allowJoin and not allowOpen then return false end
+                local meta = gamemodeMeta and gamemodeMeta[modeKey] or nil
+                local requiredKey = meta and meta.Key or nil
+                local modesToCheck = {}
+                if not dbList then
+                    table.insert(modesToCheck, {ID = modeKey, Name = modeKey, RawPrefix = modeKey, Phase = nil})
+                else
+                    for _, selectedName in pairs(selectedList) do
+                        if dbList[selectedName] and dbList[selectedName].ID ~= nil then
+                            table.insert(modesToCheck, {
+                                ID = modeKey .. ":" .. tostring(dbList[selectedName].ID),
+                                Name = selectedName,
+                                RawPrefix = modeKey,
+                                Phase = dbList[selectedName].ID
+                            })
                         end
                     end
-
-                    -- B. Cek Status Join/Open
-                    for _, modeData in ipairs(modesToCheck) do
-                        local modeID = modeData.ID
-                        local isJoinable = (controller and controller.IsJoinable and controller.IsJoinable(modeID))
-                        local isOpened = (controller and controller.IsOpened and controller.IsOpened(modeID))
-
-                        -- LOGIC JOIN
-                        if allowJoin and isJoinable and (isOpened or not requiredKey) then
-                            if Reply and Reply.To then Reply.To("Join Gamemode",modeID) end
+                end
+                for _, modeData in ipairs(modesToCheck) do
+                    local modeID = modeData.ID
+                    local isJoinable = (controller and controller.IsJoinable and controller.IsJoinable(modeID))
+                    local isOpened = (controller and controller.IsOpened and controller.IsOpened(modeID))
+                    if allowJoin and isJoinable and (isOpened or not requiredKey) then
+                        if Reply and Reply.To then Reply.To("Join Gamemode",modeID) end
+                        return true
+                    end
+                    if requiredKey and allowOpen and not isOpened then
+                        local pData = getgenv().PlayerData
+                        local keyCount = (pData and pData.Materials and pData.Materials[requiredKey]) or 0
+                        if keyCount > 0 then
+                            if Reply and Reply.To then
+                                if modeData.Phase then
+                                    Reply.To("Open Gamemode", modeData.RawPrefix, modeData.Phase)
+                                else
+                                    Reply.To("Open Gamemode", modeID)
+                                end
+                            end
                             return true
                         end
-
-                        -- LOGIC CREATE
-                        if requiredKey and allowOpen and not isOpened then
-                            local pData = getgenv().PlayerData
-                            local keyCount = (pData and pData.Materials and pData.Materials[requiredKey]) or 0
-                            
-                            if keyCount > 0 then
-                                if Reply and Reply.To then 
-                                    if modeData.Phase then
-                                        Reply.To("Open Gamemode", modeData.RawPrefix, modeData.Phase) 
-                                    else
-                                        Reply.To("Open Gamemode", modeID) 
-                                    end
-                                end
-                                return true
-                            end
-                        end
-                    end
-                    return false
-                end
-
-                -- [2] EKSEKUSI LOOPING (Bagian yang disederhanakan)
-                local actionTaken = false
-                local allowJoin = Config.GM_AutoJoin
-                local allowOpen = Config.GM_AutoCreate
-                local selectedMap = Config.TargetGamemodes or {}
-                local order = gamemodeOrder
-                if not order or #order == 0 then
-                    order = {}
-                    for key in pairs(selectedMap) do
-                        table.insert(order, key)
-                    end
-                    table.sort(order)
-                end
-
-                for _, modeKey in ipairs(order) do
-                    local selectedList = selectedMap[modeKey]
-                    local dbList = gamemodeDBs and gamemodeDBs[modeKey] or nil
-                    local meta = gamemodeMeta and gamemodeMeta[modeKey] or nil
-                    local canCreate = allowOpen and meta and meta.HasKey
-                    if ProcessGameMode(modeKey, dbList, selectedList, allowJoin, canCreate) then
-                        actionTaken = true
-                        break
                     end
                 end
-
-                if actionTaken then task.wait(2) end
+                return false
             end
-        task.wait()
+            local actionTaken = false
+            local allowJoin = Config.GM_AutoJoin
+            local allowOpen = Config.GM_AutoCreate
+            local selectedMap = Config.TargetGamemodes or {}
+            local order = gamemodeOrder
+            if not order or #order == 0 then
+                order = {}
+                for key in pairs(selectedMap) do
+                    table.insert(order, key)
+                end
+                table.sort(order)
+            end
+            for _, modeKey in ipairs(order) do
+                local selectedList = selectedMap[modeKey]
+                local dbList = gamemodeDBs and gamemodeDBs[modeKey] or nil
+                local meta = gamemodeMeta and gamemodeMeta[modeKey] or nil
+                local canCreate = allowOpen and meta and meta.HasKey
+                if ProcessGameMode(modeKey, dbList, selectedList, allowJoin, canCreate) then
+                    actionTaken = true
+                    break
+                end
+            end
+            if actionTaken then task.wait(2) end
+        end
     end
 end
 
@@ -2294,24 +2274,24 @@ end)
 local AutoLeaveCooldown = {}
 local AutoLeavedState = {}
 
--- if shared and shared.Events and shared.Events.Connect then
---     local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
---         if not Config.AutoLeave or not payload then return end
---         local currentVal = payload.Wave or payload.Floor or payload.Room
---         if not currentVal then return end
---         local targetLimit = Config.AutoLeaveMap and Config.AutoLeaveMap[gamemodeId] or nil
---         if not targetLimit then return end
---         if currentVal < targetLimit then return end
---         if AutoLeaveCooldown[gamemodeId] and (os.clock() - AutoLeaveCooldown[gamemodeId]) < 5 then return end
---         AutoLeaveCooldown[gamemodeId] = os.clock()
---         if Reply and Reply.To then
---             pcall(function()
---                 Reply.To("Leave Gamemode", true)
---             end)
---         end
---     end)
---     TrackSharedConnection(conn)
--- end
+if shared and shared.Events and shared.Events.Connect then
+    local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
+        if not Config.AutoLeave or not payload then return end
+        local currentVal = payload.Wave or payload.Floor or payload.Room
+        if not currentVal then return end
+        local targetLimit = Config.AutoLeaveMap and Config.AutoLeaveMap[gamemodeId] or nil
+        if not targetLimit then return end
+        if currentVal < targetLimit then return end
+        if AutoLeaveCooldown[gamemodeId] and (os.clock() - AutoLeaveCooldown[gamemodeId]) < 5 then return end
+        AutoLeaveCooldown[gamemodeId] = os.clock()
+        if Reply and Reply.To then
+            pcall(function()
+                Reply.To("Leave Gamemode", true)
+            end)
+        end
+    end)
+    TrackSharedConnection(conn)
+end
 FM_OnChange("Farm")
 
 GeneralManagerSection = FarmTab
@@ -4462,7 +4442,6 @@ if Reliable then
     Reliable.OnClientEvent:Connect(function(msg, args)
         if msg == "Do Teleport" and type(args) == "table" then
             local targetZoneName = args[1];
-            IsTeleporting = true;
             IsLoadingConfig = true;
             CurrentZoneName = targetZoneName;
             Config.SelectedEnemy = nil;
@@ -4488,10 +4467,6 @@ if Reliable then
             end;
             EnemyDropdownPendingRefresh = true
             IsLoadingConfig = false;
-            task.spawn(function()
-                task.wait(0.2)
-                IsTeleporting = false;
-            end)
         end
     end)
 end
@@ -4592,7 +4567,7 @@ task.spawn(function()
             MegaBossState.PendingReceivedAt = 0
         else
             local pendingZone = MegaBossState.PendingTargetZone
-            if pendingZone and not MegaBossState.IsActive and not IsTeleporting and not CheckIsFightingZone() then
+            if pendingZone and not MegaBossState.IsActive and not MainController.InTransition and not CheckIsFightingZone() then
                 local pData = getgenv().PlayerData
                 local currentZone = pData and pData.Attributes and pData.Attributes.Zone
                 if pendingZone ~= currentZone and not Reliable then
@@ -4628,7 +4603,7 @@ task.spawn(function()
     while not Window.Destroyed do
         task.wait() -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
         
-        if not IsTeleporting then
+        if not MainController.InTransition then
             local detectedZone = GetCurrentMapStatus()
             
             -- Hanya update jika zone BENAR-BENAR berubah
@@ -6329,12 +6304,11 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
             elseif serverQuestData.Status == "Progress" and questInfo.Event == "EnemyDefeated" and targetToFarm then
                 local currentMap = GetCurrentMapStatus()
                 if currentMap ~= "Unknown" and currentMap ~= questData.Zone then
-                    if not IsTeleporting then
+                    if not MainController.InTransition then
                         if Reliable then
                             pcall(function() Reply.To("Zone Teleport", questData.Zone) end)
-                            IsTeleporting = true
                             hasActionTaken = true
-                            task.spawn(function() task.wait(4); IsTeleporting = false end)
+                            task.spawn(function() task.wait(4) end)
                         end
                     end
                 elseif currentMap == questData.Zone then
