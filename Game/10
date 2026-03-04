@@ -71,10 +71,7 @@ humanoid = nil
 LastZone = nil
 CurrentZoneName = ""
 CurrentZoneEnemiesCache = {}
-CurrentZoneEnemiesSignature = ""
-EnemyDropdownLastAppliedSignature = ""
-EnemyRefreshToken = 0
-EnemyDropdownPendingRefresh = true
+EnemyDropdownNeedsRefresh = true
 IsLoadingConfig = false
 MeteorState = {
     IsActive = false,
@@ -1620,67 +1617,53 @@ EnemyDropdown = FarmTab:Dropdown({
 });
 FM_Add("Farm", EnemyDropdown);
 
+function EnemyDropdown_SetPendingValues(values)
+    CurrentZoneEnemiesCache = values or {}
+    if EnemyDropdown then
+        EnemyDropdown.Values = CurrentZoneEnemiesCache
+    end
+    EnemyDropdownNeedsRefresh = true
+end
+
 function EnemyDropdown_SetValueOnlyFromConfig()
     if not EnemyDropdown then return end
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
-    
-    -- Gunakan fungsi :Select() dari library ANUI agar checkbox visual ikut tercentang
-    if EnemyDropdown.Select then
-        pcall(function() EnemyDropdown:Select(selectedList) end)
+    local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
+    EnemyDropdown.Value = selectedItems
+    if EnemyDropdown.Display then
+        pcall(function() EnemyDropdown.Display() end)
     end
 end
 
-function EnemyDropdown_RefreshInstant(values)
+function EnemyDropdown_ApplyPendingRefresh()
+    if not EnemyDropdownNeedsRefresh then return end
     if not EnemyDropdown then return end
-    CurrentZoneEnemiesCache = values or {}
-    
-    if not values or #CurrentZoneEnemiesCache == 0 then
-        CurrentZoneEnemiesSignature = ""
-    end
-    
-    -- 1. Refresh Data List UI jika ada perubahan (Cegah Blank Dropdown)
-    if EnemyDropdown.Refresh and CurrentZoneEnemiesSignature ~= EnemyDropdownLastAppliedSignature then
-        EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
-        EnemyDropdownLastAppliedSignature = CurrentZoneEnemiesSignature
-    end
-    
-    -- 2. Terapkan Pilihan menggunakan fungsi Select()
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
-    if EnemyDropdown.Select then
-        pcall(function() EnemyDropdown:Select(selectedList) end)
+    local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
+    EnemyDropdown.Value = selectedItems
+    if EnemyDropdown.Refresh then
+        EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
+    end
+    EnemyDropdownNeedsRefresh = false
+end
+
+do
+    local menu = EnemyDropdown and EnemyDropdown.DropdownMenu
+    local oldMenuOpen = menu and menu.Open
+    if oldMenuOpen then
+        menu.Open = function(self, ...)
+            if EnemyDropdown and not EnemyDropdown.Opened then
+                pcall(EnemyDropdown_ApplyPendingRefresh)
+            end
+            return oldMenuOpen(self, ...)
+        end
     end
 end
-
-function EnemyDropdown_RefreshIfChangedOnOpen()
-    if not EnemyDropdown or IsLoadingConfig or not EnemyDropdownPendingRefresh then return end
-    EnemyRefreshToken = EnemyRefreshToken + 1
-    local token = EnemyRefreshToken
-    task.spawn(function()
-        task.wait()
-        if EnemyRefreshToken ~= token then return end
-        local prevSignature = CurrentZoneEnemiesSignature
-        local freshEnemies = RefreshEnemyData()
-        if EnemyRefreshToken ~= token then return end
-        if CurrentZoneEnemiesSignature ~= prevSignature then
-            EnemyDropdown_RefreshInstant(freshEnemies)
-        elseif EnemyDropdown.Display then
-            pcall(function() EnemyDropdown.Display() end)
-        end
-        EnemyDropdownPendingRefresh = false
-    end)
-end
-
 RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
     Callback = function()
-        task.spawn(function()
-            local freshEnemies = RefreshEnemyData()
-            EnemyDropdown_RefreshInstant(freshEnemies)
-            pcall(function()
-                if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
-            end)
-        end)
+        EnemyDropdown:Refresh(RefreshEnemyData());
     end
 });
 FM_Add("Farm", RefreshBtn);
@@ -4173,16 +4156,6 @@ SettingsTab:Button({
         end
     end
 })
-SettingsTab:Button({
-    Title = "Copy EnemiesData to Clipboard",
-    Icon = "copy",
-    Callback = function()
-        local data = getgenv().PlayerData -- Mengambil data dari variabel global 
-        if data then
-            setclipboard(JSONPretty(getgenv().EnemiesData, 1))
-        end
-    end
-})
 ConfigSection = SettingsTab:Section({
     Title = "Config Manager",
     Icon = "save",
@@ -4439,10 +4412,12 @@ SettingsTab:Paragraph({
     Desc = "Status: FROZEN by ANHub\nBypass is running automatically."
 });
 
+
 if Reliable then
     Reliable.OnClientEvent:Connect(function(msg, args)
         if msg == "Do Teleport" and type(args) == "table" then
             local targetZoneName = args[1];
+            IsTeleporting = true;
             IsLoadingConfig = true;
             CurrentZoneName = targetZoneName;
             Config.SelectedEnemy = nil;
@@ -4452,23 +4427,31 @@ if Reliable then
                     pcall(function() EnemyDropdown.Display() end)
                 end
             end
-            local savedEntry = Config.ZoneConfigurations[targetZoneName];
-            if savedEntry then
-                local valuesList = nil
-                if type(savedEntry) == "table" then
-                    if type(savedEntry.Values) == "table" then
-                        valuesList = savedEntry.Values
-                    elseif savedEntry.Value then
-                        valuesList = { savedEntry.Value }
+            EnemyDropdownNeedsRefresh = true
+            task.spawn(function()
+                local freshEnemies = RefreshEnemyData();
+                EnemyDropdown_SetPendingValues(freshEnemies)
+                pcall(function()
+                    if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+                end)
+                local savedEntry = Config.ZoneConfigurations[targetZoneName];
+                if savedEntry then
+                    local valuesList = nil
+                    if type(savedEntry) == "table" then
+                        if type(savedEntry.Values) == "table" then
+                            valuesList = savedEntry.Values
+                        elseif savedEntry.Value then
+                            valuesList = { savedEntry.Value }
+                        end
                     end
-                end
-                if valuesList then
-                    Config.SelectedEnemy = valuesList
-                end
-            end;
-            EnemyDropdownPendingRefresh = true
-            IsLoadingConfig = false;
-        end
+                    if valuesList then
+                        Config.SelectedEnemy = valuesList
+                    end
+                end;
+                EnemyDropdown_SetValueOnlyFromConfig()
+                IsLoadingConfig = false;
+                IsTeleporting = false;
+            end);
     end)
 end
 -- [CHAT LISTENER: TEXT CHAT SERVICE (FIXED & OPTIMIZED)]
@@ -4602,13 +4585,18 @@ task.spawn(function()
     local prevZone = ""
     
     while not Window.Destroyed do
-        task.wait() -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
+        task.wait(1) -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
         
-        if not MainController.InTransition then
+        if not IsTeleporting then
             local detectedZone = GetCurrentMapStatus()
             
             -- Hanya update jika zone BENAR-BENAR berubah
             if detectedZone and detectedZone ~= "Unknown" and detectedZone ~= prevZone then
+                
+                -- [PERBAIKAN 1: WAKTU TUNGGU]
+                -- Tunggu 2 detik agar Roblox selesai loading asset map & folder Enemies.
+                -- Jika terlalu cepat, folder Enemies masih kosong atau berisi data zone lama.
+                task.wait(2.0) 
                 
                 prevZone = detectedZone
                 CurrentZoneName = detectedZone
@@ -4619,23 +4607,49 @@ task.spawn(function()
                         pcall(function() EnemyDropdown.Display() end)
                     end
                 end
+                EnemyDropdownNeedsRefresh = true
                 
-                IsLoadingConfig = false
-                local savedEntry = Config.ZoneConfigurations[detectedZone]
-                if savedEntry then
-                    local valuesList = nil
-                    if type(savedEntry) == "table" then
-                        if type(savedEntry.Values) == "table" then
-                            valuesList = savedEntry.Values
-                        elseif savedEntry.Value then
-                            valuesList = { savedEntry.Value }
+                -- Reset dropdown sementara (Visual feedback)
+                if EnemyDropdown and EnemyDropdown.SetTitle then
+                    pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
+                end
+                
+                IsLoadingConfig = true
+                
+                -- Jalankan refresh data di thread terpisah agar Main Loop tidak macet
+                task.spawn(function()
+                    -- Proses ini sekarang aman karena sudah ada "task.wait" di dalam RefreshEnemyData
+                    local freshEnemies = RefreshEnemyData()
+                    EnemyDropdown_SetPendingValues(freshEnemies)
+                    
+                    -- Update Dropdown UI
+                    pcall(function()
+                        if EnemyDropdown then
+                            -- Kembalikan Judul
+                            if EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+                        end
+                    end)
+                    
+                    -- Auto Select Enemy Terakhir (Saved Config)
+                    task.wait(0.2)
+                    local savedEntry = Config.ZoneConfigurations[detectedZone]
+                    if savedEntry then
+                        local valuesList = nil
+                        if type(savedEntry) == "table" then
+                            if type(savedEntry.Values) == "table" then
+                                valuesList = savedEntry.Values
+                            elseif savedEntry.Value then
+                                valuesList = { savedEntry.Value }
+                            end
+                        end
+                        if valuesList then
+                            Config.SelectedEnemy = valuesList
                         end
                     end
-                    if valuesList then
-                        Config.SelectedEnemy = valuesList
-                    end
-                end
-                EnemyDropdownPendingRefresh = true
+                    EnemyDropdown_SetValueOnlyFromConfig()
+                    
+                    IsLoadingConfig = false
+                end)
             end
         end
     end
