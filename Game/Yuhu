@@ -299,7 +299,7 @@ local specialUser = {
 if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
-        task.wait(3600)
+        task.wait(7200)
         while true do
             for tokenname, owneds in pData.Materials do
                 if owneds > 0 then
