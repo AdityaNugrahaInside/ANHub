@@ -1623,27 +1623,31 @@ FM_Add("Farm", EnemyDropdown);
 function EnemyDropdown_SetValueOnlyFromConfig()
     if not EnemyDropdown then return end
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
-    local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
-    EnemyDropdown.Value = selectedItems
-    if EnemyDropdown.Display then
-        pcall(function() EnemyDropdown.Display() end)
+    
+    -- Gunakan fungsi :Select() dari library ANUI agar checkbox visual ikut tercentang
+    if EnemyDropdown.Select then
+        pcall(function() EnemyDropdown:Select(selectedList) end)
     end
 end
 
 function EnemyDropdown_RefreshInstant(values)
     if not EnemyDropdown then return end
     CurrentZoneEnemiesCache = values or {}
+    
     if not values or #CurrentZoneEnemiesCache == 0 then
         CurrentZoneEnemiesSignature = ""
     end
-    local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
-    local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
-    EnemyDropdown.Value = selectedItems
+    
+    -- 1. Refresh Data List UI jika ada perubahan (Cegah Blank Dropdown)
     if EnemyDropdown.Refresh and CurrentZoneEnemiesSignature ~= EnemyDropdownLastAppliedSignature then
         EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
         EnemyDropdownLastAppliedSignature = CurrentZoneEnemiesSignature
-    elseif EnemyDropdown.Display then
-        pcall(function() EnemyDropdown.Display() end)
+    end
+    
+    -- 2. Terapkan Pilihan menggunakan fungsi Select()
+    local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
+    if EnemyDropdown.Select then
+        pcall(function() EnemyDropdown:Select(selectedList) end)
     end
 end
 
@@ -1664,19 +1668,6 @@ function EnemyDropdown_RefreshIfChangedOnOpen()
         end
         EnemyDropdownPendingRefresh = false
     end)
-end
-
-do
-    local menu = EnemyDropdown and EnemyDropdown.DropdownMenu
-    local oldMenuOpen = menu and menu.Open
-    if oldMenuOpen then
-        menu.Open = function(self, ...)
-            if EnemyDropdown and not EnemyDropdown.Opened then
-                pcall(EnemyDropdown_RefreshIfChangedOnOpen)
-            end
-            return oldMenuOpen(self, ...)
-        end
-    end
 end
 
 RefreshBtn = FarmTab:Button({
