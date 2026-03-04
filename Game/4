@@ -2294,24 +2294,24 @@ end)
 local AutoLeaveCooldown = {}
 local AutoLeavedState = {}
 
-if shared and shared.Events and shared.Events.Connect then
-    local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
-        if not Config.AutoLeave or not payload then return end
-        local currentVal = payload.Wave or payload.Floor or payload.Room
-        if not currentVal then return end
-        local targetLimit = Config.AutoLeaveMap and Config.AutoLeaveMap[gamemodeId] or nil
-        if not targetLimit then return end
-        if currentVal < targetLimit then return end
-        if AutoLeaveCooldown[gamemodeId] and (os.clock() - AutoLeaveCooldown[gamemodeId]) < 5 then return end
-        AutoLeaveCooldown[gamemodeId] = os.clock()
-        if Reply and Reply.To then
-            pcall(function()
-                Reply.To("Leave Gamemode", true)
-            end)
-        end
-    end)
-    TrackSharedConnection(conn)
-end
+-- if shared and shared.Events and shared.Events.Connect then
+--     local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
+--         if not Config.AutoLeave or not payload then return end
+--         local currentVal = payload.Wave or payload.Floor or payload.Room
+--         if not currentVal then return end
+--         local targetLimit = Config.AutoLeaveMap and Config.AutoLeaveMap[gamemodeId] or nil
+--         if not targetLimit then return end
+--         if currentVal < targetLimit then return end
+--         if AutoLeaveCooldown[gamemodeId] and (os.clock() - AutoLeaveCooldown[gamemodeId]) < 5 then return end
+--         AutoLeaveCooldown[gamemodeId] = os.clock()
+--         if Reply and Reply.To then
+--             pcall(function()
+--                 Reply.To("Leave Gamemode", true)
+--             end)
+--         end
+--     end)
+--     TrackSharedConnection(conn)
+-- end
 FM_OnChange("Farm")
 
 GeneralManagerSection = FarmTab
