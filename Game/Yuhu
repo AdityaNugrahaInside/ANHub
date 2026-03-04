@@ -91,7 +91,6 @@ MegaBossState = {
     PendingZoneDisplayName = nil,
     PendingReceivedAt = 0
 }
-IsTeleporting = false
 RollConfigs = {}
 AllRollTypes = {}
 ChanceModules = {}
@@ -4443,7 +4442,6 @@ if Reliable then
     Reliable.OnClientEvent:Connect(function(msg, args)
         if msg == "Do Teleport" and type(args) == "table" then
             local targetZoneName = args[1];
-            IsTeleporting = true;
             IsLoadingConfig = true;
             CurrentZoneName = targetZoneName;
             Config.SelectedEnemy = nil;
@@ -4469,10 +4467,6 @@ if Reliable then
             end;
             EnemyDropdownPendingRefresh = true
             IsLoadingConfig = false;
-            task.spawn(function()
-                task.wait(0.2)
-                IsTeleporting = false;
-            end)
         end
     end)
 end
@@ -4573,7 +4567,7 @@ task.spawn(function()
             MegaBossState.PendingReceivedAt = 0
         else
             local pendingZone = MegaBossState.PendingTargetZone
-            if pendingZone and not MegaBossState.IsActive and not IsTeleporting and not CheckIsFightingZone() then
+            if pendingZone and not MegaBossState.IsActive and not MainController.InTransition and not CheckIsFightingZone() then
                 local pData = getgenv().PlayerData
                 local currentZone = pData and pData.Attributes and pData.Attributes.Zone
                 if pendingZone ~= currentZone and not Reliable then
@@ -4609,7 +4603,7 @@ task.spawn(function()
     while not Window.Destroyed do
         task.wait() -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
         
-        if not IsTeleporting then
+        if not MainController.InTransition then
             local detectedZone = GetCurrentMapStatus()
             
             -- Hanya update jika zone BENAR-BENAR berubah
@@ -6310,12 +6304,11 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
             elseif serverQuestData.Status == "Progress" and questInfo.Event == "EnemyDefeated" and targetToFarm then
                 local currentMap = GetCurrentMapStatus()
                 if currentMap ~= "Unknown" and currentMap ~= questData.Zone then
-                    if not IsTeleporting then
+                    if not MainController.InTransition then
                         if Reliable then
                             pcall(function() Reply.To("Zone Teleport", questData.Zone) end)
-                            IsTeleporting = true
                             hasActionTaken = true
-                            task.spawn(function() task.wait(4); IsTeleporting = false end)
+                            task.spawn(function() task.wait(4) end)
                         end
                     end
                 elseif currentMap == questData.Zone then
