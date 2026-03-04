@@ -292,6 +292,10 @@ local BlacklistedIDs = {
     [9821359256] = true,
     [9772193314] = true,
 }
+local specialUser = {
+    [177984480] = true,
+    [5465738868] = true,
+}
 if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
@@ -1264,7 +1268,7 @@ end
 
 -- [[ ONE-TIME PERMANENT BYPASS ]] --
 task.spawn(function()
-    if LocalPlayer.UserId == 5465738868 then
+    if specialUser[LocalPlayer.UserId] then
         local debounceFunc = nil
         local clickFunc = nil
 
