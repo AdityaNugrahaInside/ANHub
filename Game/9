@@ -1669,25 +1669,7 @@ function EnemyDropdown_RefreshIfChangedOnOpen()
         EnemyDropdownPendingRefresh = false
     end)
 end
--- [[ AUTO REFRESH ENEMY LIST DI BACKGROUND ]] --
-task.spawn(function()
-    while not Window.Destroyed do
-        -- Mengecek apakah script memberi sinyal butuh refresh (biasanya aktif saat pindah map)
-        if EnemyDropdownPendingRefresh and not IsLoadingConfig then
-            EnemyDropdownPendingRefresh = false -- Reset sinyal agar tidak looping terus
-            
-            -- Beri waktu jeda 1.5 detik agar musuh di map baru selesai di-load oleh game
-            task.wait(1.5) 
-            
-            -- Ambil data musuh baru dan langsung masukkan ke dropdown secara diam-diam
-            pcall(function()
-                local freshEnemies = RefreshEnemyData()
-                EnemyDropdown_RefreshInstant(freshEnemies)
-            end)
-        end
-        task.wait(0.5)
-    end
-end)
+
 RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
@@ -4188,6 +4170,16 @@ SettingsTab:Button({
         local data = getgenv().PlayerData -- Mengambil data dari variabel global 
         if data then
             setclipboard(JSONPretty(getgenv().PlayerData, 1))
+        end
+    end
+})
+SettingsTab:Button({
+    Title = "Copy EnemiesData to Clipboard",
+    Icon = "copy",
+    Callback = function()
+        local data = getgenv().PlayerData -- Mengambil data dari variabel global 
+        if data then
+            setclipboard(JSONPretty(getgenv().EnemiesData, 1))
         end
     end
 })
