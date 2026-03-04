@@ -4452,6 +4452,7 @@ if Reliable then
                 IsLoadingConfig = false;
                 IsTeleporting = false;
             end);
+        end
     end)
 end
 -- [CHAT LISTENER: TEXT CHAT SERVICE (FIXED & OPTIMIZED)]
