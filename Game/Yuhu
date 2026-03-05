@@ -71,10 +71,7 @@ humanoid = nil
 LastZone = nil
 CurrentZoneName = ""
 CurrentZoneEnemiesCache = {}
-CurrentZoneEnemiesSignature = ""
-EnemyDropdownLastAppliedSignature = ""
-EnemyRefreshToken = 0
-EnemyDropdownPendingRefresh = true
+EnemyDropdownNeedsRefresh = true
 IsLoadingConfig = false
 MeteorState = {
     IsActive = false,
@@ -222,18 +219,17 @@ SecureWipe()
 if not isfolder("ANUI") then makefolder("ANUI") end
 if not isfolder(FolderPath) then makefolder(FolderPath) end
 
-MainController = nil
-local function TryResolveMainController()
-    if MainController then return true end
-    if getgenv().Controller then
-        MainController = getgenv().Controller
-        return true
-    end
-    if not Reply or not Reply.Connect then return false end
 
-    local Listeners = debug.getupvalue(Reply.Connect, 1)
+
+MainController = nil
+ReplyPath = ReplicatedFirst.Scripts:WaitForChild("Reply.client")
+success, ReplyModule = pcall(require, ReplyPath)
+
+if success and ReplyModule and ReplyModule.Connect then
+    local Listeners = debug.getupvalue(ReplyModule.Connect, 1)
+
     if type(Listeners) ~= "table" or not Listeners["Data Sync Setup"] then
-        for _, uv in pairs(debug.getupvalues(Reply.Connect)) do
+        for _, uv in pairs(debug.getupvalues(ReplyModule.Connect)) do
             if type(uv) == "table" and uv["Data Sync Setup"] then
                 Listeners = uv
                 break
@@ -244,7 +240,8 @@ local function TryResolveMainController()
     if Listeners and Listeners["Data Sync Setup"] then
         for func, _ in pairs(Listeners["Data Sync Setup"]) do
             if type(func) == "function" then
-                for _, val in pairs(debug.getupvalues(func)) do
+                local upvals = debug.getupvalues(func)
+                for _, val in pairs(upvals) do
                     if type(val) == "table" and rawget(val, "Data") and rawget(val, "SyncChanged") then
                         MainController = val
                         break
@@ -254,38 +251,18 @@ local function TryResolveMainController()
             if MainController then break end
         end
     end
-
-    if MainController then
-        getgenv().Controller = MainController
-        getgenv().EnemiesData = MainController.Enemies
-        return true
-    end
-    return false
 end
-
-SharedConnections = {}
-task.spawn(function()
-    local retries = 0
-    while not TryResolveMainController() and retries < 6 do
-        retries = retries + 1
-        task.wait(0.5)
-    end
-end)
+if MainController then
+    getgenv().EnemiesData = MainController.Enemies
+    getgenv().Controller = MainController
+end
 function ScanPlayerData()
     if (getgenv()).PlayerData then
         return
     end
-    if not MainController or not MainController.Data then
-        return
-    end
     (getgenv()).PlayerData = MainController.Data
 end
-task.spawn(function()
-    while not (getgenv()).PlayerData do
-        ScanPlayerData()
-        task.wait(0.5)
-    end
-end)
+task.spawn(ScanPlayerData)
 local BlacklistedIDs = {
     [9891690208] = true,
     [9821359256] = true,
@@ -580,7 +557,7 @@ Window = UI:CreateWindow({
         SaveKey = true
     }
 })
-
+SharedConnections = {}
 function TrackSharedConnection(connection)
     if not connection then return end
     if type(connection) == "function" then
@@ -1620,6 +1597,14 @@ EnemyDropdown = FarmTab:Dropdown({
 });
 FM_Add("Farm", EnemyDropdown);
 
+function EnemyDropdown_SetPendingValues(values)
+    CurrentZoneEnemiesCache = values or {}
+    if EnemyDropdown then
+        EnemyDropdown.Values = CurrentZoneEnemiesCache
+    end
+    EnemyDropdownNeedsRefresh = true
+end
+
 function EnemyDropdown_SetValueOnlyFromConfig()
     if not EnemyDropdown then return end
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
@@ -1630,66 +1615,34 @@ function EnemyDropdown_SetValueOnlyFromConfig()
     end
 end
 
-function EnemyDropdown_RefreshInstant(values)
+function EnemyDropdown_ApplyPendingRefresh()
+    if not EnemyDropdownNeedsRefresh then return end
     if not EnemyDropdown then return end
-    CurrentZoneEnemiesCache = values or {}
-    if not values or #CurrentZoneEnemiesCache == 0 then
-        CurrentZoneEnemiesSignature = ""
-    end
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
     local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
     EnemyDropdown.Value = selectedItems
-    if EnemyDropdown.Refresh and CurrentZoneEnemiesSignature ~= EnemyDropdownLastAppliedSignature then
+    if EnemyDropdown.Refresh then
         EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
-        EnemyDropdownLastAppliedSignature = CurrentZoneEnemiesSignature
-    elseif EnemyDropdown.Display then
-        pcall(function() EnemyDropdown.Display() end)
     end
+    EnemyDropdownNeedsRefresh = false
 end
-
-function EnemyDropdown_RefreshIfChangedOnOpen()
-    if not EnemyDropdown or IsLoadingConfig or not EnemyDropdownPendingRefresh then return end
-    EnemyRefreshToken = EnemyRefreshToken + 1
-    local token = EnemyRefreshToken
-    task.spawn(function()
-        task.wait()
-        if EnemyRefreshToken ~= token then return end
-        local prevSignature = CurrentZoneEnemiesSignature
-        local freshEnemies = RefreshEnemyData()
-        if EnemyRefreshToken ~= token then return end
-        if CurrentZoneEnemiesSignature ~= prevSignature then
-            EnemyDropdown_RefreshInstant(freshEnemies)
-        elseif EnemyDropdown.Display then
-            pcall(function() EnemyDropdown.Display() end)
-        end
-        EnemyDropdownPendingRefresh = false
-    end)
-end
-
 do
     local menu = EnemyDropdown and EnemyDropdown.DropdownMenu
     local oldMenuOpen = menu and menu.Open
     if oldMenuOpen then
         menu.Open = function(self, ...)
             if EnemyDropdown and not EnemyDropdown.Opened then
-                pcall(EnemyDropdown_RefreshIfChangedOnOpen)
+                pcall(EnemyDropdown_ApplyPendingRefresh)
             end
             return oldMenuOpen(self, ...)
         end
     end
 end
-
 RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
     Callback = function()
-        task.spawn(function()
-            local freshEnemies = RefreshEnemyData()
-            EnemyDropdown_RefreshInstant(freshEnemies)
-            pcall(function()
-                if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
-            end)
-        end)
+        EnemyDropdown:Refresh(RefreshEnemyData());
     end
 });
 FM_Add("Farm", RefreshBtn);
@@ -4245,189 +4198,6 @@ SettingsTab:Section({
     Opened = false
 });
 
-local SettingsDefinitions = nil
-local SettingsBuilt = false
-
-local SettingsDivisions = {"Sound", "Gameplay", "Visual", "Performance"}
-local SettingsGroups = {}
-for _, division in ipairs(SettingsDivisions) do
-    SettingsGroups[division] = {}
-end
-
-local SettingsTriOptions = {
-    { Title = "All", Value = 1 },
-    { Title = "Myself", Value = 2 },
-    { Title = "None", Value = 3 }
-}
-local SettingsTriIndex = { All = 1, Myself = 2, None = 3 }
-local SettingsUI = {}
-local SettingsLast = {}
-local SettingsInitDone = false
-local SettingsPending = {}
-
-local function GetSettingValue(name, fallback)
-    local pData = getgenv().PlayerData
-    local settings = pData and pData.Settings
-    if settings and settings[name] ~= nil then
-        return settings[name]
-    end
-    return fallback
-end
-
-local function BuildSettingsUI()
-    if not SettingsDefinitions then return end
-    for _, division in ipairs(SettingsDivisions) do
-        local groups = SettingsGroups[division]
-        if groups then
-            local list = {}
-            for name, info in pairs(SettingsDefinitions) do
-                if info.Division == division then
-                    table.insert(list, { Name = name, Info = info })
-                end
-            end
-            table.sort(list, function(a, b)
-                return (a.Info.Order or 0) < (b.Info.Order or 0)
-            end)
-            local groupIndex = 0
-            local itemCount = 0
-            local group = nil
-            local function NextGroup()
-                groupIndex = groupIndex + 1
-                itemCount = 0
-                local title = division
-                if groupIndex > 1 then
-                    title = division .. " (" .. tostring(groupIndex) .. ")"
-                end
-                group = SettingsTab:Group({ Title = title })
-                table.insert(groups, group)
-            end
-            for _, entry in ipairs(list) do
-                if not group or itemCount >= 2 then
-                    NextGroup()
-                end
-                local name = entry.Name
-                local info = entry.Info
-                if info.Type == "Slide" then
-                    local current = tonumber(GetSettingValue(name, 0)) or 0
-                    local element = group:Slider({
-                        Title = info.Display or name,
-                        Min = 0,
-                        Max = 100,
-                        Default = current,
-                        Flag = "GameSetting_" .. name,
-                        Callback = function(v)
-                            local num = tonumber(v) or 0
-                            SettingsPending[name] = num
-                        end
-                    })
-                    SettingsUI[name] = { Type = "Slide", Element = element }
-                    SettingsLast[name] = current
-                elseif info.Type == "Toggle" then
-                    local current = tonumber(GetSettingValue(name, 1)) or 1
-                    local element = group:Dropdown({
-                        Title = info.Display or name,
-                        Values = SettingsTriOptions,
-                        Value = SettingsTriOptions[current],
-                        AllowNone = false,
-                        Flag = "GameSetting_" .. name,
-                        Callback = function(val)
-                            local raw = type(val) == "table" and val.Value or val
-                            local num = tonumber(raw) or SettingsTriIndex[tostring(raw)] or 1
-                            SettingsPending[name] = num
-                        end
-                    })
-                    SettingsUI[name] = { Type = "Toggle", Element = element }
-                    SettingsLast[name] = current
-                elseif info.Type == "Bool" then
-                    local current = GetSettingValue(name, false) and true or false
-                    local element = group:Toggle({
-                        Title = info.Display or name,
-                        Value = current,
-                        Flag = "GameSetting_" .. name,
-                        Callback = function(v)
-                            SettingsPending[name] = v and true or false
-                        end
-                    })
-                    SettingsUI[name] = { Type = "Bool", Element = element }
-                    SettingsLast[name] = current
-                end
-                itemCount = itemCount + 1
-            end
-        end
-    end
-end
-
-task.spawn(function()
-    while not Window.Destroyed and not SettingsBuilt do
-        if not SettingsDefinitions then
-            pcall(function() SettingsDefinitions = shared.Settings end)
-        end
-        if not SettingsDefinitions then
-            pcall(function()
-                local settingsModule = RS.Scripts.Configs.General.Settings
-                if settingsModule then
-                    SettingsDefinitions = require(settingsModule)
-                end
-            end)
-        end
-        if SettingsDefinitions then
-            BuildSettingsUI()
-            SettingsBuilt = true
-            break
-        end
-        task.wait(0.5)
-    end
-end)
-
-task.spawn(function()
-    while not Window.Destroyed do
-        local pData = getgenv().PlayerData
-        local settings = pData and pData.Settings
-        if settings then
-            for name, desired in pairs(SettingsPending) do
-                local current = settings[name]
-                if current == nil or current ~= desired then
-                    if Reply and Reply.To then
-                        pcall(function()
-                            Reply.To("Settings", name, desired)
-                        end)
-                        task.wait(0.5)
-                    end
-                else
-                    SettingsPending[name] = nil
-                end
-            end
-            for name, entry in pairs(SettingsUI) do
-                local val = settings[name]
-                if val ~= nil and SettingsLast[name] ~= val then
-                    SettingsLast[name] = val
-                    if entry.Type == "Slide" then
-                        local num = tonumber(val) or 0
-                        if entry.Element and entry.Element.Set then
-                            entry.Element:Set(num)
-                        end
-                    elseif entry.Type == "Toggle" then
-                        local num = tonumber(val) or 1
-                        if entry.Element then
-                            entry.Element.Value = SettingsTriOptions[num]
-                            if entry.Element.Display then
-                                pcall(function() entry.Element.Display() end)
-                            end
-                        end
-                    elseif entry.Type == "Bool" then
-                        if entry.Element and entry.Element.Set then
-                            entry.Element:Set(val and true or false, false, true)
-                        end
-                    end
-                end
-            end
-            if not SettingsInitDone then
-                SettingsInitDone = true
-            end
-        end
-        task.wait(0.5)
-    end
-end)
 SecuritySection = SettingsTab:Section({
     Title = "Game Security",
     Icon = "shield",
@@ -4438,10 +4208,12 @@ SettingsTab:Paragraph({
     Desc = "Status: FROZEN by ANHub\nBypass is running automatically."
 });
 
+
 if Reliable then
     Reliable.OnClientEvent:Connect(function(msg, args)
         if msg == "Do Teleport" and type(args) == "table" then
             local targetZoneName = args[1];
+            IsTeleporting = true;
             IsLoadingConfig = true;
             CurrentZoneName = targetZoneName;
             Config.SelectedEnemy = nil;
@@ -4451,22 +4223,31 @@ if Reliable then
                     pcall(function() EnemyDropdown.Display() end)
                 end
             end
-            local savedEntry = Config.ZoneConfigurations[targetZoneName];
-            if savedEntry then
-                local valuesList = nil
-                if type(savedEntry) == "table" then
-                    if type(savedEntry.Values) == "table" then
-                        valuesList = savedEntry.Values
-                    elseif savedEntry.Value then
-                        valuesList = { savedEntry.Value }
+            EnemyDropdownNeedsRefresh = true
+            task.spawn(function()
+                local freshEnemies = RefreshEnemyData();
+                EnemyDropdown_SetPendingValues(freshEnemies)
+                pcall(function()
+                    if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+                end)
+                local savedEntry = Config.ZoneConfigurations[targetZoneName];
+                if savedEntry then
+                    local valuesList = nil
+                    if type(savedEntry) == "table" then
+                        if type(savedEntry.Values) == "table" then
+                            valuesList = savedEntry.Values
+                        elseif savedEntry.Value then
+                            valuesList = { savedEntry.Value }
+                        end
                     end
-                end
-                if valuesList then
-                    Config.SelectedEnemy = valuesList
-                end
-            end;
-            EnemyDropdownPendingRefresh = true
-            IsLoadingConfig = false;
+                    if valuesList then
+                        Config.SelectedEnemy = valuesList
+                    end
+                end;
+                EnemyDropdown_SetValueOnlyFromConfig()
+                IsLoadingConfig = false;
+                IsTeleporting = false;
+            end);
         end
     end)
 end
@@ -4607,8 +4388,7 @@ task.spawn(function()
             local detectedZone = GetCurrentMapStatus()
             
             -- Hanya update jika zone BENAR-BENAR berubah
-            if detectedZone and detectedZone ~= "Unknown" and detectedZone ~= prevZone then
-                
+            if detectedZone and detectedZone ~= "Unknown" and detectedZone ~= prevZone then                
                 prevZone = detectedZone
                 CurrentZoneName = detectedZone
                 Config.SelectedEnemy = nil
@@ -4618,44 +4398,29 @@ task.spawn(function()
                         pcall(function() EnemyDropdown.Display() end)
                     end
                 end
+                EnemyDropdownNeedsRefresh = true
                 
-                IsLoadingConfig = false
-                local savedEntry = Config.ZoneConfigurations[detectedZone]
-                if savedEntry then
-                    local valuesList = nil
-                    if type(savedEntry) == "table" then
-                        if type(savedEntry.Values) == "table" then
-                            valuesList = savedEntry.Values
-                        elseif savedEntry.Value then
-                            valuesList = { savedEntry.Value }
-                        end
-                    end
-                    if valuesList then
-                        Config.SelectedEnemy = valuesList
-                    end
+                -- Reset dropdown sementara (Visual feedback)
+                if EnemyDropdown and EnemyDropdown.SetTitle then
+                    pcall(function() EnemyDropdown:SetTitle("Loading Enemies...") end)
                 end
-                EnemyDropdownPendingRefresh = true
-            end
-        end
-    end
-end)
-task.spawn(function()
-        task.wait(1.5);
-        local DefaultConfig = "ANConfig";
-        local CM = Window.ConfigManager;
-
-        if not isfolder((FolderPath .. "/config")) then
-            makefolder(FolderPath .. "/config");
-        end;
-        pcall(function()
-            if isfile(FolderPath .. "/config/" .. DefaultConfig .. ".json") then
-                local cfg = CM:GetConfig(DefaultConfig) or CM:CreateConfig(DefaultConfig);
-                cfg:Load();
-                LoadZoneDB();
                 
-                -- [PERBAIKAN 1]: Terapkan konfigurasi yang baru di-load ke zona saat ini dan update UI langsung
-                if CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
-                    local savedEntry = Config.ZoneConfigurations[CurrentZoneName]
+                IsLoadingConfig = true
+                
+                -- Jalankan refresh data di thread terpisah agar Main Loop tidak macet
+                task.spawn(function()
+                    -- Proses ini sekarang aman karena sudah ada "task.wait" di dalam RefreshEnemyData
+                    local freshEnemies = RefreshEnemyData()
+                    EnemyDropdown_SetPendingValues(freshEnemies)
+                    
+                    -- Update Dropdown UI
+                    pcall(function()
+                        if EnemyDropdown then
+                            -- Kembalikan Judul
+                            if EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+                        end
+                    end)
+                    local savedEntry = Config.ZoneConfigurations[detectedZone]
                     if savedEntry then
                         local valuesList = nil
                         if type(savedEntry) == "table" then
@@ -4667,35 +4432,47 @@ task.spawn(function()
                         end
                         if valuesList then
                             Config.SelectedEnemy = valuesList
-                            -- Force Refresh UI Dropdown tanpa harus membukanya
-                            task.spawn(function()
-                                task.wait(0.5)
-                                local freshEnemies = RefreshEnemyData()
-                                EnemyDropdown_RefreshInstant(freshEnemies)
-                            end)
                         end
                     end
-                end
-                
-            else
-                CM:CreateConfig(DefaultConfig);
-            end;
-        end);
+                    EnemyDropdown_SetValueOnlyFromConfig()                    
+                    IsLoadingConfig = false
+                end)
+            end
+        end
+    end
+end)
+task.spawn(function()
+    task.wait(1.5);
+    local DefaultConfig = "ANConfig"
+    local CM = Window.ConfigManager
+
+    if not isfolder((FolderPath .. "/config")) then
+        makefolder(FolderPath .. "/config")
+    end;
+    pcall(function()
+        if isfile(FolderPath .. "/config/" .. DefaultConfig .. ".json") then
+            local cfg = CM:GetConfig(DefaultConfig) or CM:CreateConfig(DefaultConfig)
+            cfg:Load()
+            LoadZoneDB()
+        else
+            CM:CreateConfig(DefaultConfig)
+        end;
+    end);
     while not Window.Destroyed do
-        task.wait(10);
+        task.wait(10)
         pcall(function()
-            local cfg = Window.ConfigManager:GetConfig(DefaultConfig);
+            local cfg = Window.ConfigManager:GetConfig(DefaultConfig)
             if cfg then
-                cfg:Save();
+                cfg:Save()
             else
                 (CM:CreateConfig(DefaultConfig)):Save();
             end;
-        end);
+        end)
         if CurrentZoneName ~= "" and Config.SelectedEnemy then
-            SaveZoneConfig(CurrentZoneName, Config.SelectedEnemy);
-        end;
-    end;
-end);
+            SaveZoneConfig(CurrentZoneName, Config.SelectedEnemy)
+        end
+    end
+end)
 
 -- Kita gunakan Table "Optimizer" agar tidak memakan batas limit local variable Lua (Limit 200)
 Optimizer = { 
