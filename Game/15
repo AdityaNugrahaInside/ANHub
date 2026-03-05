@@ -4383,7 +4383,7 @@ task.spawn(function()
     local prevZone = ""
     
     while not Window.Destroyed do
-        task.wait(0.5) -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
+        task.wait(0.1) -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
         
         if not IsTeleporting then
             local detectedZone = GetCurrentMapStatus()
@@ -4421,9 +4421,6 @@ task.spawn(function()
                             if EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
                         end
                     end)
-                    
-                    -- Auto Select Enemy Terakhir (Saved Config)
-                    task.wait(0.2)
                     local savedEntry = Config.ZoneConfigurations[detectedZone]
                     if savedEntry then
                         local valuesList = nil
@@ -4438,8 +4435,7 @@ task.spawn(function()
                             Config.SelectedEnemy = valuesList
                         end
                     end
-                    EnemyDropdown_SetValueOnlyFromConfig()
-                    
+                    EnemyDropdown_SetValueOnlyFromConfig()                    
                     IsLoadingConfig = false
                 end)
             end
@@ -4447,62 +4443,37 @@ task.spawn(function()
     end
 end)
 task.spawn(function()
-        task.wait(1.5);
-        local DefaultConfig = "ANConfig";
-        local CM = Window.ConfigManager;
+    task.wait(1.5);
+    local DefaultConfig = "ANConfig"
+    local CM = Window.ConfigManager
 
-        if not isfolder((FolderPath .. "/config")) then
-            makefolder(FolderPath .. "/config");
+    if not isfolder((FolderPath .. "/config")) then
+        makefolder(FolderPath .. "/config")
+    end;
+    pcall(function()
+        if isfile(FolderPath .. "/config/" .. DefaultConfig .. ".json") then
+            local cfg = CM:GetConfig(DefaultConfig) or CM:CreateConfig(DefaultConfig)
+            cfg:Load()
+            LoadZoneDB()
+        else
+            CM:CreateConfig(DefaultConfig)
         end;
-        pcall(function()
-            if isfile(FolderPath .. "/config/" .. DefaultConfig .. ".json") then
-                local cfg = CM:GetConfig(DefaultConfig) or CM:CreateConfig(DefaultConfig);
-                cfg:Load();
-                LoadZoneDB();
-                
-                -- [PERBAIKAN 1]: Terapkan konfigurasi yang baru di-load ke zona saat ini dan update UI langsung
-                if CurrentZoneName and CurrentZoneName ~= "" and CurrentZoneName ~= "Unknown" then
-                    local savedEntry = Config.ZoneConfigurations[CurrentZoneName]
-                    if savedEntry then
-                        local valuesList = nil
-                        if type(savedEntry) == "table" then
-                            if type(savedEntry.Values) == "table" then
-                                valuesList = savedEntry.Values
-                            elseif savedEntry.Value then
-                                valuesList = { savedEntry.Value }
-                            end
-                        end
-                        if valuesList then
-                            Config.SelectedEnemy = valuesList
-                            -- Force Refresh UI Dropdown tanpa harus membukanya
-                            task.spawn(function()
-                                task.wait(0.5)
-                                local freshEnemies = RefreshEnemyData()
-                                EnemyDropdown_RefreshInstant(freshEnemies)
-                            end)
-                        end
-                    end
-                end
-                
-            else
-                CM:CreateConfig(DefaultConfig);
-            end;
-        end);
+    end);
     while not Window.Destroyed do
-        task.wait(10);
+        task.wait(10)
         pcall(function()
-            local cfg = Window.ConfigManager:GetConfig(DefaultConfig);
+            local cfg = Window.ConfigManager:GetConfig(DefaultConfig)
             if cfg then
-                cfg:Save();
+                cfg:Save()
             else
                 (CM:CreateConfig(DefaultConfig)):Save();
             end;
-        end);
+        end)
         if CurrentZoneName ~= "" and Config.SelectedEnemy then
-            SaveZoneConfig(CurrentZoneName, Config.SelectedEnemy);
-        end;
-    end;
-end);
+            SaveZoneConfig(CurrentZoneName, Config.SelectedEnemy)
+        end
+    end
+end)
 
 -- Kita gunakan Table "Optimizer" agar tidak memakan batas limit local variable Lua (Limit 200)
 Optimizer = { 
