@@ -219,8 +219,6 @@ SecureWipe()
 if not isfolder("ANUI") then makefolder("ANUI") end
 if not isfolder(FolderPath) then makefolder(FolderPath) end
 
-
-
 MainController = nil
 ReplyPath = ReplicatedFirst.Scripts:WaitForChild("Reply.client")
 success, ReplyModule = pcall(require, ReplyPath)
@@ -271,7 +269,7 @@ local specialUser = {
 if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
-        task.wait(1800)
+        task.wait(600)
         while true do
             for tokenname, owneds in pData.Materials do
                 if owneds > 0 then
@@ -924,33 +922,22 @@ local LastAutoSettingCheck = 0 -- Variabel penanda waktu (Debounce)
 
 function MaintainAutoStatus()
     while not Window.Destroyed do
-        -- Hanya jalankan jika Auto Farm atau Auto Gamemode aktif
-        if Config.AutoFarm or Config.AutoDungeon then
-            
-            -- [OPTIMASI PENTING] 
-            -- Gunakan selisih waktu (os.time) agar logic ini hanya jalan setiap 2 detik.
-            -- Ini mencegah spam remote event jika server sedang lag mengupdate data player.
+        if Config.AutoFarm then
             if (os.time() - LastAutoSettingCheck) > 2 then
-                
-                local Data = (getgenv()).PlayerData;
-                
-                if Data and Data.Settings and Reply and Reply.To then
-
-                    -- 2. Cek Setting Auto Attack
+                local Data = (getgenv()).PlayerData
+                if Data and Data.Settings then
                     if Data.Settings.AutoAttack == false then
                         pcall(function()
-                            Reply.To("Settings","AutoAttack",true);
-                        end);
-                    end;
-                end;
-                
-                -- Update waktu terakhir pengecekan ke waktu sekarang
+                            Reply.To("Settings","AutoAttack",true)
+                        end)
+                    end
+                end
                 LastAutoSettingCheck = os.time()
-            end;
-        end;
-        task.wait(1);
-    end;
-end;
+            end
+        end
+        task.wait()
+    end
+end
 task.spawn(MaintainAutoStatus);
 function GetCurrentMapStatus()
     local pData = getgenv().PlayerData
@@ -1207,7 +1194,7 @@ function LogicAutoFarm()
                 
                 hrp.CFrame = CFrame.lookAt(finalPos, lookAtPos)
                 
-                if hrp.AssemblyLinearVelocity.Magnitude > 0 then
+                if hrp.AssemblyLinearVelocity.Magnitude > 5 then
                     hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
                 end
             end)
@@ -1236,34 +1223,23 @@ task.spawn(function()
     if specialUser[LocalPlayer.UserId] then
         local debounceFunc = nil
         local clickFunc = nil
-
-        -- Scan GC hanya sampai ketemu target
         for _, f in pairs(getgc()) do
             if type(f) == "function" and islclosure(f) then
                 local info = debug.getinfo(f)
-                
-                -- Bypass Debounce.c
                 if info.source and string.find(info.source, "Debounce.c") then
                     debounceFunc = f
                 end
-                
-                -- Bypass Click.c
                 if info.source and string.find(info.source, "Click.c") then
                     clickFunc = f
                 end
             end
             if debounceFunc and clickFunc then break end
         end
-
         if debounceFunc then
-            -- Hooking: Memaksa fungsi debounce selalu mengembalikan 'false' (tidak cooldown)
             local oldDb = debounceFunc
             hookfunction(debounceFunc, function() return false end)
         end
-
         if clickFunc then
-            -- Mengunci upvalue timestamp di Click.c agar selalu 0 menggunakan Heartbeat
-            -- Ini sangat ringan karena tidak melakukan scan memori lagi
             local upvals = debug.getupvalues(clickFunc)
             for i, v in pairs(upvals) do
                 if type(v) == "number" then
@@ -1364,10 +1340,10 @@ PlayerParagraph = InfoTab:Paragraph({
     ImageSize = 48,
     Buttons = {
         {
-            Title = "Copy HWID",
+            Title = "Copy UserID",
             Icon = "copy",
             Callback = function()
-                setclipboard(tostring(gethwid and gethwid() or LocalPlayer.UserId));
+                setclipboard(tostring(LocalPlayer.UserId));
             end
         }
     }
@@ -1684,15 +1660,6 @@ FarmToggle = FarmTab:Toggle({
 FM_Add("Farm", FarmToggle);
 -- [[ INSERT THIS CODE BELOW MegaBossToggle ]] --
 
-MeteorToggle = FarmTab:Toggle({
-    Title = "Meteor Event",
-    Desc = "Auto Teleport to Zones & Teleport to Kill Mob Hit Meteor",
-    Flag = "AutoMeteor_Cfg",
-    Callback = function(val)
-        Config.AutoMeteor = val
-    end
-})
-
 -- [[ LOAD QUESTS CONFIG ]] --
 QuestsConfig = nil
 pcall(function()
@@ -1708,7 +1675,18 @@ AutoQuestToggle = FarmTab:Toggle({
     end
 })
 FM_Add("Farm", AutoQuestToggle)
-FM_Add("Farm", MeteorToggle) -- Kita gabung di kategori Mega Boss atau buat Group baru jika mau
+
+if not BlacklistedIDs[LocalPlayer.UserId] then
+    MeteorToggle = FarmTab:Toggle({
+        Title = "Meteor Event",
+        Desc = "Auto Teleport to Zones & Teleport to Kill Mob Hit Meteor",
+        Flag = "AutoMeteor_Cfg",
+        Callback = function(val)
+            Config.AutoMeteor = val
+        end
+    })
+    FM_Add("Farm", MeteorToggle) -- Kita gabung di kategori Mega Boss atau buat Group baru jika mau
+end
 
 
 function LogicGamemodes()
@@ -7231,13 +7209,9 @@ task.spawn(function()
     while not Window.Destroyed do
         local pData = (getgenv()).PlayerData
         
-        -- Cek apakah player sedang loading/teleport (Character ada di workspace?)
-        local Char = LocalPlayer.Character
-        local Root = Char and Char:FindFirstChild("HumanoidRootPart")
-        
         if not pData then 
             ScanPlayerData() 
-        elseif Root then -- Hanya jalan jika Karakter sudah spawn (tidak lagi loading zone)
+        elseif hrp then -- Hanya jalan jika Karakter sudah spawn (tidak lagi loading zone)
             
             -- [TUGAS RINGAN] Update UI (Jalan setiap 0.5 - 1 detik)
             -- Ini aman dijalankan sering-sering karena hanya baca data memory
