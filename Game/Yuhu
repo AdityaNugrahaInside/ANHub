@@ -1597,11 +1597,24 @@ EnemyDropdown = FarmTab:Dropdown({
 });
 FM_Add("Farm", EnemyDropdown);
 
+-- Tambahkan variabel ini di atas fungsinya
+local LastEnemySignature = ""
+
 function EnemyDropdown_SetPendingValues(values)
+    -- Cek apakah data musuh saat ini persis sama dengan sebelumnya
+    if CurrentZoneEnemiesSignature == LastEnemySignature then
+        return -- Jika sama, hentikan fungsi di sini (jangan tandai butuh refresh)
+    end
+    
+    -- Jika berbeda, simpan signature baru
+    LastEnemySignature = CurrentZoneEnemiesSignature
+
     CurrentZoneEnemiesCache = values or {}
     if EnemyDropdown then
         EnemyDropdown.Values = CurrentZoneEnemiesCache
     end
+    
+    -- Tandai bahwa dropdown perlu di-refresh saat dibuka nanti
     EnemyDropdownNeedsRefresh = true
 end
 
@@ -1615,12 +1628,26 @@ function EnemyDropdown_SetValueOnlyFromConfig()
     end
 end
 
+-- Tambahkan variabel ini di luar fungsi (di dekat LastEnemySignature)
+local AppliedEnemySignature = ""
+
 function EnemyDropdown_ApplyPendingRefresh()
     if not EnemyDropdownNeedsRefresh then return end
     if not EnemyDropdown then return end
+    
+    -- [CEK SIGNATURE] Pastikan data yang akan di-render BERBEDA dengan yang sedang tampil
+    if CurrentZoneEnemiesSignature == AppliedEnemySignature then
+        EnemyDropdownNeedsRefresh = false -- Batalkan karena data masih sama
+        return
+    end
+    
+    -- Simpan signature yang baru dirender
+    AppliedEnemySignature = CurrentZoneEnemiesSignature
+
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
     local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
     EnemyDropdown.Value = selectedItems
+    
     if EnemyDropdown.Refresh then
         EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
     end
@@ -1642,9 +1669,18 @@ RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
     Callback = function()
-        EnemyDropdown:Refresh(RefreshEnemyData());
+        local freshEnemies = RefreshEnemyData()
+        
+        -- Cek apakah ada perubahan data
+        if CurrentZoneEnemiesSignature ~= LastEnemySignature then
+            LastEnemySignature = CurrentZoneEnemiesSignature
+            EnemyDropdown:Refresh(freshEnemies)
+            Notify("Refresh", "Enemy list updated!", "check")
+        else
+            Notify("Refresh", "Data is already up to date!", "info")
+        end
     end
-});
+})
 FM_Add("Farm", RefreshBtn);
 FarmToggle = FarmTab:Toggle({
     Title = "Auto Farm",
@@ -2244,6 +2280,45 @@ if shared and shared.Events and shared.Events.Connect then
         end
     end)
     TrackSharedConnection(conn)
+    local conns = shared.Events.Connect("Gamemode Left", function(gamemodeId, payload)
+        local pData = getgenv().PlayerData
+        IsTeleporting = true;
+        IsLoadingConfig = true;
+        CurrentZoneName = pData.Attributes.LastZone;
+        Config.SelectedEnemy = nil;
+        if EnemyDropdown then
+            EnemyDropdown.Value = {}
+            if EnemyDropdown.Display then
+                pcall(function() EnemyDropdown.Display() end)
+            end
+        end
+        EnemyDropdownNeedsRefresh = true
+        task.spawn(function()
+            local freshEnemies = RefreshEnemyData();
+            EnemyDropdown_SetPendingValues(freshEnemies)
+            pcall(function()
+                if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+            end)
+            local savedEntry = Config.ZoneConfigurations[targetZoneName];
+            if savedEntry then
+                local valuesList = nil
+                if type(savedEntry) == "table" then
+                    if type(savedEntry.Values) == "table" then
+                        valuesList = savedEntry.Values
+                    elseif savedEntry.Value then
+                        valuesList = { savedEntry.Value }
+                    end
+                end
+                if valuesList then
+                    Config.SelectedEnemy = valuesList
+                end
+            end;
+            EnemyDropdown_SetValueOnlyFromConfig()
+            IsLoadingConfig = false;
+            IsTeleporting = false;
+        end);
+    end)
+    TrackSharedConnection(conns)
 end
 FM_OnChange("Farm")
 
