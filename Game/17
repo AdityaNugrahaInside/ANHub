@@ -1597,11 +1597,24 @@ EnemyDropdown = FarmTab:Dropdown({
 });
 FM_Add("Farm", EnemyDropdown);
 
+-- Tambahkan variabel ini di atas fungsinya
+local LastEnemySignature = ""
+
 function EnemyDropdown_SetPendingValues(values)
+    -- Cek apakah data musuh saat ini persis sama dengan sebelumnya
+    if CurrentZoneEnemiesSignature == LastEnemySignature then
+        return -- Jika sama, hentikan fungsi di sini (jangan tandai butuh refresh)
+    end
+    
+    -- Jika berbeda, simpan signature baru
+    LastEnemySignature = CurrentZoneEnemiesSignature
+
     CurrentZoneEnemiesCache = values or {}
     if EnemyDropdown then
         EnemyDropdown.Values = CurrentZoneEnemiesCache
     end
+    
+    -- Tandai bahwa dropdown perlu di-refresh saat dibuka nanti
     EnemyDropdownNeedsRefresh = true
 end
 
@@ -1626,7 +1639,6 @@ function EnemyDropdown_ApplyPendingRefresh()
     end
     EnemyDropdownNeedsRefresh = false
 end
-
 do
     local menu = EnemyDropdown and EnemyDropdown.DropdownMenu
     local oldMenuOpen = menu and menu.Open
@@ -1643,9 +1655,18 @@ RefreshBtn = FarmTab:Button({
     Title = "Refresh List",
     Icon = "refresh-cw",
     Callback = function()
-        EnemyDropdown:Refresh(RefreshEnemyData());
+        local freshEnemies = RefreshEnemyData()
+        
+        -- Cek apakah ada perubahan data
+        if CurrentZoneEnemiesSignature ~= LastEnemySignature then
+            LastEnemySignature = CurrentZoneEnemiesSignature
+            EnemyDropdown:Refresh(freshEnemies)
+            Notify("Refresh", "Enemy list updated!", "check")
+        else
+            Notify("Refresh", "Data is already up to date!", "info")
+        end
     end
-});
+})
 FM_Add("Farm", RefreshBtn);
 FarmToggle = FarmTab:Toggle({
     Title = "Auto Farm",
@@ -4385,7 +4406,7 @@ task.spawn(function()
     while not Window.Destroyed do
         task.wait() -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
         
-        if not IsTeleporting then
+        if not MainController.InTransition then
             local detectedZone = GetCurrentMapStatus()
             
             -- Hanya update jika zone BENAR-BENAR berubah
