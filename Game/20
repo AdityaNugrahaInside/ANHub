@@ -2281,7 +2281,42 @@ if shared and shared.Events and shared.Events.Connect then
     end)
     TrackSharedConnection(conn)
     local conns = shared.Events.Connect("Gamemode Left", function(gamemodeId, payload)
-        print(JSONPretty(payload,1))
+        local targetZoneName = GetCurrentMapStatus();
+        IsTeleporting = true;
+        IsLoadingConfig = true;
+        CurrentZoneName = targetZoneName;
+        Config.SelectedEnemy = nil;
+        if EnemyDropdown then
+            EnemyDropdown.Value = {}
+            if EnemyDropdown.Display then
+                pcall(function() EnemyDropdown.Display() end)
+            end
+        end
+        EnemyDropdownNeedsRefresh = true
+        task.spawn(function()
+            local freshEnemies = RefreshEnemyData();
+            EnemyDropdown_SetPendingValues(freshEnemies)
+            pcall(function()
+                if EnemyDropdown and EnemyDropdown.SetTitle then EnemyDropdown:SetTitle("Select Enemy") end
+            end)
+            local savedEntry = Config.ZoneConfigurations[targetZoneName];
+            if savedEntry then
+                local valuesList = nil
+                if type(savedEntry) == "table" then
+                    if type(savedEntry.Values) == "table" then
+                        valuesList = savedEntry.Values
+                    elseif savedEntry.Value then
+                        valuesList = { savedEntry.Value }
+                    end
+                end
+                if valuesList then
+                    Config.SelectedEnemy = valuesList
+                end
+            end;
+            EnemyDropdown_SetValueOnlyFromConfig()
+            IsLoadingConfig = false;
+            IsTeleporting = false;
+        end);
     end)
     TrackSharedConnection(conns)
 end
