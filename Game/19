@@ -2280,6 +2280,10 @@ if shared and shared.Events and shared.Events.Connect then
         end
     end)
     TrackSharedConnection(conn)
+    local conns = shared.Events.Connect("Gamemode Left", function(gamemodeId, payload)
+        print(JSONPretty(payload,1))
+    end)
+    TrackSharedConnection(conns)
 end
 FM_OnChange("Farm")
 
