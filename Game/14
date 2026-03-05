@@ -557,7 +557,7 @@ Window = UI:CreateWindow({
         SaveKey = true
     }
 })
-
+SharedConnections = {}
 function TrackSharedConnection(connection)
     if not connection then return end
     if type(connection) == "function" then
