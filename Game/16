@@ -2219,12 +2219,12 @@ local function BuildAutoLeaveUI()
     end
 end
 
--- task.spawn(function()
---     while #gamemodeOrder == 0 do
---         task.wait(0.5)
---     end
---     BuildAutoLeaveUI()
--- end)
+task.spawn(function()
+    while #gamemodeOrder == 0 do
+        task.wait(0.5)
+    end
+    BuildAutoLeaveUI()
+end)
 local AutoLeaveCooldown = {}
 local AutoLeavedState = {}
 
@@ -4383,7 +4383,7 @@ task.spawn(function()
     local prevZone = ""
     
     while not Window.Destroyed do
-        task.wait(0.1) -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
+        task.wait() -- Cek setiap 1 detik (0.5 terlalu cepat dan bikin berat)
         
         if not IsTeleporting then
             local detectedZone = GetCurrentMapStatus()
