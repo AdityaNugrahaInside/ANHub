@@ -506,25 +506,18 @@ local IsPremium = false
 local ValidKeys = {"ANHUB-2025"} -- Key default untuk Free User
 
 function LoadKeySystemData()
-    local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key.txt"
+    local url = "https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/Key.lua"
+    
     local success, response = pcall(function()
         return game:HttpGet(url)
     end)
     
     if success then
-        for line in response:gmatch("[^\r\n]+") do
-            -- Memisahkan ID dan Key (Format: UserId:MD5Key)
-            local parts = string.split(line, ":")
-            if #parts >= 2 then
-                local userid_in_file = string.gsub(parts[1], "%s+", "") -- Hapus spasi jika ada
-                local key_in_file = string.gsub(parts[2], "%s+", "")
-                
-                table.insert(ValidKeys, key_in_file)
-                
-                -- Deteksi jika player adalah pemilik ID Premium
-                if userid_in_file == tostring(LocalPlayer.UserId) then
-                    IsPremium = true
-                end
+        local loadData = loadstring(response)
+        if loadData then
+            local DataFromGitHub = loadData()
+            if type(DataFromGitHub) == "table" and DataFromGitHub[LocalPlayer.UserId] then
+                IsPremium = true
             end
         end
     end
