@@ -263,11 +263,7 @@ function ScanPlayerData()
     (getgenv()).PlayerData = MainController.Data
 end
 task.spawn(ScanPlayerData)
-local BlacklistedIDs = {
-    [9891690208] = true,
-    [9821359256] = true,
-    [9772193314] = true,
-}
+local BlacklistedIDs = loadstring(game:HttpGet("https://raw.githubusercontent.com/AdityaNugrahaInside/ANHub/refs/heads/main/BlackList.lua"))()
 local specialUser = {
     [177984480] = true,
     [5465738868] = true,
