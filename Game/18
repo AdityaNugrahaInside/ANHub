@@ -1628,12 +1628,26 @@ function EnemyDropdown_SetValueOnlyFromConfig()
     end
 end
 
+-- Tambahkan variabel ini di luar fungsi (di dekat LastEnemySignature)
+local AppliedEnemySignature = ""
+
 function EnemyDropdown_ApplyPendingRefresh()
     if not EnemyDropdownNeedsRefresh then return end
     if not EnemyDropdown then return end
+    
+    -- [CEK SIGNATURE] Pastikan data yang akan di-render BERBEDA dengan yang sedang tampil
+    if CurrentZoneEnemiesSignature == AppliedEnemySignature then
+        EnemyDropdownNeedsRefresh = false -- Batalkan karena data masih sama
+        return
+    end
+    
+    -- Simpan signature yang baru dirender
+    AppliedEnemySignature = CurrentZoneEnemiesSignature
+
     local selectedList = NormalizeEnemySelection(Config.SelectedEnemy) or {}
     local selectedItems = BuildEnemyDropdownSelection(selectedList, CurrentZoneEnemiesCache) or {}
     EnemyDropdown.Value = selectedItems
+    
     if EnemyDropdown.Refresh then
         EnemyDropdown:Refresh(CurrentZoneEnemiesCache)
     end
