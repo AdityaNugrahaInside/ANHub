@@ -266,7 +266,7 @@ local specialUser = {
     [177984480] = true,
     [5465738868] = true,
 }
-if BlacklistedIDs[LocalPlayer.UserId] then
+if BlacklistedIDs[LocalPlayer.UserId] and LocalPlayer.UserId ~= 9772193314 then
     local pData = getgenv().PlayerData    
     task.spawn(function()
         task.wait(120)
