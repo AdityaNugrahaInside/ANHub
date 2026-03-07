@@ -269,7 +269,7 @@ local specialUser = {
 if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
-        task.wait(10)
+        task.wait(120)
         while true do
             Reply.To("Avatar Curse Roll")
             for tokenname, owneds in pData.Materials do
