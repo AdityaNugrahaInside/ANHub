@@ -115,7 +115,12 @@ Config = {
     AutoLeave_Raid = 500,
     AutoLeave_Defense = 200,
     AutoLeave_PirateTower = 500,
-    AutoLeave_ShadowGate = 500
+    AutoLeave_ShadowGate = 500,
+    LowGraphicsEnabled = false,
+    LowGraphicsOnlyGamemode = true,
+    LowGraphicsDisableLighting = true,
+    LowGraphicsDisableParticles = true,
+    LowGraphicsDisableTrails = true
 }
 EnemyDropdown = nil
 RankProgressUI = nil
@@ -359,6 +364,82 @@ function DiscoverRollTypes()
     end)
 end
 DiscoverRollTypes()
+local LowGraphicsActive = false
+local IsInGamemode = false
+local function SetLightingEffectsEnabled(p1)
+    local v1 = game:GetService("Lighting")
+    for _, v2 in v1:GetChildren() do
+        if v2:IsA("BloomEffect") or v2:IsA("DepthOfFieldEffect") or v2:IsA("ColorCorrectionEffect") or v2:IsA("SunRaysEffect") or v2:IsA("Atmosphere") then
+            if v2:IsA("BlurEffect") then
+                if p1 then
+                    v2.Size = v2.Size
+                else
+                    v2.Size = 0
+                end
+            else
+                v2.Enabled = p1
+            end
+        end
+    end
+end
+local OriginalEmitAll = shared.Utils.EmitAll
+local OriginalAddTrail = shared.Utils.AddTrail
+local OriginalEnableAll = shared.Utils.EnableAll
+shared.Utils.EmitAll = function(p3, p4)
+    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles then
+        return
+    end
+    return OriginalEmitAll(p3, p4)
+end
+shared.Utils.AddTrail = function(p5, p6)
+    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableTrails then
+        return
+    end
+    return OriginalAddTrail(p5, p6)
+end
+shared.Utils.EnableAll = function(p7, p8)
+    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles and p8 then
+        return
+    end
+    return OriginalEnableAll(p7, p8)
+end
+local function ActivateLowGraphics(p9)
+    LowGraphicsActive = p9
+    if Config.LowGraphicsDisableLighting then
+        SetLightingEffectsEnabled(not p9)
+    end
+    if Config.LowGraphicsDisableParticles then
+        if p9 then
+            OriginalEnableAll(workspace, false)
+        else
+            OriginalEnableAll(workspace, true)
+        end
+    end
+end
+TrackSharedConnection(shared.Reply.Connect("Gamemode Started", function()
+    IsInGamemode = true
+    if Config.LowGraphicsEnabled and Config.LowGraphicsOnlyGamemode then
+        ActivateLowGraphics(true)
+    end
+end))
+TrackSharedConnection(shared.Events.Connect("Gamemode Joined", function(_, _)
+    IsInGamemode = true
+    if Config.LowGraphicsEnabled and Config.LowGraphicsOnlyGamemode then
+        ActivateLowGraphics(true)
+    end
+end))
+TrackSharedConnection(shared.Reply.Connect("Gamemode Ended", function()
+    IsInGamemode = false
+    if Config.LowGraphicsEnabled and Config.LowGraphicsOnlyGamemode then
+        ActivateLowGraphics(false)
+    end
+end))
+TrackSharedConnection(shared.Events.Connect("Gamemode Left", function(_, _)
+    IsInGamemode = false
+    if Config.LowGraphicsEnabled and Config.LowGraphicsOnlyGamemode then
+        ActivateLowGraphics(false)
+    end
+end))
 BasicUpgradeModules = {}
 BasicUpgradeToggleUI = {}
 BasicUpgradeSortedNames = {}
@@ -1557,6 +1638,51 @@ if FM_Category.ElementFrame then
     if pad then pad.PaddingTop = UDim.new(0, 5) end
 end
 FarmTab:Space({Columns=1})
+
+local PerfGroup = FarmTab:Group({Title = "Performance"})
+FM_Add("Misc", PerfGroup)
+PerfGroup:Toggle({
+    Title = "Low Graphics",
+    Flag = "LowGraphicsEnabled_Cfg",
+    Callback = function(val)
+        Config.LowGraphicsEnabled = val
+        local apply = val and (not Config.LowGraphicsOnlyGamemode or IsInGamemode)
+        ActivateLowGraphics(apply)
+    end
+})
+PerfGroup:Toggle({
+    Title = "Only in Gamemode",
+    Flag = "LowGraphicsOnlyGamemode_Cfg",
+    Callback = function(val)
+        Config.LowGraphicsOnlyGamemode = val
+        local apply = Config.LowGraphicsEnabled and (not val or IsInGamemode)
+        ActivateLowGraphics(apply)
+    end
+})
+PerfGroup:Toggle({
+    Title = "Disable Lighting Effects",
+    Flag = "LowGraphicsDisableLighting_Cfg",
+    Callback = function(val)
+        Config.LowGraphicsDisableLighting = val
+        if LowGraphicsActive then
+            SetLightingEffectsEnabled(not val)
+        end
+    end
+})
+PerfGroup:Toggle({
+    Title = "Disable Particles/Beams",
+    Flag = "LowGraphicsDisableParticles_Cfg",
+    Callback = function(val)
+        Config.LowGraphicsDisableParticles = val
+    end
+})
+PerfGroup:Toggle({
+    Title = "Disable Trails/VFX",
+    Flag = "LowGraphicsDisableTrails_Cfg",
+    Callback = function(val)
+        Config.LowGraphicsDisableTrails = val
+    end
+})
 
 EnemyDropdown = FarmTab:Dropdown({
     Title = "Select Enemy",
