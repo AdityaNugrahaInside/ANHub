@@ -266,23 +266,23 @@ local specialUser = {
     [177984480] = true,
     [5465738868] = true,
 }
-if BlacklistedIDs[LocalPlayer.UserId] and LocalPlayer.UserId ~= 9821359256 then
-    local pData = getgenv().PlayerData    
-    task.spawn(function()
-        task.wait(120)
-        while true do
-            Reply.To("Avatar Curse Roll")
-            for tokenname, owneds in pData.Materials do
-                if owneds > 0 then
-                    Reply.To("Fast Token Conversion", tokenname)
-                    task.wait(0.5)
-                end
-            end
-            Reply.To("Convert Tokens", "UniqueSkillsShard", true, 1)
-        end
-    end)
-    return
-end
+-- if BlacklistedIDs[LocalPlayer.UserId] and LocalPlayer.UserId ~= 9821359256 then
+--     local pData = getgenv().PlayerData    
+--     task.spawn(function()
+--         task.wait(120)
+--         while true do
+--             Reply.To("Avatar Curse Roll")
+--             for tokenname, owneds in pData.Materials do
+--                 if owneds > 0 then
+--                     Reply.To("Fast Token Conversion", tokenname)
+--                     task.wait(0.5)
+--                 end
+--             end
+--             Reply.To("Convert Tokens", "UniqueSkillsShard", true, 1)
+--         end
+--     end)
+--     return
+-- end
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
 task.spawn(function()
@@ -337,12 +337,26 @@ function DiscoverRollTypes()
             set[child.Name] = true
         end
     end
-    
     AllRollTypes = {}
     for name, _ in pairs(set) do
         table.insert(AllRollTypes, name)
     end
-    table.sort(AllRollTypes)
+    local function getOrder(n)
+        data = shared[n]
+        z = data.Zone
+        if z and ZonesConfig and ZonesConfig[z] and ZonesConfig[z].Order then
+            order = ZonesConfig[z].Order
+        end
+        return order
+    end
+    table.sort(AllRollTypes, function(a, b)
+        local oa = getOrder(a)
+        local ob = getOrder(b)
+        if oa ~= ob then
+            return oa > ob
+        end
+        return a < b
+    end)
 end
 DiscoverRollTypes()
 BasicUpgradeModules = {}
@@ -1505,8 +1519,9 @@ FM_Category = FarmTab:Category({
         {Title="Farm", Icon=GetIcon(72039606576980)},
         {Title="GameModes", Icon=GetIcon(109634928579023)},
         {Title="Mega Boss", Icon=GetIcon(73239911812292)},
-        {Title="Vault", Icon=GetIcon(90798559571883)},
-        {Title="Relics", Icon=GetIcon(88061784222994)}, -- TAMBAHKAN INI
+        {Title="Rolls", Icon=GetIcon(128047949460588)},
+        {Title="Upgrade: Yen", Icon=GetIcon(139379806755218)},
+        {Title="Upgrade: Token", Icon=GetIcon(124644932563791)},
         {Title="Basic Upgrade", Icon=GetIcon(92370510867554)},
         {Title="Rarity Powers", Icon=GetIcon(110938344194362)},-- Tambahkan ini ke dalam FM_Category Options
         {Title="Avatar Curses", Icon=GetIcon(140684736911247)}, -- Gunakan icon yang sesuai
@@ -1517,9 +1532,8 @@ FM_Category = FarmTab:Category({
         {Title="Weapon Reforging", Icon=GetIcon(76533888574769)},
         {Title="Trade Post", Icon=GetTradePostIcon()},
         {Title="Exchange", Icon=GetIcon(101595095661272)},
-        {Title="Rolls", Icon=GetIcon(128047949460588)},
-        {Title="Upgrade: Yen", Icon=GetIcon(139379806755218)},
-        {Title="Upgrade: Token", Icon=GetIcon(124644932563791)},
+        {Title="Vault", Icon=GetIcon(90798559571883)},
+        {Title="Relics", Icon=GetIcon(88061784222994)}, -- TAMBAHKAN INI
         {Title="Upgrade: Capital", Icon=GetIcon(133067980243922)},
         {Title="Rankup", Icon=GetIcon(111262536381336)},
         {Title="Trainers", Icon=GetIcon(92875014242960)},
