@@ -382,27 +382,27 @@ local function SetLightingEffectsEnabled(p1)
         end
     end
 end
-local OriginalEmitAll = shared.Utils.EmitAll
-local OriginalAddTrail = shared.Utils.AddTrail
-local OriginalEnableAll = shared.Utils.EnableAll
-shared.Utils.EmitAll = function(p3, p4)
+local OriginalEmitAll
+OriginalEmitAll = hookfunction(shared.Utils.EmitAll, function(p3, p4)
     if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles then
         return
     end
     return OriginalEmitAll(p3, p4)
-end
-shared.Utils.AddTrail = function(p5, p6)
+end)
+local OriginalAddTrail
+OriginalAddTrail = hookfunction(shared.Utils.AddTrail, function(p5, p6)
     if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableTrails then
         return
     end
     return OriginalAddTrail(p5, p6)
-end
-shared.Utils.EnableAll = function(p7, p8)
+end)
+local OriginalEnableAll
+OriginalEnableAll = hookfunction(shared.Utils.EnableAll, function(p7, p8)
     if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles and p8 then
         return
     end
     return OriginalEnableAll(p7, p8)
-end
+end)
 local function ActivateLowGraphics(p9)
     LowGraphicsActive = p9
     if Config.LowGraphicsDisableLighting then
