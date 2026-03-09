@@ -364,6 +364,18 @@ function DiscoverRollTypes()
     end)
 end
 DiscoverRollTypes()
+
+SharedConnections = {}
+function TrackSharedConnection(connection)
+    if not connection then return end
+    if type(connection) == "function" then
+        table.insert(SharedConnections, { Disconnect = connection })
+        return
+    end
+    if connection.Disconnect then
+        table.insert(SharedConnections, connection)
+    end
+end
 local LowGraphicsActive = false
 local IsInGamemode = false
 local function SetLightingEffectsEnabled(p1)
@@ -640,17 +652,6 @@ Window = UI:CreateWindow({
         SaveKey = true
     }
 })
-SharedConnections = {}
-function TrackSharedConnection(connection)
-    if not connection then return end
-    if type(connection) == "function" then
-        table.insert(SharedConnections, { Disconnect = connection })
-        return
-    end
-    if connection.Disconnect then
-        table.insert(SharedConnections, connection)
-    end
-end
 
 task.spawn(function()
     while not Window.Destroyed do
