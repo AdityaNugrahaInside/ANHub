@@ -416,17 +416,6 @@ local function SetLightingEffectsEnabled(p1)
         end
     end
 end
-local function ActivateLowGraphics(p9)
-    LowGraphicsActive = p9
-    if Config.LowGraphicsDisableLighting then
-        SetLightingEffectsEnabled(not p9)
-    end
-    if not Config.LowGraphicsDisableParticles then
-        OriginalEnableAll(workspace, false)
-    else
-        OriginalEnableAll(workspace, true)
-    end
-end
 local OriginalEnableAll
 OriginalEnableAll = hookfunction(shared.Utils.EnableAll, function(p7, p8)
     if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles and p8 then
@@ -437,7 +426,6 @@ end)
 local OriginalEmitAll
 OriginalEmitAll = hookfunction(shared.Utils.EmitAll, function(p3, p4)
     if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles then
-        ActivateLowGraphics(true)
         return
     end
     return OriginalEmitAll(p3, p4)
@@ -445,11 +433,56 @@ end)
 local OriginalAddTrail
 OriginalAddTrail = hookfunction(shared.Utils.AddTrail, function(p5, p6)
     if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableTrails then
-        ActivateLowGraphics(true)
         return
     end
     return OriginalAddTrail(p5, p6)
 end)
+local function ActivateLowGraphics(p9)
+    LowGraphicsActive = p9
+    if Config.LowGraphicsDisableLighting then
+        SetLightingEffectsEnabled(not p9)
+    end
+    if Config.LowGraphicsDisableParticles then
+        if p9 then
+            OriginalEnableAll(workspace, false)
+        else
+            OriginalEnableAll(workspace, true)
+        end
+    end
+    if p9 then
+        if not _G.__LGWatchers then
+            _G.__LGWatchers = {}
+            local function onDescAdded(inst)
+                if not Config.LowGraphicsEnabled then return end
+                if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                if Config.LowGraphicsDisableParticles and (inst:IsA("ParticleEmitter") or inst:IsA("Beam")) then
+                    inst.Enabled = false
+                end
+                if Config.LowGraphicsDisableTrails and inst:IsA("Trail") then
+                    inst.Enabled = false
+                end
+            end
+            local function onLightAdded(inst)
+                if not Config.LowGraphicsEnabled then return end
+                if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                if Config.LowGraphicsDisableLighting then
+                    SetLightingEffectsEnabled(false)
+                end
+            end
+            _G.__LGWatchers.workspace = workspace.DescendantAdded:Connect(onDescAdded)
+            _G.__LGWatchers.lighting = game:GetService("Lighting").ChildAdded:Connect(onLightAdded)
+            TrackSharedConnection(_G.__LGWatchers.workspace)
+            TrackSharedConnection(_G.__LGWatchers.lighting)
+        end
+    else
+        if _G.__LGWatchers then
+            for _, conn in pairs(_G.__LGWatchers) do
+                pcall(function() conn:Disconnect() end)
+            end
+            _G.__LGWatchers = nil
+        end
+    end
+end
 BasicUpgradeModules = {}
 BasicUpgradeToggleUI = {}
 BasicUpgradeSortedNames = {}
