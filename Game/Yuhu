@@ -442,12 +442,10 @@ local function ActivateLowGraphics(p9)
     if Config.LowGraphicsDisableLighting then
         SetLightingEffectsEnabled(not p9)
     end
-    if Config.LowGraphicsDisableParticles then
-        if p9 then
-            OriginalEnableAll(workspace, false)
-        else
-            OriginalEnableAll(workspace, true)
-        end
+    if not Config.LowGraphicsDisableParticles then
+        OriginalEnableAll(workspace, false)
+    else
+        OriginalEnableAll(workspace, true)
     end
 end
 BasicUpgradeModules = {}
