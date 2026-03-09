@@ -4353,7 +4353,7 @@ if not BlacklistedIDs[LocalPlayer.UserId] then
         })
     end
     local perfIndex = 1
-    while and perfIndex <= #PerfDefs do
+    while perfIndex <= #PerfDefs do
         local title = (perfIndex == 1) and "Performance" or ""
         local group = SettingsTab:Group({Title = title})
         for _ = 1, 2 do
