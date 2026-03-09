@@ -378,18 +378,40 @@ function TrackSharedConnection(connection)
 end
 local LowGraphicsActive = false
 local IsInGamemode = false
+local LightingDefaults = {}
 local function SetLightingEffectsEnabled(p1)
     local v1 = game:GetService("Lighting")
     for _, v2 in v1:GetChildren() do
-        if v2:IsA("BloomEffect") or v2:IsA("DepthOfFieldEffect") or v2:IsA("ColorCorrectionEffect") or v2:IsA("SunRaysEffect") or v2:IsA("Atmosphere") then
-            if v2:IsA("BlurEffect") then
-                if p1 then
-                    v2.Size = v2.Size
-                else
-                    v2.Size = 0
-                end
+        if v2:IsA("BlurEffect") then
+            if not LightingDefaults[v2] then
+                LightingDefaults[v2] = { Size = v2.Size }
+            end
+            if p1 then
+                v2.Size = LightingDefaults[v2].Size
             else
-                v2.Enabled = p1
+                v2.Size = 0
+            end
+        elseif v2:IsA("BloomEffect") or v2:IsA("DepthOfFieldEffect") or v2:IsA("ColorCorrectionEffect") or v2:IsA("SunRaysEffect") then
+            if not LightingDefaults[v2] then
+                LightingDefaults[v2] = { Enabled = v2.Enabled }
+            end
+            v2.Enabled = p1
+        elseif v2:IsA("Atmosphere") then
+            if not LightingDefaults[v2] then
+                LightingDefaults[v2] = {
+                    Density = v2.Density,
+                    Haze = (pcall(function() return v2.Haze end) and v2.Haze) or nil,
+                    Glare = (pcall(function() return v2.Glare end) and v2.Glare) or nil
+                }
+            end
+            if p1 then
+                if LightingDefaults[v2].Density ~= nil then v2.Density = LightingDefaults[v2].Density end
+                if LightingDefaults[v2].Haze ~= nil then pcall(function() v2.Haze = LightingDefaults[v2].Haze end) end
+                if LightingDefaults[v2].Glare ~= nil then pcall(function() v2.Glare = LightingDefaults[v2].Glare end) end
+            else
+                v2.Density = 0
+                pcall(function() v2.Haze = 0 end)
+                pcall(function() v2.Glare = 0 end)
             end
         end
     end
@@ -1639,51 +1661,6 @@ if FM_Category.ElementFrame then
     if pad then pad.PaddingTop = UDim.new(0, 5) end
 end
 FarmTab:Space({Columns=1})
-
-local PerfGroup = FarmTab:Group({Title = "Performance"})
-FM_Add("Misc", PerfGroup)
-PerfGroup:Toggle({
-    Title = "Low Graphics",
-    Flag = "LowGraphicsEnabled_Cfg",
-    Callback = function(val)
-        Config.LowGraphicsEnabled = val
-        local apply = val and (not Config.LowGraphicsOnlyGamemode or IsInGamemode)
-        ActivateLowGraphics(apply)
-    end
-})
-PerfGroup:Toggle({
-    Title = "Only in Gamemode",
-    Flag = "LowGraphicsOnlyGamemode_Cfg",
-    Callback = function(val)
-        Config.LowGraphicsOnlyGamemode = val
-        local apply = Config.LowGraphicsEnabled and (not val or IsInGamemode)
-        ActivateLowGraphics(apply)
-    end
-})
-PerfGroup:Toggle({
-    Title = "Disable Lighting Effects",
-    Flag = "LowGraphicsDisableLighting_Cfg",
-    Callback = function(val)
-        Config.LowGraphicsDisableLighting = val
-        if LowGraphicsActive then
-            SetLightingEffectsEnabled(not val)
-        end
-    end
-})
-PerfGroup:Toggle({
-    Title = "Disable Particles/Beams",
-    Flag = "LowGraphicsDisableParticles_Cfg",
-    Callback = function(val)
-        Config.LowGraphicsDisableParticles = val
-    end
-})
-PerfGroup:Toggle({
-    Title = "Disable Trails/VFX",
-    Flag = "LowGraphicsDisableTrails_Cfg",
-    Callback = function(val)
-        Config.LowGraphicsDisableTrails = val
-    end
-})
 
 EnemyDropdown = FarmTab:Dropdown({
     Title = "Select Enemy",
@@ -4305,10 +4282,11 @@ FM_Add("Misc",FarmTab:Toggle({
         end;
     end
 }))
+
 SettingsTab = Window:Tab({
     Title = "Settings",
     Icon = "settings-2"
-});
+})
 SettingsTab:Button({
     Title = "Copy PlayerData to Clipboard",
     Icon = "copy",
@@ -4319,6 +4297,73 @@ SettingsTab:Button({
         end
     end
 })
+
+if not BlacklistedIDs[LocalPlayer.UserId] then
+    local PerfDefs = {}
+    PerfDefs[1] = function(g)
+        g:Toggle({
+            Title = "Low Graphics",
+            Flag = "LowGraphicsEnabled_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsEnabled = val
+                local apply = val and (not Config.LowGraphicsOnlyGamemode or IsInGamemode)
+                ActivateLowGraphics(apply)
+            end
+        })
+    end
+    PerfDefs[2] = function(g)
+        g:Toggle({
+            Title = "Only in Gamemode",
+            Flag = "LowGraphicsOnlyGamemode_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsOnlyGamemode = val
+                local apply = Config.LowGraphicsEnabled and (not val or IsInGamemode)
+                ActivateLowGraphics(apply)
+            end
+        })
+    end
+    PerfDefs[3] = function(g)
+        g:Toggle({
+            Title = "Disable Lighting Effects",
+            Flag = "LowGraphicsDisableLighting_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsDisableLighting = val
+                if LowGraphicsActive then
+                    SetLightingEffectsEnabled(not val)
+                end
+            end
+        })
+    end
+    PerfDefs[4] = function(g)
+        g:Toggle({
+            Title = "Disable Particles/Beams",
+            Flag = "LowGraphicsDisableParticles_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsDisableParticles = val
+            end
+        })
+    end
+    PerfDefs[5] = function(g)
+        g:Toggle({
+            Title = "Disable Trails/VFX",
+            Flag = "LowGraphicsDisableTrails_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsDisableTrails = val
+            end
+        })
+    end
+    local perfIndex = 1
+    while perfIndex <= #PerfDefs do
+        local title = (perfIndex == 1) and "Performance" or ""
+        local group = SettingsTab:Group({Title = title})
+        for _ = 1, 2 do
+            if perfIndex > #PerfDefs then break end
+            PerfDefs[perfIndex](group)
+            perfIndex = perfIndex + 1
+        end
+    end
+end
+
 ConfigSection = SettingsTab:Section({
     Title = "Config Manager",
     Icon = "save",
