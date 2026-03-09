@@ -442,38 +442,12 @@ local function ActivateLowGraphics(p9)
     if Config.LowGraphicsDisableLighting then
         SetLightingEffectsEnabled(not p9)
     end
-    if Config.LowGraphicsDisableParticles then
-        if p9 then
-            OriginalEnableAll(workspace, false)
-        else
-            OriginalEnableAll(workspace, true)
-        end
+    if not Config.LowGraphicsDisableParticles then
+        OriginalEnableAll(workspace, false)
+    else
+        OriginalEnableAll(workspace, true)
     end
 end
-TrackSharedConnection(shared.Reply.Connect("Gamemode Started", function()
-    IsInGamemode = true
-    if Config.LowGraphicsEnabled and Config.LowGraphicsOnlyGamemode then
-        ActivateLowGraphics(true)
-    end
-end))
-TrackSharedConnection(shared.Events.Connect("Gamemode Joined", function(_, _)
-    IsInGamemode = true
-    if Config.LowGraphicsEnabled and Config.LowGraphicsOnlyGamemode then
-        ActivateLowGraphics(true)
-    end
-end))
-TrackSharedConnection(shared.Reply.Connect("Gamemode Ended", function()
-    IsInGamemode = false
-    if Config.LowGraphicsEnabled and Config.LowGraphicsOnlyGamemode then
-        ActivateLowGraphics(false)
-    end
-end))
-TrackSharedConnection(shared.Events.Connect("Gamemode Left", function(_, _)
-    IsInGamemode = false
-    if Config.LowGraphicsEnabled and Config.LowGraphicsOnlyGamemode then
-        ActivateLowGraphics(false)
-    end
-end))
 BasicUpgradeModules = {}
 BasicUpgradeToggleUI = {}
 BasicUpgradeSortedNames = {}
@@ -6314,7 +6288,6 @@ function Optimizer.Update_HiddenQuests_Logic(pData)
                         if Reliable then
                             pcall(function() Reply.To("Zone Teleport", questData.Zone) end)
                             hasActionTaken = true
-                            task.spawn(function() task.wait(4) end)
                         end
                     end
                 elseif currentMap == questData.Zone then
@@ -7428,7 +7401,7 @@ task.spawn(function()
             pcall(Optimizer.Update_Titles_Logic, pData)
             pcall(Optimizer.Update_TradePost_Buy_Logic, pData)
             heavyTaskTick = heavyTaskTick + 1
-            if heavyTaskTick >= 6 then -- 6 x 0.5 detik = 3 Detik
+            if heavyTaskTick >= 3 then -- 6 x 0.5 detik = 3 Detik
                 pcall(Optimizer.Update_HiddenQuests_Logic, pData)
                 heavyTaskTick = 0
             end
