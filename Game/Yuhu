@@ -439,6 +439,10 @@ OriginalAddTrail = hookfunction(shared.Utils.AddTrail, function(p5, p6)
 end)
 local function ActivateLowGraphics(p9)
     LowGraphicsActive = p9
+    _G.LowGraphicsActive = p9
+    _G.LowGraphicsDisableParticles = Config.LowGraphicsDisableParticles
+    _G.LowGraphicsDisableTrails = Config.LowGraphicsDisableTrails
+    _G.LowGraphicsDisableLighting = Config.LowGraphicsDisableLighting
     if Config.LowGraphicsDisableLighting then
         SetLightingEffectsEnabled(not p9)
     end
@@ -452,15 +456,49 @@ local function ActivateLowGraphics(p9)
     if p9 then
         if not _G.__LGWatchers then
             _G.__LGWatchers = {}
+            _G.__LGPropWatchers = {}
+            _G.__LGQueue = {}
+            _G.__LGQueueSeen = {}
+            _G.__LGQueueRunning = true
+            local function registerHeavyInstance(inst)
+                if Config.LowGraphicsDisableParticles and (inst:IsA("ParticleEmitter") or inst:IsA("Beam")) then
+                    inst.Enabled = false
+                    local c = inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if not Config.LowGraphicsEnabled then return end
+                        if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                        if inst.Enabled then inst.Enabled = false end
+                    end)
+                    table.insert(_G.__LGPropWatchers, c)
+                elseif Config.LowGraphicsDisableTrails and inst:IsA("Trail") then
+                    inst.Enabled = false
+                    local c = inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if not Config.LowGraphicsEnabled then return end
+                        if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                        if inst.Enabled then inst.Enabled = false end
+                    end)
+                    table.insert(_G.__LGPropWatchers, c)
+                elseif inst:IsA("BillboardGui") and inst.Parent and inst.Parent.Name == "Overhead" then
+                    inst.Enabled = false
+                    local c = inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if not Config.LowGraphicsEnabled then return end
+                        if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                        if inst.Enabled then inst.Enabled = false end
+                    end)
+                    table.insert(_G.__LGPropWatchers, c)
+                elseif inst:IsA("Highlight") or inst:IsA("SelectionBox") then
+                    inst.Enabled = false
+                    local c = inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if not Config.LowGraphicsEnabled then return end
+                        if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                        if inst.Enabled then inst.Enabled = false end
+                    end)
+                    table.insert(_G.__LGPropWatchers, c)
+                end
+            end
             local function onDescAdded(inst)
                 if not Config.LowGraphicsEnabled then return end
                 if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
-                if Config.LowGraphicsDisableParticles and (inst:IsA("ParticleEmitter") or inst:IsA("Beam")) then
-                    inst.Enabled = false
-                end
-                if Config.LowGraphicsDisableTrails and inst:IsA("Trail") then
-                    inst.Enabled = false
-                end
+                registerHeavyInstance(inst)
             end
             local function onLightAdded(inst)
                 if not Config.LowGraphicsEnabled then return end
@@ -473,6 +511,74 @@ local function ActivateLowGraphics(p9)
             _G.__LGWatchers.lighting = game:GetService("Lighting").ChildAdded:Connect(onLightAdded)
             TrackSharedConnection(_G.__LGWatchers.workspace)
             TrackSharedConnection(_G.__LGWatchers.lighting)
+            local function applyEnemyLow(en)
+                if not en then return end
+                local char = en.Character
+                if char then
+                    for _, d in ipairs(char:GetDescendants()) do
+                        registerHeavyInstance(d)
+                    end
+                    local circle = rawget(en, "Circle")
+                    if circle and circle.Destroy then
+                        pcall(function() circle:Destroy() end)
+                        en.Circle = nil
+                    end
+                end
+            end
+            local function enqueueEnemy(en)
+                if not en or not LowGraphicsActive then return end
+                if _G.__LGQueueSeen == nil then _G.__LGQueueSeen = {} end
+                if _G.__LGQueue == nil then _G.__LGQueue = {} end
+                if not _G.__LGQueueSeen[en] then
+                    _G.__LGQueueSeen[en] = true
+                    table.insert(_G.__LGQueue, en)
+                end
+            end
+            task.spawn(function()
+                while _G.__LGQueueRunning do
+                    if not LowGraphicsActive or not Config.LowGraphicsEnabled then
+                        task.wait(0.1)
+                        continue
+                    end
+                    local n = 0
+                    while n < 6 and #_G.__LGQueue > 0 do
+                        local en = table.remove(_G.__LGQueue)
+                        _G.__LGQueueSeen[en] = nil
+                        applyEnemyLow(en)
+                        n = n + 1
+                    end
+                    task.wait(0.02)
+                end
+            end)
+            _G.__LGWatchers.enemies_updated = shared.Events.Connect("Enemies Updated", function(map)
+                if type(map) == "table" then
+                    for _, en in pairs(map) do
+                        enqueueEnemy(en)
+                    end
+                end
+            end)
+            _G.__LGWatchers.enemies_added = shared.Reply.Connect("Enemies Added", function(id, data)
+                local last = _G.__LastEnemiesMap
+                local en = last and last[id] or nil
+                enqueueEnemy(en)
+            end)
+            _G.__LGWatchers.enemies_changed = shared.Reply.Connect("Enemies Changed", function(tbl)
+                local last = _G.__LastEnemiesMap
+                if type(last) == "table" then
+                    for _, en in pairs(last) do
+                        enqueueEnemy(en)
+                    end
+                end
+            end)
+            _G.__LGWatchers.enemy_respawn = shared.Reply.Connect("Enemy Respawn", function(id, ...)
+                local last = _G.__LastEnemiesMap
+                local en = last and last[id] or nil
+                enqueueEnemy(en)
+            end)
+            TrackSharedConnection(_G.__LGWatchers.enemies_added)
+            TrackSharedConnection(_G.__LGWatchers.enemies_changed)
+            TrackSharedConnection(_G.__LGWatchers.enemy_respawn)
+            TrackSharedConnection(_G.__LGWatchers.enemies_updated)
         end
     else
         if _G.__LGWatchers then
@@ -480,6 +586,15 @@ local function ActivateLowGraphics(p9)
                 pcall(function() conn:Disconnect() end)
             end
             _G.__LGWatchers = nil
+            if _G.__LGPropWatchers then
+                for _, conn in ipairs(_G.__LGPropWatchers) do
+                    pcall(function() conn:Disconnect() end)
+                end
+                _G.__LGPropWatchers = nil
+            end
+            _G.__LGQueueRunning = false
+            _G.__LGQueue = nil
+            _G.__LGQueueSeen = nil
         end
     end
 end
@@ -2360,7 +2475,7 @@ local AutoLeavedState = {}
 
 if shared and shared.Events and shared.Events.Connect then
     local conn = shared.Events.Connect("Gamemode Data Replicate", function(gamemodeId, payload)
-        if not Config.AutoLeave or not payload then return end
+        if not Config.AutoLeave then return end
         local currentVal = payload.Wave or payload.Floor or payload.Room
         if not currentVal then return end
         local targetLimit = Config.AutoLeaveMap and Config.AutoLeaveMap[gamemodeId] or nil
