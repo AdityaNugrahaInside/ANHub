@@ -416,29 +416,6 @@ local function SetLightingEffectsEnabled(p1)
         end
     end
 end
-local OriginalEnableAll
-OriginalEnableAll = hookfunction(shared.Utils.EnableAll, function(p7, p8)
-    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles and p8 then
-        return
-    end
-    return OriginalEnableAll(p7, p8)
-end)
-local OriginalEmitAll
-OriginalEmitAll = hookfunction(shared.Utils.EmitAll, function(p3, p4)
-    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles then
-        OriginalEnableAll(workspace, true)
-        return
-    end
-    return OriginalEmitAll(p3, p4)
-end)
-local OriginalAddTrail
-OriginalAddTrail = hookfunction(shared.Utils.AddTrail, function(p5, p6)
-    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableTrails then
-        OriginalEnableAll(workspace, true)
-        return
-    end
-    return OriginalAddTrail(p5, p6)
-end)
 local function ActivateLowGraphics(p9)
     LowGraphicsActive = p9
     if Config.LowGraphicsDisableLighting then
@@ -450,6 +427,29 @@ local function ActivateLowGraphics(p9)
         OriginalEnableAll(workspace, true)
     end
 end
+local OriginalEnableAll
+OriginalEnableAll = hookfunction(shared.Utils.EnableAll, function(p7, p8)
+    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles and p8 then
+        return
+    end
+    return OriginalEnableAll(p7, p8)
+end)
+local OriginalEmitAll
+OriginalEmitAll = hookfunction(shared.Utils.EmitAll, function(p3, p4)
+    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableParticles then
+        ActivateLowGraphics(true)
+        return
+    end
+    return OriginalEmitAll(p3, p4)
+end)
+local OriginalAddTrail
+OriginalAddTrail = hookfunction(shared.Utils.AddTrail, function(p5, p6)
+    if Config.LowGraphicsEnabled and ((LowGraphicsActive and Config.LowGraphicsOnlyGamemode) or (not Config.LowGraphicsOnlyGamemode)) and Config.LowGraphicsDisableTrails then
+        ActivateLowGraphics(true)
+        return
+    end
+    return OriginalAddTrail(p5, p6)
+end)
 BasicUpgradeModules = {}
 BasicUpgradeToggleUI = {}
 BasicUpgradeSortedNames = {}
