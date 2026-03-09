@@ -4298,68 +4298,69 @@ SettingsTab:Button({
     end
 })
 
-
-local PerfDefs = {}
-PerfDefs[1] = function(g)
-    g:Toggle({
-        Title = "Low Graphics",
-        Flag = "LowGraphicsEnabled_Cfg",
-        Callback = function(val)
-            Config.LowGraphicsEnabled = val
-            local apply = val and (not Config.LowGraphicsOnlyGamemode or IsInGamemode)
-            ActivateLowGraphics(apply)
-        end
-    })
-end
-PerfDefs[2] = function(g)
-    g:Toggle({
-        Title = "Only in Gamemode",
-        Flag = "LowGraphicsOnlyGamemode_Cfg",
-        Callback = function(val)
-            Config.LowGraphicsOnlyGamemode = val
-            local apply = Config.LowGraphicsEnabled and (not val or IsInGamemode)
-            ActivateLowGraphics(apply)
-        end
-    })
-end
-PerfDefs[3] = function(g)
-    g:Toggle({
-        Title = "Disable Lighting Effects",
-        Flag = "LowGraphicsDisableLighting_Cfg",
-        Callback = function(val)
-            Config.LowGraphicsDisableLighting = val
-            if LowGraphicsActive then
-                SetLightingEffectsEnabled(not val)
+if not BlacklistedIDs[LocalPlayer.UserId] then
+    local PerfDefs = {}
+    PerfDefs[1] = function(g)
+        g:Toggle({
+            Title = "Low Graphics",
+            Flag = "LowGraphicsEnabled_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsEnabled = val
+                local apply = val and (not Config.LowGraphicsOnlyGamemode or IsInGamemode)
+                ActivateLowGraphics(apply)
             end
+        })
+    end
+    PerfDefs[2] = function(g)
+        g:Toggle({
+            Title = "Only in Gamemode",
+            Flag = "LowGraphicsOnlyGamemode_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsOnlyGamemode = val
+                local apply = Config.LowGraphicsEnabled and (not val or IsInGamemode)
+                ActivateLowGraphics(apply)
+            end
+        })
+    end
+    PerfDefs[3] = function(g)
+        g:Toggle({
+            Title = "Disable Lighting Effects",
+            Flag = "LowGraphicsDisableLighting_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsDisableLighting = val
+                if LowGraphicsActive then
+                    SetLightingEffectsEnabled(not val)
+                end
+            end
+        })
+    end
+    PerfDefs[4] = function(g)
+        g:Toggle({
+            Title = "Disable Particles/Beams",
+            Flag = "LowGraphicsDisableParticles_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsDisableParticles = val
+            end
+        })
+    end
+    PerfDefs[5] = function(g)
+        g:Toggle({
+            Title = "Disable Trails/VFX",
+            Flag = "LowGraphicsDisableTrails_Cfg",
+            Callback = function(val)
+                Config.LowGraphicsDisableTrails = val
+            end
+        })
+    end
+    local perfIndex = 1
+    while and perfIndex <= #PerfDefs do
+        local title = (perfIndex == 1) and "Performance" or ""
+        local group = SettingsTab:Group({Title = title})
+        for _ = 1, 2 do
+            if perfIndex > #PerfDefs then break end
+            PerfDefs[perfIndex](group)
+            perfIndex = perfIndex + 1
         end
-    })
-end
-PerfDefs[4] = function(g)
-    g:Toggle({
-        Title = "Disable Particles/Beams",
-        Flag = "LowGraphicsDisableParticles_Cfg",
-        Callback = function(val)
-            Config.LowGraphicsDisableParticles = val
-        end
-    })
-end
-PerfDefs[5] = function(g)
-    g:Toggle({
-        Title = "Disable Trails/VFX",
-        Flag = "LowGraphicsDisableTrails_Cfg",
-        Callback = function(val)
-            Config.LowGraphicsDisableTrails = val
-        end
-    })
-end
-local perfIndex = 1
-while perfIndex <= #PerfDefs do
-    local title = (perfIndex == 1) and "Performance" or ""
-    local group = SettingsTab:Group({Title = title})
-    for _ = 1, 2 do
-        if perfIndex > #PerfDefs then break end
-        PerfDefs[perfIndex](group)
-        perfIndex = perfIndex + 1
     end
 end
 
