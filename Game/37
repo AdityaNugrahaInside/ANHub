@@ -538,7 +538,7 @@ local function ActivateLowGraphics(p9)
                 while _G.__LGQueueRunning do
                     if not LowGraphicsActive or not Config.LowGraphicsEnabled then
                         task.wait(0.1)
-                        goto continue
+                        goto asu
                     end
                     local n = 0
                     while n < 6 and #_G.__LGQueue > 0 do
@@ -548,7 +548,7 @@ local function ActivateLowGraphics(p9)
                         n = n + 1
                     end
                     task.wait(0.02)
-                    ::continue::
+                    ::asu::
                 end
             end)
             _G.__LGWatchers.enemies_updated = shared.Events.Connect("Enemies Updated", function(map)
