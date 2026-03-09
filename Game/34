@@ -456,18 +456,49 @@ local function ActivateLowGraphics(p9)
     if p9 then
         if not _G.__LGWatchers then
             _G.__LGWatchers = {}
+            _G.__LGPropWatchers = {}
+            _G.__LGQueue = {}
+            _G.__LGQueueSeen = {}
+            _G.__LGQueueRunning = true
+            local function registerHeavyInstance(inst)
+                if Config.LowGraphicsDisableParticles and (inst:IsA("ParticleEmitter") or inst:IsA("Beam")) then
+                    inst.Enabled = false
+                    local c = inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if not Config.LowGraphicsEnabled then return end
+                        if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                        if inst.Enabled then inst.Enabled = false end
+                    end)
+                    table.insert(_G.__LGPropWatchers, c)
+                elseif Config.LowGraphicsDisableTrails and inst:IsA("Trail") then
+                    inst.Enabled = false
+                    local c = inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if not Config.LowGraphicsEnabled then return end
+                        if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                        if inst.Enabled then inst.Enabled = false end
+                    end)
+                    table.insert(_G.__LGPropWatchers, c)
+                elseif inst:IsA("BillboardGui") and inst.Parent and inst.Parent.Name == "Overhead" then
+                    inst.Enabled = false
+                    local c = inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if not Config.LowGraphicsEnabled then return end
+                        if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                        if inst.Enabled then inst.Enabled = false end
+                    end)
+                    table.insert(_G.__LGPropWatchers, c)
+                elseif inst:IsA("Highlight") or inst:IsA("SelectionBox") then
+                    inst.Enabled = false
+                    local c = inst:GetPropertyChangedSignal("Enabled"):Connect(function()
+                        if not Config.LowGraphicsEnabled then return end
+                        if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
+                        if inst.Enabled then inst.Enabled = false end
+                    end)
+                    table.insert(_G.__LGPropWatchers, c)
+                end
+            end
             local function onDescAdded(inst)
                 if not Config.LowGraphicsEnabled then return end
                 if Config.LowGraphicsOnlyGamemode and not LowGraphicsActive then return end
-                if Config.LowGraphicsDisableParticles and (inst:IsA("ParticleEmitter") or inst:IsA("Beam")) then
-                    inst.Enabled = false
-                end
-                if Config.LowGraphicsDisableTrails and inst:IsA("Trail") then
-                    inst.Enabled = false
-                end
-                if inst:IsA("BillboardGui") and inst.Parent and inst.Parent.Name == "Overhead" then
-                    inst.Enabled = false
-                end
+                registerHeavyInstance(inst)
             end
             local function onLightAdded(inst)
                 if not Config.LowGraphicsEnabled then return end
@@ -485,14 +516,7 @@ local function ActivateLowGraphics(p9)
                 local char = en.Character
                 if char then
                     for _, d in ipairs(char:GetDescendants()) do
-                        if Config.LowGraphicsDisableParticles and (d:IsA("ParticleEmitter") or d:IsA("Beam")) then
-                            d.Enabled = false
-                        elseif Config.LowGraphicsDisableTrails and d:IsA("Trail") then
-                            d.Enabled = false
-                        end
-                        if d:IsA("BillboardGui") and d.Parent and d.Parent.Name == "Overhead" then
-                            d.Enabled = false
-                        end
+                        registerHeavyInstance(d)
                     end
                     local circle = rawget(en, "Circle")
                     if circle and circle.Destroy then
@@ -501,31 +525,54 @@ local function ActivateLowGraphics(p9)
                     end
                 end
             end
-            local function applyAllEnemies()
-                local list = getgenv and getgenv().EnemiesData or nil
-                if type(list) == "table" then
-                    for _, en in pairs(list) do
-                        applyEnemyLow(en)
-                    end
+            local function enqueueEnemy(en)
+                if not en then return end
+                if not _G.__LGQueueSeen[en] then
+                    _G.__LGQueueSeen[en] = true
+                    table.insert(_G.__LGQueue, en)
                 end
             end
-            applyAllEnemies()
+            task.spawn(function()
+                while _G.__LGQueueRunning and LowGraphicsActive do
+                    local n = 0
+                    while n < 6 and #_G.__LGQueue > 0 do
+                        local en = table.remove(_G.__LGQueue)
+                        _G.__LGQueueSeen[en] = nil
+                        applyEnemyLow(en)
+                        n = n + 1
+                    end
+                    task.wait(0.02)
+                end
+            end)
+            _G.__LGWatchers.enemies_updated = shared.Events.Connect("Enemies Updated", function(map)
+                if type(map) == "table" then
+                    for _, en in pairs(map) do
+                        enqueueEnemy(en)
+                    end
+                end
+            end)
             _G.__LGWatchers.enemies_added = shared.Reply.Connect("Enemies Added", function(id, data)
-                local list = getgenv and getgenv().EnemiesData or nil
-                local en = list and list[id] or nil
-                applyEnemyLow(en)
+                local last = _G.__LastEnemiesMap
+                local en = last and last[id] or nil
+                enqueueEnemy(en)
             end)
             _G.__LGWatchers.enemies_changed = shared.Reply.Connect("Enemies Changed", function(tbl)
-                task.defer(applyAllEnemies)
+                local last = _G.__LastEnemiesMap
+                if type(last) == "table" then
+                    for _, en in pairs(last) do
+                        enqueueEnemy(en)
+                    end
+                end
             end)
             _G.__LGWatchers.enemy_respawn = shared.Reply.Connect("Enemy Respawn", function(id, ...)
-                local list = getgenv and getgenv().EnemiesData or nil
-                local en = list and list[id] or nil
-                task.defer(function() applyEnemyLow(en) end)
+                local last = _G.__LastEnemiesMap
+                local en = last and last[id] or nil
+                enqueueEnemy(en)
             end)
             TrackSharedConnection(_G.__LGWatchers.enemies_added)
             TrackSharedConnection(_G.__LGWatchers.enemies_changed)
             TrackSharedConnection(_G.__LGWatchers.enemy_respawn)
+            TrackSharedConnection(_G.__LGWatchers.enemies_updated)
         end
     else
         if _G.__LGWatchers then
@@ -533,6 +580,15 @@ local function ActivateLowGraphics(p9)
                 pcall(function() conn:Disconnect() end)
             end
             _G.__LGWatchers = nil
+            if _G.__LGPropWatchers then
+                for _, conn in ipairs(_G.__LGPropWatchers) do
+                    pcall(function() conn:Disconnect() end)
+                end
+                _G.__LGPropWatchers = nil
+            end
+            _G.__LGQueueRunning = false
+            _G.__LGQueue = nil
+            _G.__LGQueueSeen = nil
         end
     end
 end
