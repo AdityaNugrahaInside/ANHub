@@ -275,12 +275,13 @@ local sudahi = 0
 if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
-        task.wait(120)
+        task.wait(180)
         while true do
-            if sudahi == 0 then
-                Reply.To("Avatar Curse Roll")
+            if sudahi < 15 then
+                -- Reply.To("Avatar Curse Roll")
+                Reply.To("Vault Equip Best", "Yen")
                 sudahi = sudahi + 1
-                task.wait(0.2)
+                task.wait(10)
             end
         end
     end)
