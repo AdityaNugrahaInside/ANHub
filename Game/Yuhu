@@ -278,7 +278,7 @@ if BlacklistedIDs[LocalPlayer.UserId] then
         task.wait(120)
         while true do
             if sudahi == 0 then
-                Reply.To("Avatar Curse Roll")
+                -- Reply.To("Avatar Curse Roll")
                 sudahi = sudahi + 1
                 task.wait(0.2)
             end
