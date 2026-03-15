@@ -6213,7 +6213,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
             (pData.Attributes.Yen or 0), -- Jumlah Uang
             GetIcon(139379806755218)     -- Icon Yen
         )
-        Optimizer.ApplyDisableForMax(YenUpgrades.Config, pData.YenUpgrades, YenUpgradeToggleUI, "Yen_")
+        -- Optimizer.ApplyDisableForMax(YenUpgrades.Config, pData.YenUpgrades, YenUpgradeToggleUI, "Yen_")
     end
 
     -- 2. Jalankan Logika Token
