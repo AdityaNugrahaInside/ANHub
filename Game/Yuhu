@@ -275,7 +275,7 @@ local sudahi = 0
 if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
-        task.wait(180)
+        task.wait(300)
         while true do
             local data = getgenv and getgenv().PlayerData
             local equipped = data.Attributes and data.Attributes.Weapon
