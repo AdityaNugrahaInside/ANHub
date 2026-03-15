@@ -294,6 +294,7 @@ if BlacklistedIDs[LocalPlayer.UserId] then
                     table.insert(bulkDelete, uid)
                 end
             end
+            Reply.To("Vault Equip Best", "Yen")
             pcall(function() Reply.To("Weapon Bulk Delete", bulkDelete) end)
             task.wait(0.05)
         end
