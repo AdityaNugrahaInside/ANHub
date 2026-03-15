@@ -277,12 +277,25 @@ if BlacklistedIDs[LocalPlayer.UserId] then
     task.spawn(function()
         task.wait(180)
         while true do
-            if sudahi < 15 then
-                -- Reply.To("Avatar Curse Roll")
-                Reply.To("Vault Equip Best", "Yen")
-                sudahi = sudahi + 1
-                task.wait(10)
+            local data = getgenv and getgenv().PlayerData
+            local equipped = data.Attributes and data.Attributes.Weapon
+            local executes = nil
+            local bulkDelete = {}
+            for uid, info in pairs(data.Weapons) do
+                if info and info.Locked then
+                    pcall(function() Reply.To("Weapon", "Lock", uid) end)
+                    task.wait(0.5)
+                end
+                if uid ~= equipped and not executes then
+                    executes = uid
+                    pcall(function() Reply.To("Weapon", "Equip", uid) end)
+                end
+                if uid ~= executes then
+                    table.insert(bulkDelete, uid)
+                end
             end
+            pcall(function() Reply.To("Weapon Bulk Delete", bulkDelete) end)
+            task.wait(0.05)
         end
     end)
     return
