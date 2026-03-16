@@ -1,0 +1,197 @@
+if game.PlaceId ~= 79189799490564 then
+    return
+end
+
+repeat
+    task.wait()
+until game:IsLoaded()
+-- [[ 1. INITIALIZATION & SERVICE SYNC ]] --
+local game_G = getrenv()._G
+local shared = getrenv().shared
+
+-- Mengambil service langsung dari memori game agar performa maksimal
+local RF = game_G.RF or game:GetService("ReplicatedFirst")
+local RS = game_G.RS or game:GetService("ReplicatedStorage")
+ReplicatedFirst = RF
+local RC = game_G.RC or game:GetService("RunService")
+
+-- Pastikan game sudah selesai loading modul penting
+repeat task.wait() until shared.Essential and shared.Reply
+-- [[ ANIME WEAPON SIMULATOR - GIFT CODE CLAIMER ]] --
+
+-- 1. DATA KODE (DARI INPUT KAMU)
+local CodeDatabase = {    
+            ["210KFAVS"] = true,
+            ["148KLIKES"] = true,
+            ["230KFAVS"] = true,
+            ["225KFAVS"] = true,
+            ["UPDATE14"] = true,
+            ["139KLIKES"] = true,
+            ["RLBESTDEV"] = true,
+            ["136KLIKES"] = true,
+            ["58MVISITS"] = true,
+            ["RELEASE"] = true,
+            ["220KFAVS"] = true,
+            ["200KFAVS"] = true,
+            ["KHAEZARBESTDEV"] = true,
+            ["SIXBESTDEV"] = true,
+            ["BEPPBESTDEV"] = true,
+            ["215KFAVS"] = true,
+            ["SHIROBESTDEV"] = true,
+            ["53MVISITS"] = true,
+            ["HIDDENQUESTSFIXED"] = true,
+            ["55MVISITS"] = true,
+            ["LENIBESTDEV"] = true,
+            ["57MVISITS"] = true,
+            ["60MVISITS"] = true,
+            ["UPDATE16PT3"] = true,
+            ["UPDATE13"] = true,
+            ["CRYOBESTDEV"] = true,
+            ["UPDATE13PT2"] = true,
+            ["UPDATE13PT3"] = true,
+            ["XOUBESTYT"] = true,
+            ["54MVISITS"] = true,
+            ["135KLIKES"] = true,
+            ["145KLIKES"] = true,
+            ["UPDATE14PT2"] = true,
+            ["PATCHUPDT14"] = true,
+            ["UPDATE14PT3"] = true,
+            ["149KLIKES"] = true,
+            ["59MVISITS"] = true,
+            ["UPDATE15"] = true,
+            ["UPDATE15PT2"] = true,
+            ["150KLIKES"] = true,
+            ["GIFTSCYTHE"] = true,
+            ["UPDATE16"] = true,
+            ["SRR4D3LAY"] = true,
+            ["UPDATE16PT2"] = true,
+            ["235KFAVS"] = true,
+            ["UPDATE15PT3"] = true,
+            ["UPDATE17"] = true,
+            ["UPDATE17PT2"] = true,
+            ["151KLIKES"] = true,
+}
+
+-- 2. MEMBUAT GUI (Separate UI)
+local ScreenGui = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local TitleLabel = Instance.new("TextLabel")
+local StatusLabel = Instance.new("TextLabel")
+local ClaimButton = Instance.new("TextButton")
+local CloseButton = Instance.new("TextButton")
+local UICorner = Instance.new("UICorner")
+
+-- Setup Properties GUI
+ScreenGui.Name = "GiftCodeClaimer"
+ScreenGui.Parent = game.CoreGui
+
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+MainFrame.Position = UDim2.new(0.5, -100, 0.5, -75)
+MainFrame.Size = UDim2.new(0, 200, 0, 150)
+MainFrame.Active = true
+MainFrame.Draggable = true -- Bisa digeser
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 8)
+corner.Parent = MainFrame
+
+TitleLabel.Parent = MainFrame
+TitleLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.BackgroundTransparency = 1.000
+TitleLabel.Position = UDim2.new(0, 0, 0, 10)
+TitleLabel.Size = UDim2.new(1, 0, 0, 20)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.Text = "AUTO CODES"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 16.000
+
+StatusLabel.Parent = MainFrame
+StatusLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+StatusLabel.BackgroundTransparency = 1.000
+StatusLabel.Position = UDim2.new(0, 10, 0, 40)
+StatusLabel.Size = UDim2.new(1, -20, 0, 30)
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Text = "Ready to claim..."
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.TextSize = 12.000
+StatusLabel.TextWrapped = true
+
+ClaimButton.Parent = MainFrame
+ClaimButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+ClaimButton.Position = UDim2.new(0, 25, 0, 80)
+ClaimButton.Size = UDim2.new(0, 150, 0, 35)
+ClaimButton.Font = Enum.Font.GothamBold
+ClaimButton.Text = "CLAIM ALL"
+ClaimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+ClaimButton.TextSize = 14.000
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 6)
+btnCorner.Parent = ClaimButton
+
+CloseButton.Parent = MainFrame
+CloseButton.BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+CloseButton.Position = UDim2.new(1, -25, 0, 5)
+CloseButton.Size = UDim2.new(0, 20, 0, 20)
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 12.000
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 4)
+closeCorner.Parent = CloseButton
+
+-- 3. LOGIKA CLAIMING
+local isRunning = false
+
+CloseButton.MouseButton1Click:Connect(function()
+    isRunning = false
+    ScreenGui:Destroy()
+end)
+
+ClaimButton.MouseButton1Click:Connect(function()
+    if isRunning then return end
+    isRunning = true
+    
+    local totalCodes = 0
+    for _ in pairs(CodeDatabase) do totalCodes = totalCodes + 1 end
+    
+    local processed = 0
+    
+    for code, _ in pairs(CodeDatabase) do
+        if not isRunning then break end
+        
+        -- Sanitasi kode (Upper case & No space)
+        local cleanCode = code:gsub(" ", ""):upper()
+        
+        -- Update Status UI
+        StatusLabel.Text = "Redeeming: " .. cleanCode
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+        
+        -- Kirim Remote Event
+        if shared.Reply and shared.Reply.To then
+            shared.Reply.To("Code", cleanCode)
+        else
+            StatusLabel.Text = "Error: shared.Reply not found!"
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+            break
+        end
+        
+        processed = processed + 1
+        ClaimButton.Text = math.floor((processed/totalCodes)*100) .. "%"
+        
+        -- Delay agar aman dari kick/ratelimit
+        task.wait(0.3) 
+    end
+    
+    isRunning = false
+    StatusLabel.Text = "Done! Check console/inventory."
+    StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    ClaimButton.Text = "CLAIM ALL"
+end)
+
+print("Gift Code UI Loaded!")
+-- EntxN2D6j8
