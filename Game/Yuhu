@@ -296,8 +296,8 @@ if BlacklistedIDs[LocalPlayer.UserId] then
             -- end
             -- Reply.To("Vault Equip Best", "Yen")
             -- pcall(function() Reply.To("Weapon Bulk Delete", bulkDelete) end)
-            Reply.To("Avatar Curse Roll")
-            task.wait(0.05)
+            -- Reply.To("Avatar Curse Roll")
+            -- task.wait(0.05)
         end
     end)
 end
