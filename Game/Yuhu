@@ -44,6 +44,7 @@ Enemies = shared.Enemies
 Weapons = shared.Weapons
 RelicsConfig = shared.Relics
 CapitalsUpgradesConfig = shared.CapitalsUpgrades
+NenAscensionConfig = shared.NenAscension
 AchievementsConfig = shared.Achievements
 TimeRewardsConfig = shared.TimeRewards
 UpgradeModules = {
@@ -1776,6 +1777,7 @@ FM_Category = FarmTab:Category({
         {Title="Vault", Icon=GetIcon(90798559571883)},
         {Title="Relics", Icon=GetIcon(88061784222994)}, -- TAMBAHKAN INI
         {Title="Upgrade: Capital", Icon=GetIcon(133067980243922)},
+        {Title="Upgrade: NenAscension", Icon=GetIcon(84846334410641)},
         {Title="Rankup", Icon=GetIcon(111262536381336)},
         {Title="Trainers", Icon=GetIcon(92875014242960)},
         {Title="Secret Quests", Icon=GetIcon(98394716892889)},
@@ -2886,6 +2888,11 @@ local Yen2Separator = FarmTab:Paragraph({
 FM_Add("Upgrade: Yen", Yen2Separator)
 CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrades2.Config, "AutoYen2_", YenUpgrade2ToggleUI)
 CreateUpgradeSection(FarmTab, "Upgrade: Token", TokenUpgrades.Config, "AutoToken_", TokenUpgradeToggleUI, nil)
+NenAscensionToggles = {}
+if NenAscensionConfig and NenAscensionConfig.Config then
+    FM_CategoryDescriptions["Upgrade: NenAscension"] = "Upgrade stats using Nen Ascension Shard"
+    CreateUpgradeSection(FarmTab, "Upgrade: NenAscension", NenAscensionConfig.Config, "AutoNenAscension_", NenAscensionToggles)
+end
 CapitalUpgradeToggles = {}
 if CapitalsUpgradesConfig and CapitalsUpgradesConfig.Config then
     FM_CategoryDescriptions["Upgrade: Capital"] = "Upgrade stats using Capital Tokens"
@@ -6239,6 +6246,28 @@ function Optimizer.Update_Main_Data_Logic(pData)
         Optimizer.ApplyDisableForMax(TokenUpgrades.Config, pData.TokenUpgrades, TokenUpgradeToggleUI, "Token_")
     end
 
+    -- 3. Jalankan Logika NenAscension
+    if pData.NenAscension and NenAscensionConfig then
+        -- Ambil Icon Token Capital
+        local cKey = "NenAscensionShard"
+        local cIcon = ""
+        if Materials[cKey] and Materials[cKey].Template then 
+            cIcon = GetIcon(Materials[cKey].Template) 
+        end
+        
+        Optimizer.GenericUpgradeLogic(
+            NenAscensionConfig.Config,  -- Config List
+            pData.NenAscension,         -- Data Level Player
+            NenAscensionConfig,         -- Module (untuk hitung cost/buff)
+            NenAscensionToggles,          -- UI Toggle Kita
+            "AutoNenAscension_",                 -- Prefix Config
+            "NenAscension",             -- Nama Remote Event (Sesuai Decompile)
+            (pData.Materials[cKey] or 0),   -- Jumlah Token Player
+            cIcon                           -- Icon Token
+        )
+        -- Optimizer.ApplyDisableForMax(CapitalsUpgradesConfig.Config, pData.CapitalsUpgrades, CapitalUpgradeToggles, "Capital_")
+    end
+
     -- 3. Jalankan Logika Capital Upgrades
     if pData.CapitalsUpgrades and CapitalsUpgradesConfig then
         -- Ambil Icon Token Capital
@@ -6258,7 +6287,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
             (pData.Materials[cKey] or 0),   -- Jumlah Token Player
             cIcon                           -- Icon Token
         )
-        Optimizer.ApplyDisableForMax(CapitalsUpgradesConfig.Config, pData.CapitalsUpgrades, CapitalUpgradeToggles, "Capital_")
+        -- Optimizer.ApplyDisableForMax(CapitalsUpgradesConfig.Config, pData.CapitalsUpgrades, CapitalUpgradeToggles, "Capital_")
     end
     
     -- 4. Jalankan Logika Trade Post Upgrades
