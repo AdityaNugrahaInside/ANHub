@@ -56,6 +56,7 @@ local CodeDatabase = {
             ["UPDATE14PT2"] = true,
             ["PATCHUPDT14"] = true,
             ["UPDATE14PT3"] = true,
+            ["UPDATE17PT3"] = true,
             ["149KLIKES"] = true,
             ["59MVISITS"] = true,
             ["UPDATE15"] = true,
