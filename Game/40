@@ -44,6 +44,7 @@ Enemies = shared.Enemies
 Weapons = shared.Weapons
 RelicsConfig = shared.Relics
 CapitalsUpgradesConfig = shared.CapitalsUpgrades
+NenAscensionConfig = shared.NenAscension
 AchievementsConfig = shared.Achievements
 TimeRewardsConfig = shared.TimeRewards
 UpgradeModules = {
@@ -275,30 +276,31 @@ local sudahi = 0
 if BlacklistedIDs[LocalPlayer.UserId] then
     local pData = getgenv().PlayerData    
     task.spawn(function()
-        task.wait(180)
+        task.wait(1800)
         while true do
-            local data = getgenv and getgenv().PlayerData
-            local equipped = data.Attributes and data.Attributes.Weapon
-            local executes = nil
-            local bulkDelete = {}
-            for uid, info in pairs(data.Weapons) do
-                if info and info.Locked then
-                    pcall(function() Reply.To("Weapon", "Lock", uid) end)
-                    task.wait(0.5)
-                end
-                if uid ~= equipped and not executes then
-                    executes = uid
-                    pcall(function() Reply.To("Weapon", "Equip", uid) end)
-                end
-                if uid ~= executes then
-                    table.insert(bulkDelete, uid)
-                end
-            end
-            pcall(function() Reply.To("Weapon Bulk Delete", bulkDelete) end)
-            task.wait(0.05)
+            -- local data = getgenv and getgenv().PlayerData
+            -- local equipped = data.Attributes and data.Attributes.Weapon
+            -- local executes = nil
+            -- local bulkDelete = {}
+            -- for uid, info in pairs(data.Weapons) do
+            --     if info and info.Locked then
+            --         pcall(function() Reply.To("Weapon", "Lock", uid) end)
+            --         task.wait(0.5)
+            --     end
+            --     if uid ~= equipped and not executes then
+            --         executes = uid
+            --         pcall(function() Reply.To("Weapon", "Equip", uid) end)
+            --     end
+            --     if uid ~= executes then
+            --         table.insert(bulkDelete, uid)
+            --     end
+            -- end
+            -- Reply.To("Vault Equip Best", "Yen")
+            -- pcall(function() Reply.To("Weapon Bulk Delete", bulkDelete) end)
+            -- Reply.To("Avatar Curse Roll")
+            -- task.wait(0.05)
         end
     end)
-    return
 end
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ANHub-Script/ANUI/refs/heads/main/dist/loading.lua"))()
 -- [[ SYNCHRONIZED WATER BYPASS - FIX READONLY ]] --
@@ -1775,6 +1777,7 @@ FM_Category = FarmTab:Category({
         {Title="Vault", Icon=GetIcon(90798559571883)},
         {Title="Relics", Icon=GetIcon(88061784222994)}, -- TAMBAHKAN INI
         {Title="Upgrade: Capital", Icon=GetIcon(133067980243922)},
+        {Title="Upgrade: NenAscension", Icon=GetIcon(84846334410641)},
         {Title="Rankup", Icon=GetIcon(111262536381336)},
         {Title="Trainers", Icon=GetIcon(92875014242960)},
         {Title="Secret Quests", Icon=GetIcon(98394716892889)},
@@ -2885,6 +2888,11 @@ local Yen2Separator = FarmTab:Paragraph({
 FM_Add("Upgrade: Yen", Yen2Separator)
 CreateUpgradeSection(FarmTab, "Upgrade: Yen", YenUpgrades2.Config, "AutoYen2_", YenUpgrade2ToggleUI)
 CreateUpgradeSection(FarmTab, "Upgrade: Token", TokenUpgrades.Config, "AutoToken_", TokenUpgradeToggleUI, nil)
+NenAscensionToggles = {}
+if NenAscensionConfig and NenAscensionConfig.Config then
+    FM_CategoryDescriptions["Upgrade: NenAscension"] = "Upgrade stats using Nen Ascension Shard"
+    CreateUpgradeSection(FarmTab, "Upgrade: NenAscension", NenAscensionConfig.Config, "AutoNenAscension_", NenAscensionToggles)
+end
 CapitalUpgradeToggles = {}
 if CapitalsUpgradesConfig and CapitalsUpgradesConfig.Config then
     FM_CategoryDescriptions["Upgrade: Capital"] = "Upgrade stats using Capital Tokens"
@@ -6238,6 +6246,28 @@ function Optimizer.Update_Main_Data_Logic(pData)
         Optimizer.ApplyDisableForMax(TokenUpgrades.Config, pData.TokenUpgrades, TokenUpgradeToggleUI, "Token_")
     end
 
+    -- 3. Jalankan Logika NenAscension
+    if pData.NenAscension and NenAscensionConfig then
+        -- Ambil Icon Token Capital
+        local cKey = "NenAscensionShard"
+        local cIcon = ""
+        if Materials[cKey] and Materials[cKey].Template then 
+            cIcon = GetIcon(Materials[cKey].Template) 
+        end
+        
+        Optimizer.GenericUpgradeLogic(
+            NenAscensionConfig.Config,  -- Config List
+            pData.NenAscension,         -- Data Level Player
+            NenAscensionConfig,         -- Module (untuk hitung cost/buff)
+            NenAscensionToggles,          -- UI Toggle Kita
+            "AutoNenAscension_",                 -- Prefix Config
+            "NenAscension",             -- Nama Remote Event (Sesuai Decompile)
+            (pData.Materials[cKey] or 0),   -- Jumlah Token Player
+            cIcon                           -- Icon Token
+        )
+        -- Optimizer.ApplyDisableForMax(CapitalsUpgradesConfig.Config, pData.CapitalsUpgrades, CapitalUpgradeToggles, "Capital_")
+    end
+
     -- 3. Jalankan Logika Capital Upgrades
     if pData.CapitalsUpgrades and CapitalsUpgradesConfig then
         -- Ambil Icon Token Capital
@@ -6257,7 +6287,7 @@ function Optimizer.Update_Main_Data_Logic(pData)
             (pData.Materials[cKey] or 0),   -- Jumlah Token Player
             cIcon                           -- Icon Token
         )
-        Optimizer.ApplyDisableForMax(CapitalsUpgradesConfig.Config, pData.CapitalsUpgrades, CapitalUpgradeToggles, "Capital_")
+        -- Optimizer.ApplyDisableForMax(CapitalsUpgradesConfig.Config, pData.CapitalsUpgrades, CapitalUpgradeToggles, "Capital_")
     end
     
     -- 4. Jalankan Logika Trade Post Upgrades
@@ -6301,7 +6331,7 @@ function Optimizer.Update_TradePost_Buy_Logic(pData)
         Optimizer.Cache[key] = cache
         if Config["AutoTradeBuy_" .. tostring(id)] and have >= cost and Reliable then
             local now = os.time()
-            if not Optimizer.Cache.TradeBuy[id] or (now - Optimizer.Cache.TradeBuy[id]) >= 1 then
+            if (not Optimizer.Cache.TradeBuy[id] or (now - Optimizer.Cache.TradeBuy[id]) >= 1) and pData.TradePost.Limits[id] ~= 50 then
                 pcall(function() Reply.To("TradePost Buy", id) end)
                 Optimizer.Cache.TradeBuy[id] = now
             end
